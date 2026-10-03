@@ -48,6 +48,112 @@ public sealed class ProcessCapabilityTests
     }
 
     [Fact]
+    public async Task SmallProcessReadsDoNotSkipWithinCapturedOutput()
+    {
+        await using var fixture = new ProcessFixture();
+        var work = fixture.Sessions.Create(Environment.CurrentDirectory);
+        Assert.True(work.IsSuccess);
+
+        var started = await fixture.Processes.StartAsync(new ProcessStartRequest(
+            "powershell.exe",
+            ["-NoProfile", "-Command", "[Console]::Out.Write('abcdef')"],
+            WorkId: work.Value!.Id));
+
+        Assert.True(started.IsSuccess, started.Error?.Message);
+        var status = await WaitForExitAsync(fixture.Processes, started.Value!.Handle);
+        Assert.Equal(0, status.ExitCode);
+
+        var cursor = 0L;
+        var output = new List<string>();
+        for (var i = 0; i < 6; i++)
+        {
+            var read = await fixture.Processes.ReadAsync(
+                started.Value.Handle,
+                stdoutCursor: cursor,
+                stderrCursor: 0,
+                maxChars: 1);
+
+            Assert.True(read.IsSuccess, read.Error?.Message);
+            var chunk = Assert.Single(read.Value!.Stdout.Chunks);
+            output.Add(chunk.Text);
+            cursor = read.Value.Stdout.NextCursor;
+        }
+
+        Assert.Equal("abcdef", string.Concat(output));
+        Assert.Equal(6, cursor);
+    }
+
+    [Fact]
+    public async Task StdoutCanReuseUnusedStderrBudget()
+    {
+        await using var fixture = new ProcessFixture();
+        var work = fixture.Sessions.Create(Environment.CurrentDirectory);
+        Assert.True(work.IsSuccess);
+
+        var started = await fixture.Processes.StartAsync(new ProcessStartRequest(
+            "powershell.exe",
+            ["-NoProfile", "-Command", "[Console]::Out.Write('abcdefghij')"],
+            WorkId: work.Value!.Id));
+
+        Assert.True(started.IsSuccess, started.Error?.Message);
+        await WaitForExitAsync(fixture.Processes, started.Value!.Handle);
+
+        var read = await fixture.Processes.ReadAsync(
+            started.Value.Handle,
+            stdoutCursor: 0,
+            stderrCursor: 0,
+            maxChars: 10);
+
+        Assert.True(read.IsSuccess, read.Error?.Message);
+        Assert.Equal("abcdefghij", string.Concat(read.Value!.Stdout.Chunks.Select(chunk => chunk.Text)));
+        Assert.Empty(read.Value.Stderr.Chunks);
+    }
+
+    [Fact]
+    public async Task OutputBeyondOldOneMiBLimitRemainsRecoverableByCursor()
+    {
+        await using var fixture = new ProcessFixture();
+        var work = fixture.Sessions.Create(Environment.CurrentDirectory);
+        Assert.True(work.IsSuccess);
+
+        const int outputLength = 1_200_000;
+        var started = await fixture.Processes.StartAsync(new ProcessStartRequest(
+            "powershell.exe",
+            ["-NoProfile", "-Command", $"[Console]::Out.Write('A' * {outputLength})"],
+            WorkId: work.Value!.Id));
+
+        Assert.True(started.IsSuccess, started.Error?.Message);
+        await WaitForExitAsync(fixture.Processes, started.Value!.Handle);
+
+        var cursor = 0L;
+        var recovered = 0;
+        while (cursor < outputLength)
+        {
+            var read = await fixture.Processes.ReadAsync(
+                started.Value.Handle,
+                stdoutCursor: cursor,
+                stderrCursor: 0,
+                maxChars: 256 * 1024);
+
+            Assert.True(read.IsSuccess, read.Error?.Message);
+            var stream = read.Value!.Stdout;
+            var text = string.Concat(stream.Chunks.Select(chunk => chunk.Text));
+            Assert.NotEmpty(text);
+            Assert.All(text, character => Assert.Equal('A', character));
+            Assert.False(stream.Truncated);
+            Assert.False(stream.RetentionLimitReached);
+            Assert.Equal(outputLength, stream.RetainedUntilCursor);
+            Assert.Equal(outputLength, stream.ObservedUntilCursor);
+
+            recovered += text.Length;
+            cursor = stream.NextCursor;
+        }
+
+        Assert.Equal(outputLength, recovered);
+        Assert.Equal(outputLength, cursor);
+    }
+
+    [Fact]
     public async Task SessionCloseTerminatesAndClosesLongRunningProcess()
     {
         await using var fixture = new ProcessFixture();
@@ -61,9 +167,18 @@ public sealed class ProcessCapabilityTests
 
         Assert.True(started.IsSuccess, started.Error?.Message);
         var handle = started.Value!.Handle;
+        var resolved = fixture.Resources.Resolve<IProcessResource>(handle.AsResourceHandle(), ProcessCapability.ResourceKind);
+        Assert.True(resolved.IsSuccess, resolved.Error?.Message);
+        var resource = Assert.IsType<WindowsProcessResource>(resolved.Value!.Resource);
+        var stdoutSpool = resource.StdoutSpoolPath;
+        var stderrSpool = resource.StderrSpoolPath;
+        Assert.True(File.Exists(stdoutSpool));
+        Assert.True(File.Exists(stderrSpool));
 
         var closed = await fixture.Sessions.CloseAsync(work.Value.Id);
         Assert.True(closed.IsSuccess);
+        Assert.False(File.Exists(stdoutSpool));
+        Assert.False(File.Exists(stderrSpool));
 
         var status = await fixture.Processes.StatusAsync(handle);
         Assert.False(status.IsSuccess);

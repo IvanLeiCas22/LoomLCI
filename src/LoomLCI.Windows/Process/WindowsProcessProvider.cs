@@ -69,7 +69,28 @@ public sealed class WindowsProcessProvider : IProcessProvider
                     LoomErrors.ExecutionFailed("Windows did not start the process.")));
             }
 
-            IProcessResource resource = new WindowsProcessResource(process);
+            IProcessResource resource;
+            try
+            {
+                resource = new WindowsProcessResource(process);
+            }
+            catch
+            {
+                try
+                {
+                    if (!process.HasExited)
+                    {
+                        process.Kill(entireProcessTree: true);
+                        process.WaitForExit();
+                    }
+                }
+                catch (Exception cleanupEx) when (cleanupEx is InvalidOperationException or Win32Exception)
+                {
+                }
+
+                process.Dispose();
+                throw;
+            }
 
             if (cancellationToken.IsCancellationRequested)
             {
@@ -79,6 +100,10 @@ public sealed class WindowsProcessProvider : IProcessProvider
             return Task.FromResult(LoomResult<IProcessResource>.Success(resource));
         }
         catch (Win32Exception ex) when (ex.NativeErrorCode == 5)
+        {
+            return Task.FromResult(LoomResult<IProcessResource>.Failure(LoomErrors.AccessDenied(ex.Message)));
+        }
+        catch (UnauthorizedAccessException ex)
         {
             return Task.FromResult(LoomResult<IProcessResource>.Failure(LoomErrors.AccessDenied(ex.Message)));
         }

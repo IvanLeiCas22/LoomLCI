@@ -28,7 +28,10 @@ public sealed record OutputStreamDto(
     long RequestedCursor,
     long EarliestAvailableCursor,
     long NextCursor,
+    long RetainedUntilCursor,
+    long ObservedUntilCursor,
     bool Truncated,
+    bool RetentionLimitReached,
     IReadOnlyList<OutputChunkDto> Chunks);
 
 public sealed record ProcessReadDto(
@@ -121,7 +124,7 @@ public sealed class ProcessTools
         Destructive = false,
         Idempotent = true,
         OpenWorld = false)]
-    [Description("Reads buffered stdout and stderr non-destructively and also returns current process state. Prefer this when output matters or while polling a command whose output matters. Reuse each returned nextCursor on later reads to fetch only newer output; use 0 to start from the earliest retained output.")]
+    [Description("Reads retained stdout and stderr non-destructively and also returns current process state. Cursors are absolute UTF-16 positions: reuse each returned nextCursor to continue exactly after the last returned text, even when maxChars cuts through a producer read. maxChars limits only this response, not capture; a read may exceed it by one UTF-16 code unit rather than split a surrogate pair. Each stream is spooled to temporary storage up to a 64 MiB retention quota; if that quota is exceeded, retentionLimitReached is true and retainedUntilCursor/observedUntilCursor make the omitted tail explicit. Prefer this when output matters or while polling a command whose output matters; use cursor 0 to reread from the beginning while retained.")]
     public async Task<CallToolResult> Read(
         [Description("Process handle returned by process_start.")] string processHandle,
         [Description("Next stdout cursor from a previous read, or 0 for the earliest output still retained.")][Range(0, long.MaxValue)] long stdoutCursor = 0,
@@ -218,6 +221,9 @@ public sealed class ProcessTools
             value.RequestedCursor,
             value.EarliestAvailableCursor,
             value.NextCursor,
+            value.RetainedUntilCursor,
+            value.ObservedUntilCursor,
             value.Truncated,
+            value.RetentionLimitReached,
             value.Chunks.Select(c => new OutputChunkDto(c.Cursor, c.Text)).ToArray());
 }

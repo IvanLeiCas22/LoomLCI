@@ -6,11 +6,12 @@ namespace LoomLCI.Windows.Processes;
 
 internal sealed class WindowsProcessResource : IProcessResource
 {
-    private const int StreamBufferChars = 1024 * 1024;
+    private const long StreamSpoolMaxBytes = 64L * 1024 * 1024;
+    private const long StreamSpoolMaxChars = StreamSpoolMaxBytes / sizeof(char);
 
     private readonly global::System.Diagnostics.Process _process;
-    private readonly BoundedChunkBuffer _stdout = new(StreamBufferChars);
-    private readonly BoundedChunkBuffer _stderr = new(StreamBufferChars);
+    private readonly ProcessOutputStore _stdout;
+    private readonly ProcessOutputStore _stderr;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly SemaphoreSlim _stdinGate = new(1, 1);
     private readonly Task _stdoutPump;
@@ -29,6 +30,17 @@ internal sealed class WindowsProcessResource : IProcessResource
         ProcessId = process.Id;
         StartedAt = DateTimeOffset.UtcNow;
 
+        _stdout = new ProcessOutputStore(StreamSpoolMaxChars);
+        try
+        {
+            _stderr = new ProcessOutputStore(StreamSpoolMaxChars);
+        }
+        catch
+        {
+            _stdout.Dispose();
+            throw;
+        }
+
         _stdoutPump = PumpAsync(process.StandardOutput, _stdout, _lifetime.Token);
         _stderrPump = PumpAsync(process.StandardError, _stderr, _lifetime.Token);
         _exitObserver = ObserveExitAsync();
@@ -36,6 +48,8 @@ internal sealed class WindowsProcessResource : IProcessResource
 
     public int ProcessId { get; }
     public DateTimeOffset StartedAt { get; }
+    internal string StdoutSpoolPath => _stdout.SpoolPath;
+    internal string StderrSpoolPath => _stderr.SpoolPath;
 
     public ProcessStatusResult Snapshot(ProcessHandle handle)
     {
@@ -53,11 +67,27 @@ internal sealed class WindowsProcessResource : IProcessResource
 
     public ProcessOutputReadResult Read(ProcessHandle handle, long stdoutCursor, long stderrCursor, int maxChars)
     {
-        var half = Math.Max(1, maxChars / 2);
-        return new ProcessOutputReadResult(
-            Snapshot(handle),
-            _stdout.Read(stdoutCursor, half),
-            _stderr.Read(stderrCursor, maxChars - half));
+        var stdoutBudget = (maxChars + 1) / 2;
+        var stderrBudget = maxChars / 2;
+
+        var stdout = _stdout.Read(stdoutCursor, stdoutBudget);
+        var stderr = _stderr.Read(stderrCursor, stderrBudget);
+        var remaining = maxChars - CountChars(stdout) - CountChars(stderr);
+
+        if (remaining > 0 && stdout.NextCursor < stdout.RetainedUntilCursor)
+        {
+            var extra = _stdout.Read(stdout.NextCursor, remaining);
+            stdout = Merge(stdout, extra);
+            remaining = maxChars - CountChars(stdout) - CountChars(stderr);
+        }
+
+        if (remaining > 0 && stderr.NextCursor < stderr.RetainedUntilCursor)
+        {
+            var extra = _stderr.Read(stderr.NextCursor, remaining);
+            stderr = Merge(stderr, extra);
+        }
+
+        return new ProcessOutputReadResult(Snapshot(handle), stdout, stderr);
     }
 
     public async Task<LoomResult<Unit>> WriteAsync(string text, CancellationToken cancellationToken)
@@ -171,10 +201,14 @@ internal sealed class WindowsProcessResource : IProcessResource
         catch (OperationCanceledException)
         {
         }
-
-        _process.Dispose();
-        _stdinGate.Dispose();
-        _lifetime.Dispose();
+        finally
+        {
+            _stdout.Dispose();
+            _stderr.Dispose();
+            _process.Dispose();
+            _stdinGate.Dispose();
+            _lifetime.Dispose();
+        }
     }
 
     private async Task ObserveExitAsync()
@@ -217,9 +251,25 @@ internal sealed class WindowsProcessResource : IProcessResource
         }
     }
 
+    private static int CountChars(OutputStreamReadResult result)
+        => result.Chunks.Sum(chunk => chunk.Text.Length);
+
+    private static OutputStreamReadResult Merge(
+        OutputStreamReadResult first,
+        OutputStreamReadResult second)
+        => new(
+            first.RequestedCursor,
+            first.EarliestAvailableCursor,
+            second.NextCursor,
+            second.RetainedUntilCursor,
+            second.ObservedUntilCursor,
+            first.Truncated || second.Truncated,
+            second.RetentionLimitReached,
+            first.Chunks.Concat(second.Chunks).ToArray());
+
     private static async Task PumpAsync(
         StreamReader reader,
-        BoundedChunkBuffer destination,
+        ProcessOutputStore destination,
         CancellationToken cancellationToken)
     {
         var buffer = new char[4096];

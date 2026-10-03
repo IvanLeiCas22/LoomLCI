@@ -144,6 +144,9 @@ public sealed class McpStdioTests
         Assert.True(terminateProcess.ProtocolTool.Annotations?.IdempotentHint ?? false);
 
         var readProcess = Assert.Single(tools, tool => tool.Name == "process_read");
+        Assert.Contains("absolute UTF-16 positions", readProcess.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("retentionLimitReached", readProcess.Description, StringComparison.Ordinal);
+        Assert.Contains("64 MiB", readProcess.Description, StringComparison.OrdinalIgnoreCase);
         var processReadProperties = GetRequiredProperty(readProcess.JsonSchema, "properties");
         AssertSchemaRange(GetRequiredProperty(processReadProperties, "stdoutCursor"), 0, long.MaxValue);
         AssertSchemaRange(GetRequiredProperty(processReadProperties, "stderrCursor"), 0, long.MaxValue);
@@ -275,6 +278,9 @@ public sealed class McpStdioTests
         Assert.True(GetRequiredProperty(readRoot, "ok").GetBoolean());
         var readResult = GetRequiredProperty(readRoot, "result");
         var stdout = GetRequiredProperty(readResult, "stdout");
+        Assert.True(GetRequiredProperty(stdout, "retainedUntilCursor").GetInt64() >= 0);
+        Assert.True(GetRequiredProperty(stdout, "observedUntilCursor").GetInt64() >= 0);
+        Assert.False(GetRequiredProperty(stdout, "retentionLimitReached").GetBoolean());
         var chunks = GetRequiredProperty(stdout, "chunks");
 
         var output = string.Concat(

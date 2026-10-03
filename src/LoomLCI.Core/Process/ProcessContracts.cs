@@ -53,7 +53,10 @@ public sealed record OutputStreamReadResult(
     long RequestedCursor,
     long EarliestAvailableCursor,
     long NextCursor,
+    long RetainedUntilCursor,
+    long ObservedUntilCursor,
     bool Truncated,
+    bool RetentionLimitReached,
     IReadOnlyList<OutputChunk> Chunks);
 
 public sealed record ProcessOutputReadResult(
