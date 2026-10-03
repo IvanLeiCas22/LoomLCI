@@ -102,7 +102,7 @@ public sealed class FilesystemTools
         Destructive = false,
         Idempotent = true,
         OpenWorld = false)]
-    [Description("Lists a bounded recursive directory tree. Use this to discover project structure when exact paths are not yet known. Recursive traversal prunes common generated/infrastructure directories by default while still showing the directory itself; explicitly targeting one of those directories as path still works. It does not read file contents; prefer filesystem_find_paths for name/path lookup, filesystem_search_text for content search, and filesystem_read_files once exact files are known.")]
+    [Description("Lists a bounded recursive directory tree. Use this to discover project structure when exact paths are not yet known. Recursive traversal prunes common generated/infrastructure directories by default while still showing the directory itself; explicitly targeting one of those directories as path still works. A returned directory may include childrenExcluded='generated' when default pruning skipped its children or childrenExcluded='excluded' when excludeDirectories skipped them; the field is omitted when children were traversed normally. It does not read file contents; prefer filesystem_find_paths for name/path lookup, filesystem_search_text for content search, and filesystem_read_files once exact files are known.")]
     public async Task<CallToolResult> ListTree(
         [Description("Directory path. May be absolute or relative to the work session base directory.")] string path = ".",
         [Description("Optional work session handle used to resolve relative paths.")] string? workId = null,
@@ -133,7 +133,7 @@ public sealed class FilesystemTools
         Destructive = false,
         Idempotent = true,
         OpenWorld = false)]
-    [Description("Finds files or directories by literal path/name fragments. Recursive traversal prunes common generated/infrastructure directories by default; explicitly targeting one of those directories as path still works. Use this when searching for paths, filenames, or extensions; it does not inspect file contents. Use filesystem_search_text instead for text inside files. matchMode=suffix is useful for exact filename endings or extensions.")]
+    [Description("Finds files or directories by literal path/name fragments. Recursive traversal prunes common generated/infrastructure directories by default; explicitly targeting one of those directories as path still works. Directory matches may include childrenExcluded='generated' when default pruning skipped their children or childrenExcluded='excluded' when excludeDirectories skipped them; the field is omitted when children were traversed normally. Use this when searching for paths, filenames, or extensions; it does not inspect file contents. Use filesystem_search_text instead for text inside files. matchMode=suffix is useful for exact filename endings or extensions.")]
     public async Task<CallToolResult> FindPaths(
         [Description("Root directory to search. May be absolute or relative to the work session base directory.")] string path,
         [Description("One to 32 non-empty literal path queries. Multiple queries use OR semantics.")][MinLength(1)][MaxLength(32)] string[] queries,

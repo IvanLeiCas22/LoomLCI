@@ -82,6 +82,9 @@ public sealed class McpStdioTests
         Assert.Contains("generated/infrastructure", listTree.Description, StringComparison.OrdinalIgnoreCase);
         var listProperties = GetRequiredProperty(listTree.JsonSchema, "properties");
         Assert.False(GetRequiredProperty(GetRequiredProperty(listProperties, "includeGenerated"), "default").GetBoolean());
+        Assert.Contains("childrenExcluded", listTree.Description, StringComparison.Ordinal);
+        Assert.Contains("generated", listTree.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("excluded", listTree.Description, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(
             64,
             GetRequiredProperty(GetRequiredProperty(listProperties, "excludeDirectories"), "maxItems").GetInt32());
@@ -89,6 +92,7 @@ public sealed class McpStdioTests
         var findPaths = Assert.Single(tools, tool => tool.Name == "filesystem_find_paths");
         Assert.Equal("Find paths", findPaths.ProtocolTool.Title);
         Assert.Contains("does not inspect file contents", findPaths.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("childrenExcluded", findPaths.Description, StringComparison.Ordinal);
         var findProperties = GetRequiredProperty(findPaths.JsonSchema, "properties");
         AssertSchemaRange(GetRequiredProperty(findProperties, "maxDepth"), 1, 32);
         AssertSchemaRange(GetRequiredProperty(findProperties, "maxResults"), 1, 1000);
