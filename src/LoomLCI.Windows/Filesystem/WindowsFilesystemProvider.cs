@@ -624,7 +624,7 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                         ? FilesystemEntryType.Directory
                         : FilesystemEntryType.File;
                 var childrenExcluded = isDirectory && !isReparse
-                    ? GetChildrenExcludedReason(Path.GetFileName(path), traversal, excludedDirectories)
+                    ? GetChildrenExcludedReason(path, traversal, excludedDirectories)
                     : null;
 
                 yield return (path, depth, type, childrenExcluded);
@@ -638,18 +638,26 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
     }
 
     private static string? GetChildrenExcludedReason(
-        string directoryName,
+        string directoryPath,
         FilesystemTraversalOptions traversal,
         HashSet<string>? excludedDirectories)
     {
-        if (!traversal.IncludeGenerated &&
-            DefaultGeneratedDirectories.Contains(directoryName, StringComparer.OrdinalIgnoreCase))
+        var directoryName = Path.GetFileName(directoryPath);
+        if (!traversal.IncludeGenerated && IsDefaultGeneratedDirectory(directoryPath, directoryName))
         {
             return "generated";
         }
 
         return excludedDirectories?.Contains(directoryName) == true ? "excluded" : null;
     }
+
+    private static bool IsDefaultGeneratedDirectory(string directoryPath, string directoryName)
+        => DefaultGeneratedDirectories.Contains(directoryName, StringComparer.OrdinalIgnoreCase) ||
+           (string.Equals(directoryName, "plugins", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(
+                Path.GetFileName(Path.GetDirectoryName(directoryPath)),
+                ".obsidian",
+                StringComparison.OrdinalIgnoreCase));
 
     private static FilesystemEntry ToEntry(
         string root,

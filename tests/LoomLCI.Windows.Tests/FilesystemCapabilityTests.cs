@@ -230,6 +230,54 @@ public sealed class FilesystemCapabilityTests
     }
 
     [Fact]
+    public async Task ObsidianPluginsArePrunedWithoutHidingTheVault()
+    {
+        await using var fixture = new FilesystemFixture();
+        var obsidian = Path.Combine(fixture.Root, ".obsidian");
+        var plugins = Path.Combine(obsidian, "plugins");
+        var plugin = Path.Combine(plugins, "example-plugin");
+        Directory.CreateDirectory(plugin);
+        await File.WriteAllTextAsync(Path.Combine(obsidian, "workspace.json"), "vault visible");
+        await File.WriteAllTextAsync(Path.Combine(plugin, "main.js"), "plugin needle");
+
+        var work = fixture.Sessions.Create(fixture.Root);
+        Assert.True(work.IsSuccess);
+        var workId = work.Value!.Id;
+
+        var tree = await fixture.Filesystem.ListTreeAsync(".", workId, maxDepth: 4);
+        Assert.True(tree.IsSuccess, tree.Error?.Message);
+        Assert.Contains(tree.Value!.Entries, entry => entry.Path == ".obsidian/workspace.json");
+        Assert.Equal(
+            "generated",
+            Assert.Single(tree.Value.Entries, entry => entry.Path == ".obsidian/plugins").ChildrenExcluded);
+        Assert.DoesNotContain(tree.Value.Entries, entry => entry.Path == ".obsidian/plugins/example-plugin/main.js");
+
+        var searched = await fixture.Filesystem.SearchTextAsync(
+            ".",
+            ["plugin needle"],
+            workId);
+        Assert.True(searched.IsSuccess, searched.Error?.Message);
+        Assert.Empty(searched.Value!.Matches);
+
+        var included = await fixture.Filesystem.SearchTextAsync(
+            ".",
+            ["plugin needle"],
+            workId,
+            includeGenerated: true);
+        Assert.True(included.IsSuccess, included.Error?.Message);
+        Assert.Equal(
+            ".obsidian/plugins/example-plugin/main.js",
+            Assert.Single(included.Value!.Matches).Path);
+
+        var direct = await fixture.Filesystem.SearchTextAsync(
+            ".obsidian/plugins",
+            ["plugin needle"],
+            workId);
+        Assert.True(direct.IsSuccess, direct.Error?.Message);
+        Assert.Equal("example-plugin/main.js", Assert.Single(direct.Value!.Matches).Path);
+    }
+
+    [Fact]
     public async Task GeneratedDirectoriesCanBeIncludedOrTargetedDirectly()
     {
         await using var fixture = new FilesystemFixture();
