@@ -186,7 +186,7 @@ public sealed class ProcessTools
         Destructive = true,
         Idempotent = true,
         OpenWorld = false)]
-    [Description("Terminates a Loom-managed process and its descendant process tree. Use this only when the process should be stopped rather than allowed to exit normally.")]
+    [Description("Terminates a Loom-managed process and its descendant process tree. Use this only when the process should be stopped rather than allowed to exit normally. The operation is idempotent: calling it again after the process has already exited or been terminated succeeds without changing the final state.")]
     public async Task<CallToolResult> Terminate(
         [Description("Process handle returned by process_start.")] string processHandle,
         CancellationToken cancellationToken = default)

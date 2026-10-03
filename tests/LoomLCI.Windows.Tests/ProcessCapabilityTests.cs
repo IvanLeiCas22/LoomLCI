@@ -87,9 +87,38 @@ public sealed class ProcessCapabilityTests
         var terminated = await fixture.Processes.TerminateAsync(started.Value!.Handle);
         Assert.True(terminated.IsSuccess, terminated.Error?.Message);
 
+        var repeated = await fixture.Processes.TerminateAsync(started.Value.Handle);
+        Assert.True(repeated.IsSuccess, repeated.Error?.Message);
+
         var status = await fixture.Processes.StatusAsync(started.Value.Handle);
         Assert.True(status.IsSuccess);
         Assert.Equal(ManagedProcessState.Terminated, status.Value!.State);
+    }
+
+    [Fact]
+    public async Task TerminateAfterNaturalExitSucceedsWithoutChangingFinalState()
+    {
+        await using var fixture = new ProcessFixture();
+        var work = fixture.Sessions.Create(Environment.CurrentDirectory);
+        Assert.True(work.IsSuccess);
+
+        var started = await fixture.Processes.StartAsync(new ProcessStartRequest(
+            "cmd.exe",
+            ["/d", "/s", "/c", "exit /b 7"],
+            WorkId: work.Value!.Id));
+
+        Assert.True(started.IsSuccess, started.Error?.Message);
+        var exited = await WaitForExitAsync(fixture.Processes, started.Value!.Handle);
+        Assert.Equal(ManagedProcessState.Exited, exited.State);
+        Assert.Equal(7, exited.ExitCode);
+
+        var terminated = await fixture.Processes.TerminateAsync(started.Value.Handle);
+        Assert.True(terminated.IsSuccess, terminated.Error?.Message);
+
+        var status = await fixture.Processes.StatusAsync(started.Value.Handle);
+        Assert.True(status.IsSuccess, status.Error?.Message);
+        Assert.Equal(ManagedProcessState.Exited, status.Value!.State);
+        Assert.Equal(7, status.Value.ExitCode);
     }
 
     [Fact]

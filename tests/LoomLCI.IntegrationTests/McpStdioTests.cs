@@ -134,6 +134,10 @@ public sealed class McpStdioTests
         Assert.Contains("cmd.exe", startProcess.Description, StringComparison.OrdinalIgnoreCase);
         Assert.False(startProcess.ProtocolTool.Annotations?.OpenWorldHint ?? true);
 
+        var terminateProcess = Assert.Single(tools, tool => tool.Name == "process_terminate");
+        Assert.Contains("idempotent", terminateProcess.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.True(terminateProcess.ProtocolTool.Annotations?.IdempotentHint ?? false);
+
         var readProcess = Assert.Single(tools, tool => tool.Name == "process_read");
         var processReadProperties = GetRequiredProperty(readProcess.JsonSchema, "properties");
         AssertSchemaRange(GetRequiredProperty(processReadProperties, "stdoutCursor"), 0, long.MaxValue);
