@@ -1,104 +1,79 @@
 # Integración con ChatGPT
 
-> Estado: integración local por STDIO validada end-to-end en ChatGPT Desktop Work.
+> Estado: integración de LoomLCI con ChatGPT normal validada end-to-end mediante Secure MCP Tunnel.
 
-## Configuración
+## Arquitectura actual
 
-ChatGPT Desktop tiene registrado el servidor MCP local LoomLCI por STDIO:
+```text
+ChatGPT normal
+    -> app MCP "LoomLCI MCP"
+    -> Secure MCP Tunnel
+    -> tunnel-client local
+    -> LoomLCI.Host por STDIO
+    -> capacidades LoomLCI
+    -> Windows
+```
 
-- comando: `C:\Program Files\dotnet\dotnet.exe`
-- argumento: DLL de `LoomLCI.Host`
-- working directory: raíz del proyecto LoomLCI
+LoomLCI sigue exponiendo MCP por STDIO local. El túnel es sólo el transporte seguro entre ChatGPT y ese servidor local.
 
-También existe un plugin local versionado dentro del repo:
+## Túnel
 
-- `plugin/.codex-plugin/plugin.json`
-- `plugin/.mcp.json`
-- `plugin/skills/loomlci/SKILL.md`
+- nombre remoto: `LoomLCI`
+- tunnel id: `tunnel_6ac0b25408088191bd552887eda2a0f7`
+- runtime local administrado: alias `loomlci`
+- perfil local: `loomlci`
 
-El plugin está agregado al marketplace personal e instalado como `loomlci@personal` versión 0.1.0.
+El runtime se gestiona con `tunnel-client runtimes connect`, no como un proceso temporal de una sesión de agente.
 
-## Superficies probadas
+Comandos útiles:
 
-### Chat normal
+```powershell
+tunnel-client runtimes status loomlci --json
+tunnel-client runtimes stop loomlci
+```
 
-`@LoomLCI` aparece y carga la skill, pero en la prueba realizada Chat normal no expuso las tools MCP locales.
+## App en ChatGPT
 
-Esto no invalida el servidor ni el plugin; simplemente esa superficie no fue suficiente para ejecutar las tools en esta versión/cuenta.
+La app instalada se llama `LoomLCI MCP`.
 
-### Work
+Configuración validada:
 
-Prueba realizada en una conversación nueva, fuera del proyecto LoomLCI:
+- conexión: Tunnel
+- tunnel id: `tunnel_6ac0b25408088191bd552887eda2a0f7`
+- autenticación: sin autenticación
+- estado: conectada
 
-1. cambiar a Work
-2. seleccionar `@LoomLCI`
-3. crear WorkSession
-4. iniciar proceso
-5. consultar estado
-6. leer stdout/stderr con cursores
-7. cerrar WorkSession
+No se necesita un plugin local `loomlci@personal`, un plugin cloud adicional ni un registro manual `mcp_servers.loomlci`.
 
-Resultado: integración end-to-end exitosa.
+## Smoke test
 
-ChatGPT Work arrancó `LoomLCI.Host` automáticamente mediante el MCP local del plugin y usó las tools de LoomLCI.
+Desde ChatGPT normal, usando “Probar ahora” sobre `LoomLCI MCP`, ChatGPT pudo invocar herramientas reales de LoomLCI a través del túnel.
 
-El log de ChatGPT mostró `server=loomlci status=ready`.
-
-## Smoke test definitivo
-
-Para evitar ambigüedades de quoting de `cmd.exe`, se usó:
-
-- executable: `powershell.exe`
-- arguments:
-  - `-NoProfile`
-  - `-Command`
-  - `Write-Output 'loom-chatgpt-smoke'; exit 7`
-
-Resultado:
-
-- exit code: `7`
-- stdout: `loom-chatgpt-smoke\r\n`
-- stderr: vacío
-- lectura por cursores: correcta
-- WorkSession: cerrada correctamente
-
-Tools usadas por ChatGPT Work:
+Tools observadas:
 
 - `work_create`
 - `process_start`
 - `process_status`
-- `process_read` (dos llamadas)
+- `process_read`
 - `work_close`
 
-Esto valida la cadena completa:
+Esto valida la cadena completa entre ChatGPT normal y procesos reales de Windows.
 
-    ChatGPT Work
-        -> plugin @LoomLCI
-        -> MCP STDIO local
-        -> LoomLCI.Host
-        -> ProcessCapability
-        -> Windows
-        -> proceso real
+## Configuración descartada
 
-## Conclusión
+Durante la investigación se probaron rutas que ya no forman parte de la instalación final:
 
-No hace falta agregar Streamable HTTP ni Secure MCP Tunnel para la integración local con ChatGPT Desktop Work.
+- registro manual `[mcp_servers.loomlci]` en la configuración local de Codex/Desktop
+- plugin local `loomlci@personal`
+- plugin cloud anterior de LoomLCI
+- paquete versionado `plugin/` con `.mcp.json` STDIO
 
-El servidor STDIO actual ya es suficiente para el camino local:
+Esas rutas producían registros duplicados o no exponían las tools a Chat normal.
 
-    ChatGPT Desktop Work
-        -> plugin local
-        -> .mcp.json
-        -> dotnet.exe LoomLCI.Host.dll
-        -> STDIO
+La instalación final mantiene una única ruta de acceso: la app MCP conectada al Secure MCP Tunnel.
 
-Secure MCP Tunnel sigue siendo una opción futura para superficies cloud/web donde OpenAI necesite alcanzar un runtime que corre localmente, pero no es requisito para el flujo local validado.
+## Notas
 
-LoomLCI debe seguir siendo agnóstico del host: Work es sólo una de las superficies que hoy puede consumir correctamente el MCP local.
-
-## Fuentes
-
-- https://developers.openai.com/plugins/quickstart
-- https://developers.openai.com/plugins/build/plugins
-- https://developers.openai.com/plugins/deploy/connect-chatgpt
-- https://help.openai.com/en/articles/20001256-plugins-in-chatgpt
+- Work/Codex puede consumir MCP local por otros mecanismos, pero no es parte del camino objetivo.
+- El objetivo principal es que ChatGPT normal pueda trabajar con la PC local.
+- LoomLCI permanece agnóstico de ChatGPT: sigue siendo un runtime MCP local; el túnel y la app son adaptadores externos.
