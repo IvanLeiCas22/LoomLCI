@@ -4,7 +4,7 @@ Segundo cerebro del proyecto LoomLCI.
 
 ## Estado
 
-Fase de investigación y definición arquitectónica previa al código.
+Arquitectura v0.1 definida. Milestone 1 (Process vertical slice) implementado y validado; siguiente foco: Filesystem.
 
 ## Notas
 

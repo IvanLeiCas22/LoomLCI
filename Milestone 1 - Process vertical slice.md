@@ -1,6 +1,26 @@
 # Milestone 1 - Process vertical slice
 
+> Estado: implementado y validado el 2026-10-03.
+>
 > Objetivo: validar la arquitectura con una capacidad real de punta a punta antes de construir el resto.
+
+## Resultado actual
+
+- .NET SDK fijado en 10.0.400 mediante `global.json`.
+- SDK MCP oficial 2.2.0.
+- Stdio MCP real probado con cliente oficial.
+- `work_create` / `work_close`.
+- `process_start` / `process_status` / `process_read` / `process_write` / `process_terminate`.
+- handles opacos de 128 bits.
+- stdout/stderr con buffers acotados y cursores no destructivos.
+- procesos session-owned limpiados al cerrar WorkSession.
+- cancelación sin registrar recursos parciales.
+- procesos concurrentes.
+- eventos correlacionados por InvocationId.
+- errores MCP con `structuredContent` y `isError`.
+- 11 tests verdes: 3 Core, 7 Windows, 1 integración MCP.
+
+El TTL/expiry concreto de handles sigue deliberadamente aplazado según [[Especificacion interna v0.1]]. ConPTY y Job Objects nativos todavía no forman parte de este slice.
 
 ## Precondición
 
@@ -83,10 +103,10 @@ No intentar exponer todavía toda la futura superficie de Loom.
 
 ## Después del milestone
 
-Orden propuesto:
+Orden confirmado/revisado:
 
-1. ConPTY / process interactive semantics.
-2. Filesystem.
+1. Filesystem.
+2. ConPTY + Job Objects / process interactive semantics.
 3. Python Runtime.
 4. Agent Support / Work Plan.
 5. Computer Use.
