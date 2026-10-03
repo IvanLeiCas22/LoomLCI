@@ -267,4 +267,11 @@ Esto reemplaza el B3 original como cambio funcional; B3 puede quedar como etapa 
   - página 2: match `needle-after-budget` en línea 16.501, `bytesRead=475.155`, sin truncación ni continuación restante.
 - Runtime Debug actualizado y operativo.
 
-Pendiente: fresh-agent test después de refrescar las acciones/schema de la app.
+Fresh-agent test posterior al refresh de schema completado correctamente:
+- paginación exhaustiva sin duplicados ni huecos en `list_tree`, `find_paths` y `search_text`;
+- `search_text` paginado produjo 248/248 líneas únicas y el mismo conjunto que una búsqueda completa;
+- cambio de page size entre páginas natural;
+- cursor incompatible produjo error claro y recuperable;
+- excerpts, columnas originales, `read_files` y reporting de binarios resultaron interpretables para un agente sin contexto previo.
+
+**B2/B3 validados y Bloque B cerrado.**

@@ -209,9 +209,10 @@ El agente no interpreta tokens. Flujo:
    - bounded excerpts integrados para evitar líneas gigantes;
    - suite y smoke live >64 MiB correctos.
 
-3. **B3 – Ergonomía/validación final**
+3. **B3 – Ergonomía/validación final** ✅
    - la parte funcional de bounded excerpts + MCP metadata + integration tests fue absorbida por B2;
-   - pendiente sólo refresh de schema + fresh-agent test de paginación completa.
+   - schema/actions refrescados;
+   - fresh-agent test completado con paginación exhaustiva de `list_tree`, `find_paths` y `search_text`.
 
 ## Criterios de aceptación
 
@@ -225,3 +226,18 @@ El agente no interpreta tokens. Flujo:
 - generated/exclusions/maxDepth mantienen exactamente sus semantics actuales;
 - cursor permanece opaco y suficientemente pequeño;
 - no se introduce ningún recurso/TTL/lifecycle server-side para paginación.
+
+## Cierre del bloque B
+
+Fresh-agent test final:
+- `list_tree`: 99 entradas paginadas, 99 únicas; control completo también 99.
+- `find_paths`: 31 archivos `.cs` paginados, 31 únicos; control completo también 31.
+- `search_text`: 248 líneas paginadas, 248 únicas; control con `maxResults=500` devolvió exactamente el mismo conjunto.
+- cambios de `maxEntries`/`maxResults` entre páginas funcionaron sin duplicados ni huecos.
+- cursor incompatible por cambio de query produjo `invalid_argument` con mensaje accionable.
+- múltiples queries por línea quedaron agrupadas en `queryMatches` sin duplicar la línea.
+- excerpts truncados conservaron `textStartColumn` y columnas absolutas; `read_files` permitió ampliar contexto de forma natural.
+- `.git/index` fue clasificado como binario y reportado mediante `skippedBinaryFileCount/skippedBinaryFiles`.
+- no hubo respuestas excesivas ni truncación de transporte/renderizado.
+
+**Conclusión:** los criterios de aceptación quedaron cubiertos y el Bloque B se considera cerrado.
