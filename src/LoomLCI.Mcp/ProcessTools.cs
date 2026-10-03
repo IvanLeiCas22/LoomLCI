@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
 using LoomLCI.Core;
 using LoomLCI.Core.Processes;
 using LoomLCI.Core.Resources;
@@ -47,16 +48,17 @@ public sealed class ProcessTools
 
     [McpServerTool(
         Name = "process_start",
+        Title = "Start process",
         UseStructuredContent = true,
         OutputSchemaType = typeof(ToolEnvelope<ProcessStartDto>),
         ReadOnly = false,
         Destructive = true,
         Idempotent = false,
-        OpenWorld = true)]
-    [Description("Starts a process directly without shell parsing and returns a durable process handle immediately.")]
+        OpenWorld = false)]
+    [Description("Starts one executable directly, without shell parsing, and returns a durable process handle immediately. Pass arguments as an explicit array. For cmd.exe syntax such as pipes, redirection, &&, or built-ins, explicitly start cmd.exe with /d /s /c; for PowerShell syntax, explicitly start powershell.exe or pwsh.exe. Use process_read when output matters and process_status when only state or exit metadata is needed.")]
     public async Task<CallToolResult> Start(
-        [Description("Executable path or executable name resolved by Windows.")] string executable,
-        [Description("Arguments passed directly as an argument array, without shell quoting.")] string[]? arguments = null,
+        [Description("Executable path or executable name resolved by Windows. This tool does not infer or insert a shell.")] string executable,
+        [Description("Arguments passed directly to the executable as an argument array. Do not apply shell quoting or combine multiple shell tokens into one argument unless the target executable itself expects that.")] string[]? arguments = null,
         [Description("Optional working directory. Relative paths require a work session with a base directory.")] string? workingDirectory = null,
         [Description("Work session handle. Required for session-owned processes.")] string? workId = null,
         [Description("If true, the process is not cleaned up when the work session closes.")] bool independent = false,
@@ -94,13 +96,14 @@ public sealed class ProcessTools
 
     [McpServerTool(
         Name = "process_status",
+        Title = "Get process status",
         UseStructuredContent = true,
         OutputSchemaType = typeof(ToolEnvelope<ProcessStatusDto>),
         ReadOnly = true,
         Destructive = false,
         Idempotent = true,
         OpenWorld = false)]
-    [Description("Returns the current state and exit metadata for a Loom process handle.")]
+    [Description("Returns only the current state and exit metadata for a Loom process handle. Use this when output is irrelevant; use process_read instead when stdout or stderr is needed because process_read also includes current process state.")]
     public async Task<CallToolResult> Status(
         [Description("Process handle returned by process_start.")] string processHandle,
         CancellationToken cancellationToken = default)
@@ -111,18 +114,19 @@ public sealed class ProcessTools
 
     [McpServerTool(
         Name = "process_read",
+        Title = "Read process output",
         UseStructuredContent = true,
         OutputSchemaType = typeof(ToolEnvelope<ProcessReadDto>),
         ReadOnly = true,
         Destructive = false,
         Idempotent = true,
         OpenWorld = false)]
-    [Description("Reads buffered stdout/stderr non-destructively using monotonic cursors.")]
+    [Description("Reads buffered stdout and stderr non-destructively and also returns current process state. Prefer this when output matters or while polling a command whose output matters. Reuse each returned nextCursor on later reads to fetch only newer output; use 0 to start from the earliest retained output.")]
     public async Task<CallToolResult> Read(
         [Description("Process handle returned by process_start.")] string processHandle,
-        [Description("Next stdout cursor from a previous read, or 0 for the beginning still retained.")] long stdoutCursor = 0,
-        [Description("Next stderr cursor from a previous read, or 0 for the beginning still retained.")] long stderrCursor = 0,
-        [Description("Maximum total characters returned, from 1 to 1048576.")] int maxChars = 65536,
+        [Description("Next stdout cursor from a previous read, or 0 for the earliest output still retained.")][Range(0, long.MaxValue)] long stdoutCursor = 0,
+        [Description("Next stderr cursor from a previous read, or 0 for the earliest output still retained.")][Range(0, long.MaxValue)] long stderrCursor = 0,
+        [Description("Maximum total characters returned across stdout and stderr.")][Range(1, 1048576)] int maxChars = 65536,
         CancellationToken cancellationToken = default)
     {
         var result = await _processes.ReadAsync(
@@ -152,13 +156,14 @@ public sealed class ProcessTools
 
     [McpServerTool(
         Name = "process_write",
+        Title = "Write process stdin",
         UseStructuredContent = true,
         OutputSchemaType = typeof(ToolEnvelope<bool>),
         ReadOnly = false,
         Destructive = true,
         Idempotent = false,
-        OpenWorld = true)]
-    [Description("Writes text to the stdin of a running pipe-based process.")]
+        OpenWorld = false)]
+    [Description("Writes text verbatim to stdin of a running pipe-based process. No newline is appended automatically; include it in text when the target process expects Enter or a line terminator.")]
     public async Task<CallToolResult> Write(
         [Description("Process handle returned by process_start.")] string processHandle,
         [Description("Text to write verbatim to stdin. Include newline characters when required by the target process.")] string text,
@@ -174,13 +179,14 @@ public sealed class ProcessTools
 
     [McpServerTool(
         Name = "process_terminate",
+        Title = "Terminate process",
         UseStructuredContent = true,
         OutputSchemaType = typeof(ToolEnvelope<bool>),
         ReadOnly = false,
         Destructive = true,
         Idempotent = true,
-        OpenWorld = true)]
-    [Description("Terminates a Loom-managed process and its descendant process tree.")]
+        OpenWorld = false)]
+    [Description("Terminates a Loom-managed process and its descendant process tree. Use this only when the process should be stopped rather than allowed to exit normally.")]
     public async Task<CallToolResult> Terminate(
         [Description("Process handle returned by process_start.")] string processHandle,
         CancellationToken cancellationToken = default)

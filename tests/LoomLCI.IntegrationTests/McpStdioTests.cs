@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using ModelContextProtocol.Client;
 
@@ -5,6 +6,117 @@ namespace LoomLCI.IntegrationTests;
 
 public sealed class McpStdioTests
 {
+    [Fact]
+    public async Task StdioAdapterAdvertisesServerInstructions()
+    {
+        var repoRoot = FindRepoRoot();
+        var hostDll = GetHostDll(repoRoot);
+        Assert.True(File.Exists(hostDll), $"Host was not built: {hostDll}");
+
+        var startInfo = new ProcessStartInfo("dotnet")
+        {
+            WorkingDirectory = repoRoot,
+            UseShellExecute = false,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        startInfo.ArgumentList.Add(hostDll);
+
+        using var process = Process.Start(startInfo);
+        Assert.NotNull(process);
+
+        try
+        {
+            const string initialize = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{},\"clientInfo\":{\"name\":\"loom-contract-test\",\"version\":\"1.0\"}}}";
+            await process.StandardInput.WriteLineAsync(initialize);
+            await process.StandardInput.FlushAsync();
+
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            var responseLine = await process.StandardOutput.ReadLineAsync(timeout.Token);
+            Assert.False(string.IsNullOrWhiteSpace(responseLine));
+
+            using var response = JsonDocument.Parse(responseLine);
+            var result = GetRequiredProperty(response.RootElement, "result");
+            var instructions = GetRequiredProperty(result, "instructions").GetString();
+
+            Assert.NotNull(instructions);
+            Assert.Contains("not a sandbox", instructions, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("Prefer structured LoomLCI filesystem capabilities", instructions, StringComparison.Ordinal);
+            Assert.Contains("opaque values", instructions, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+
+            await process.WaitForExitAsync();
+        }
+    }
+
+    [Fact]
+    public async Task StdioAdapterExposesSelfDescribingToolContracts()
+    {
+        var repoRoot = FindRepoRoot();
+        var hostDll = GetHostDll(repoRoot);
+        Assert.True(File.Exists(hostDll), $"Host was not built: {hostDll}");
+
+        var transport = new StdioClientTransport(new StdioClientTransportOptions
+        {
+            Name = "LoomLCI contract integration test",
+            Command = "dotnet",
+            Arguments = [hostDll],
+            WorkingDirectory = repoRoot,
+            ShutdownTimeout = TimeSpan.FromSeconds(5)
+        });
+
+        await using var client = await McpClient.CreateAsync(transport);
+        var tools = await client.ListToolsAsync();
+
+        var listTree = Assert.Single(tools, tool => tool.Name == "filesystem_list_tree");
+        Assert.Equal("List directory tree", listTree.ProtocolTool.Title);
+        Assert.Contains("discover project structure", listTree.Description, StringComparison.OrdinalIgnoreCase);
+
+        var findPaths = Assert.Single(tools, tool => tool.Name == "filesystem_find_paths");
+        Assert.Equal("Find paths", findPaths.ProtocolTool.Title);
+        Assert.Contains("does not inspect file contents", findPaths.Description, StringComparison.OrdinalIgnoreCase);
+        var findProperties = GetRequiredProperty(findPaths.JsonSchema, "properties");
+        AssertSchemaRange(GetRequiredProperty(findProperties, "maxDepth"), 1, 32);
+        AssertSchemaRange(GetRequiredProperty(findProperties, "maxResults"), 1, 1000);
+        AssertSchemaEnum(GetRequiredProperty(findProperties, "matchMode"), "substring", "suffix");
+        AssertSchemaEnum(GetRequiredProperty(findProperties, "type"), "any", "file", "directory", "symlink");
+        var queriesSchema = GetRequiredProperty(findProperties, "queries");
+        Assert.Equal(1, GetRequiredProperty(queriesSchema, "minItems").GetInt32());
+        Assert.Equal(32, GetRequiredProperty(queriesSchema, "maxItems").GetInt32());
+
+        var readFiles = Assert.Single(tools, tool => tool.Name == "filesystem_read_files");
+        var readProperties = GetRequiredProperty(readFiles.JsonSchema, "properties");
+        var filesSchema = GetRequiredProperty(readProperties, "files");
+        Assert.Equal(1, GetRequiredProperty(filesSchema, "minItems").GetInt32());
+        Assert.Equal(32, GetRequiredProperty(filesSchema, "maxItems").GetInt32());
+
+        var applyPatch = Assert.Single(tools, tool => tool.Name == "filesystem_apply_patch");
+        Assert.Equal("Apply text-file patch", applyPatch.ProtocolTool.Title);
+        Assert.False(applyPatch.ProtocolTool.Annotations?.OpenWorldHint ?? true);
+        var applyProperties = GetRequiredProperty(applyPatch.JsonSchema, "properties");
+        var changesItems = GetRequiredProperty(GetRequiredProperty(applyProperties, "changes"), "items");
+        var changeProperties = GetRequiredProperty(changesItems, "properties");
+        AssertSchemaEnum(GetRequiredProperty(changeProperties, "op"), "write", "replace", "delete", "move");
+
+        var startProcess = Assert.Single(tools, tool => tool.Name == "process_start");
+        Assert.Equal("Start process", startProcess.ProtocolTool.Title);
+        Assert.Contains("cmd.exe", startProcess.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.False(startProcess.ProtocolTool.Annotations?.OpenWorldHint ?? true);
+
+        var readProcess = Assert.Single(tools, tool => tool.Name == "process_read");
+        var processReadProperties = GetRequiredProperty(readProcess.JsonSchema, "properties");
+        AssertSchemaRange(GetRequiredProperty(processReadProperties, "stdoutCursor"), 0, long.MaxValue);
+        AssertSchemaRange(GetRequiredProperty(processReadProperties, "stderrCursor"), 0, long.MaxValue);
+        AssertSchemaRange(GetRequiredProperty(processReadProperties, "maxChars"), 1, 1048576);
+    }
+
     [Fact]
     public async Task StdioAdapterCanCreateWorkRunProcessAndReadOutput()
     {
@@ -342,6 +454,22 @@ public sealed class McpStdioTests
         }
 
         throw new Xunit.Sdk.XunitException($"Property '{name}' not found in: {element}");
+    }
+
+    private static void AssertSchemaRange(JsonElement schema, long minimum, long maximum)
+    {
+        Assert.Equal((double)minimum, GetRequiredProperty(schema, "minimum").GetDouble());
+        Assert.Equal((double)maximum, GetRequiredProperty(schema, "maximum").GetDouble());
+    }
+
+    private static void AssertSchemaEnum(JsonElement schema, params string[] expected)
+    {
+        var actual = GetRequiredProperty(schema, "enum")
+            .EnumerateArray()
+            .Select(value => value.GetString())
+            .ToArray();
+
+        Assert.Equal(expected, actual);
     }
 
     private static string FindRepoRoot()

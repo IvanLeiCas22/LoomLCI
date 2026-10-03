@@ -25,13 +25,14 @@ public sealed class WorkTools
 
     [McpServerTool(
         Name = "work_create",
+        Title = "Create work session",
         UseStructuredContent = true,
         OutputSchemaType = typeof(ToolEnvelope<WorkSessionDto>),
         ReadOnly = false,
         Destructive = false,
         Idempotent = false,
         OpenWorld = false)]
-    [Description("Creates an explicit Loom work session for state and resources that must survive across tool calls.")]
+    [Description("Creates a work session for calls that need a shared base directory or session-owned resources. Use it before relative-path operations or session-owned process_start calls; stateless operations with fully explicit absolute paths do not require one.")]
     public CallToolResult Create(
         [Description("Optional base directory used to resolve relative paths. This is context, not a security boundary.")] string? baseDirectory = null,
         [Description("Optional human-readable label for the work session.")] string? label = null)
@@ -60,13 +61,14 @@ public sealed class WorkTools
 
     [McpServerTool(
         Name = "work_close",
+        Title = "Close work session",
         UseStructuredContent = true,
         OutputSchemaType = typeof(ToolEnvelope<bool>),
         ReadOnly = false,
         Destructive = true,
         Idempotent = true,
         OpenWorld = false)]
-    [Description("Closes a Loom work session and cleans up its session-owned resources.")]
+    [Description("Closes a work session and cleans up its session-owned resources. Call this when the task using that session is complete; independent resources are not owned by the session.")]
     public async Task<CallToolResult> Close(
         [Description("The work session handle returned by work_create.")] string workId,
         CancellationToken cancellationToken = default)
