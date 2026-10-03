@@ -18,4 +18,5 @@ Arquitectura v0.1 definida. Milestone 1 (Process vertical slice) implementado y 
 - [[Python Runtime]]
 - [[Plan y tareas]]
 - [[Programmatic Tool Calling]]
+- [[Integracion con ChatGPT]]
 - [[Fuentes]]
