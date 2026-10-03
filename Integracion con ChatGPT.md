@@ -1,8 +1,8 @@
 # Integración con ChatGPT
 
-> Estado: integración local preparada; limitación de superficie encontrada en Chat normal.
+> Estado: integración local por STDIO validada end-to-end en ChatGPT Desktop Work.
 
-## Configuración realizada
+## Configuración
 
 ChatGPT Desktop tiene registrado el servidor MCP local LoomLCI por STDIO:
 
@@ -10,47 +10,91 @@ ChatGPT Desktop tiene registrado el servidor MCP local LoomLCI por STDIO:
 - argumento: DLL de `LoomLCI.Host`
 - working directory: raíz del proyecto LoomLCI
 
-La configuración aparece activa en Ajustes → Complementos → MCP.
-
-## Plugin local
-
-También se creó un plugin versionable dentro del repo:
+También existe un plugin local versionado dentro del repo:
 
 - `plugin/.codex-plugin/plugin.json`
 - `plugin/.mcp.json`
 - `plugin/skills/loomlci/SKILL.md`
 
-Se agregó al marketplace personal y se instaló como `loomlci@personal` versión 0.1.0.
+El plugin está agregado al marketplace personal e instalado como `loomlci@personal` versión 0.1.0.
 
-En Chat normal, `@LoomLCI` aparece correctamente y carga la skill.
+## Superficies probadas
 
-## Smoke test realizado
+### Chat normal
 
-Se pidió desde una conversación Chat normal:
+`@LoomLCI` aparece y carga la skill, pero en la prueba realizada Chat normal no expuso las tools MCP locales.
 
-1. crear WorkSession
-2. iniciar `cmd.exe`
-3. ejecutar un comando con exit code 7
-4. consultar estado
-5. leer stdout/stderr
-6. cerrar WorkSession
+Esto no invalida el servidor ni el plugin; simplemente esa superficie no fue suficiente para ejecutar las tools en esta versión/cuenta.
 
-Resultado observado:
+### Work
 
-- ChatGPT reconoció el plugin/skill.
-- No recibió las tools MCP de LoomLCI en esa conversación.
-- No se inició `LoomLCI.Host`.
-- ChatGPT no simuló la ejecución y reportó correctamente que las tools no estaban disponibles.
+Prueba realizada en una conversación nueva, fuera del proyecto LoomLCI:
 
-Antes del plugin, registrar sólo el servidor MCP tampoco hacía disponibles sus tools en Chat normal.
+1. cambiar a Work
+2. seleccionar `@LoomLCI`
+3. crear WorkSession
+4. iniciar proceso
+5. consultar estado
+6. leer stdout/stderr con cursores
+7. cerrar WorkSession
+
+Resultado: integración end-to-end exitosa.
+
+ChatGPT Work arrancó `LoomLCI.Host` automáticamente mediante el MCP local del plugin y usó las tools de LoomLCI.
+
+El log de ChatGPT mostró `server=loomlci status=ready`.
+
+## Smoke test definitivo
+
+Para evitar ambigüedades de quoting de `cmd.exe`, se usó:
+
+- executable: `powershell.exe`
+- arguments:
+  - `-NoProfile`
+  - `-Command`
+  - `Write-Output 'loom-chatgpt-smoke'; exit 7`
+
+Resultado:
+
+- exit code: `7`
+- stdout: `loom-chatgpt-smoke\r\n`
+- stderr: vacío
+- lectura por cursores: correcta
+- WorkSession: cerrada correctamente
+
+Tools usadas por ChatGPT Work:
+
+- `work_create`
+- `process_start`
+- `process_status`
+- `process_read` (dos llamadas)
+- `work_close`
+
+Esto valida la cadena completa:
+
+    ChatGPT Work
+        -> plugin @LoomLCI
+        -> MCP STDIO local
+        -> LoomLCI.Host
+        -> ProcessCapability
+        -> Windows
+        -> proceso real
 
 ## Conclusión
 
-El servidor LoomLCI no es el problema: el round-trip MCP por STDIO ya está validado mediante el cliente oficial en los tests de integración.
+No hace falta agregar Streamable HTTP ni Secure MCP Tunnel para la integración local con ChatGPT Desktop Work.
 
-La limitación observada está en la superficie actual de ChatGPT Desktop: Chat normal puede cargar el plugin/skill, pero en esta versión/cuenta no expone las tools del MCP local. La documentación oficial actual usa ChatGPT Work para probar plugins con servidores MCP locales.
+El servidor STDIO actual ya es suficiente para el camino local:
 
-No se debe acoplar LoomLCI a Work por esta limitación. Loom sigue siendo MCP genérico y se puede probar end-to-end con Work de forma controlada si se desea.
+    ChatGPT Desktop Work
+        -> plugin local
+        -> .mcp.json
+        -> dotnet.exe LoomLCI.Host.dll
+        -> STDIO
+
+Secure MCP Tunnel sigue siendo una opción futura para superficies cloud/web donde OpenAI necesite alcanzar un runtime que corre localmente, pero no es requisito para el flujo local validado.
+
+LoomLCI debe seguir siendo agnóstico del host: Work es sólo una de las superficies que hoy puede consumir correctamente el MCP local.
 
 ## Fuentes
 
