@@ -100,7 +100,12 @@ public sealed class McpStdioTests
         Assert.Equal(32, GetRequiredProperty(queriesSchema, "maxItems").GetInt32());
 
         var searchText = Assert.Single(tools, tool => tool.Name == "filesystem_search_text");
+        Assert.Contains("one to 32 literal text queries", searchText.Description, StringComparison.OrdinalIgnoreCase);
         var searchProperties = GetRequiredProperty(searchText.JsonSchema, "properties");
+        var searchQueries = GetRequiredProperty(searchProperties, "queries");
+        Assert.Equal(1, GetRequiredProperty(searchQueries, "minItems").GetInt32());
+        Assert.Equal(32, GetRequiredProperty(searchQueries, "maxItems").GetInt32());
+        Assert.False(searchProperties.TryGetProperty("query", out _));
         GetRequiredProperty(searchProperties, "includeGenerated");
         GetRequiredProperty(searchProperties, "excludeDirectories");
 
@@ -366,15 +371,17 @@ public sealed class McpStdioTests
                 new Dictionary<string, object?>
                 {
                     ["path"] = ".",
-                    ["query"] = "needle",
+                    ["queries"] = new[] { "needle", "beta" },
                     ["workId"] = workId
                 });
             var searchedRoot = GetStructured(searched.StructuredContent);
             Assert.True(GetRequiredProperty(searchedRoot, "ok").GetBoolean());
-            var textMatches = GetRequiredProperty(
-                GetRequiredProperty(searchedRoot, "result"),
-                "matches");
-            Assert.Single(textMatches.EnumerateArray());
+            var searchedResult = GetRequiredProperty(searchedRoot, "result");
+            var searchedQueries = GetRequiredProperty(searchedResult, "queries");
+            Assert.Equal(2, searchedQueries.GetArrayLength());
+            var textMatches = GetRequiredProperty(searchedResult, "matches");
+            var textMatch = Assert.Single(textMatches.EnumerateArray());
+            Assert.Equal("needle", GetRequiredProperty(textMatch, "query").GetString());
 
             var read = await client.CallToolAsync(
                 "filesystem_read_files",

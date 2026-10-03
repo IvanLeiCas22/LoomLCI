@@ -32,6 +32,7 @@ public sealed record FilesystemFindPathsDto(
 
 public sealed record FilesystemTextMatchDto(
     string Path,
+    string Query,
     int Line,
     int Column,
     string Text,
@@ -40,7 +41,7 @@ public sealed record FilesystemTextMatchDto(
 
 public sealed record FilesystemSearchTextDto(
     string Root,
-    string Query,
+    IReadOnlyList<string> Queries,
     IReadOnlyList<FilesystemTextMatchDto> Matches,
     int FilesRead,
     long BytesRead,
@@ -179,10 +180,10 @@ public sealed class FilesystemTools
         Destructive = false,
         Idempotent = true,
         OpenWorld = false)]
-    [Description("Searches literal text inside files and returns path, line, column, and small context. Recursive traversal prunes common generated/infrastructure directories by default; explicitly targeting one of those directories as path still works. Use this when the content location is unknown; use filesystem_find_paths for path/name lookup and filesystem_read_files after locating files that need fuller context.")]
+    [Description("Searches one to 32 literal text queries in a single filesystem traversal with OR semantics. Each returned match identifies the query that matched and includes path, line, the first matching column, and small context. A line matching multiple queries yields one result per matching query. maxResults is a global limit across all query matches. Recursive traversal prunes common generated/infrastructure directories by default; explicitly targeting one of those directories as path still works. Use this when content locations are unknown; use filesystem_find_paths for path/name lookup and filesystem_read_files after locating files that need fuller context.")]
     public async Task<CallToolResult> SearchText(
         [Description("File or directory path to search. May be absolute or relative to the work session base directory.")] string path,
-        [Description("Non-empty literal text query; this is not regex.")] string query,
+        [Description("One to 32 non-empty literal text queries. Multiple queries use OR semantics and are searched in one traversal; this is not regex.")][MinLength(1)][MaxLength(32)] string[] queries,
         [Description("Optional work session handle used to resolve relative paths.")] string? workId = null,
         [Description("Whether matching is case-sensitive.")] bool caseSensitive = false,
         [Description("When false, recursive traversal prunes .git, .vs, .venv, __pycache__, bin, node_modules, and obj. Explicitly targeting one of those directories as path still traverses it.")] bool includeGenerated = false,
@@ -194,7 +195,7 @@ public sealed class FilesystemTools
     {
         var result = await _filesystem.SearchTextAsync(
             path,
-            query,
+            queries,
             ParseWorkId(workId),
             caseSensitive,
             includeGenerated,
@@ -366,9 +367,10 @@ public sealed class FilesystemTools
                 LoomResult<FilesystemSearchTextDto>.Success(
                     new FilesystemSearchTextDto(
                         result.Value!.Root,
-                        result.Value.Query,
+                        result.Value.Queries,
                         result.Value.Matches.Select(match => new FilesystemTextMatchDto(
                             match.Path,
+                            match.Query,
                             match.Line,
                             match.Column,
                             match.Text,

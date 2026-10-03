@@ -141,7 +141,7 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
 
     public async Task<LoomResult<FilesystemSearchTextResult>> SearchTextAsync(
         string root,
-        string query,
+        IReadOnlyList<string> queries,
         bool caseSensitive,
         FilesystemTraversalOptions traversal,
         int maxDepth,
@@ -205,36 +205,45 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                 for (var i = 0; i < lines.Count; i++)
                 {
                     var lineText = lines[i].Content;
-                    var column = lineText.IndexOf(query, comparison);
-                    if (column < 0)
+                    foreach (var query in queries)
                     {
-                        continue;
+                        var column = lineText.IndexOf(query, comparison);
+                        if (column < 0)
+                        {
+                            continue;
+                        }
+
+                        if (matches.Count >= maxResults)
+                        {
+                            truncated = true;
+                            break;
+                        }
+
+                        var beforeStart = Math.Max(0, i - contextLines);
+                        var afterEnd = Math.Min(lines.Count - 1, i + contextLines);
+                        var before = Enumerable.Range(beforeStart, i - beforeStart)
+                            .Select(index => lines[index].Content)
+                            .ToArray();
+                        var after = i + 1 <= afterEnd
+                            ? Enumerable.Range(i + 1, afterEnd - i)
+                                .Select(index => lines[index].Content)
+                                .ToArray()
+                            : Array.Empty<string>();
+
+                        matches.Add(new FilesystemTextMatch(
+                            file.RelativePath,
+                            query,
+                            i + 1,
+                            column + 1,
+                            lineText,
+                            before,
+                            after));
                     }
 
-                    if (matches.Count >= maxResults)
+                    if (truncated)
                     {
-                        truncated = true;
                         break;
                     }
-
-                    var beforeStart = Math.Max(0, i - contextLines);
-                    var afterEnd = Math.Min(lines.Count - 1, i + contextLines);
-                    var before = Enumerable.Range(beforeStart, i - beforeStart)
-                        .Select(index => lines[index].Content)
-                        .ToArray();
-                    var after = i + 1 <= afterEnd
-                        ? Enumerable.Range(i + 1, afterEnd - i)
-                            .Select(index => lines[index].Content)
-                            .ToArray()
-                        : Array.Empty<string>();
-
-                    matches.Add(new FilesystemTextMatch(
-                        file.RelativePath,
-                        i + 1,
-                        column + 1,
-                        lineText,
-                        before,
-                        after));
                 }
 
                 if (truncated)
@@ -244,7 +253,7 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
             }
 
             return LoomResult<FilesystemSearchTextResult>.Success(
-                new FilesystemSearchTextResult(root, query, matches, filesRead, bytesRead, truncated));
+                new FilesystemSearchTextResult(root, queries, matches, filesRead, bytesRead, truncated));
         }
         catch (OperationCanceledException)
         {

@@ -113,7 +113,7 @@ public sealed class FilesystemCapability
 
     public Task<LoomResult<FilesystemSearchTextResult>> SearchTextAsync(
         string path,
-        string query,
+        IReadOnlyList<string> queries,
         WorkId? workId = null,
         bool caseSensitive = false,
         bool includeGenerated = false,
@@ -127,10 +127,11 @@ public sealed class FilesystemCapability
             workId,
             async (context, token) =>
             {
-                if (string.IsNullOrEmpty(query))
+                if (queries.Count is < 1 or > 32 || queries.Any(string.IsNullOrWhiteSpace))
                 {
                     return LoomResult<FilesystemSearchTextResult>.Failure(
-                        LoomErrors.InvalidArgument("query is required."));
+                        LoomErrors.InvalidArgument(
+                            "queries must contain between 1 and 32 non-empty values."));
                 }
 
                 if (maxDepth is < 1 or > 32 ||
@@ -152,7 +153,7 @@ public sealed class FilesystemCapability
                 return resolved.IsSuccess
                     ? await _provider.SearchTextAsync(
                         resolved.Value!,
-                        query,
+                        queries,
                         caseSensitive,
                         traversal.Value!,
                         maxDepth,

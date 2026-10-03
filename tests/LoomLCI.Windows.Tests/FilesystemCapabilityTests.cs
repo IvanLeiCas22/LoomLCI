@@ -41,11 +41,13 @@ public sealed class FilesystemCapabilityTests
 
         var searched = await fixture.Filesystem.SearchTextAsync(
             ".",
-            "needle",
+            ["needle"],
             work.Value.Id,
             contextLines: 1);
         Assert.True(searched.IsSuccess, searched.Error?.Message);
-        var match = Assert.Single(searched.Value!.Matches);
+        Assert.Equal(["needle"], searched.Value!.Queries);
+        var match = Assert.Single(searched.Value.Matches);
+        Assert.Equal("needle", match.Query);
         Assert.Equal("src/alpha.txt", match.Path);
         Assert.Equal(2, match.Line);
         Assert.Equal(1, match.Column);
@@ -61,6 +63,68 @@ public sealed class FilesystemCapabilityTests
         Assert.Equal(2, file.EndLine);
         Assert.Equal("needle value", file.Text);
         Assert.True(file.Truncated);
+    }
+
+    [Fact]
+    public async Task TextSearchHandlesMultipleQueriesInOneTraversal()
+    {
+        await using var fixture = new FilesystemFixture();
+        Directory.CreateDirectory(Path.Combine(fixture.Root, "src"));
+        await File.WriteAllTextAsync(
+            Path.Combine(fixture.Root, "src", "multi.txt"),
+            "alpha beta\nbeta only\ngamma alpha");
+
+        var work = fixture.Sessions.Create(fixture.Root);
+        Assert.True(work.IsSuccess);
+        var workId = work.Value!.Id;
+
+        var searched = await fixture.Filesystem.SearchTextAsync(
+            ".",
+            ["alpha", "beta", "missing"],
+            workId,
+            contextLines: 0);
+
+        Assert.True(searched.IsSuccess, searched.Error?.Message);
+        Assert.Equal(["alpha", "beta", "missing"], searched.Value!.Queries);
+        Assert.Equal(1, searched.Value.FilesRead);
+        Assert.False(searched.Value.Truncated);
+        Assert.Collection(
+            searched.Value.Matches,
+            match =>
+            {
+                Assert.Equal("alpha", match.Query);
+                Assert.Equal(1, match.Line);
+                Assert.Equal(1, match.Column);
+            },
+            match =>
+            {
+                Assert.Equal("beta", match.Query);
+                Assert.Equal(1, match.Line);
+                Assert.Equal(7, match.Column);
+            },
+            match =>
+            {
+                Assert.Equal("beta", match.Query);
+                Assert.Equal(2, match.Line);
+                Assert.Equal(1, match.Column);
+            },
+            match =>
+            {
+                Assert.Equal("alpha", match.Query);
+                Assert.Equal(3, match.Line);
+                Assert.Equal(7, match.Column);
+            });
+
+        var limited = await fixture.Filesystem.SearchTextAsync(
+            ".",
+            ["alpha", "beta"],
+            workId,
+            maxResults: 2,
+            contextLines: 0);
+
+        Assert.True(limited.IsSuccess, limited.Error?.Message);
+        Assert.Equal(2, limited.Value!.Matches.Count);
+        Assert.True(limited.Value.Truncated);
     }
 
     [Fact]
@@ -117,7 +181,7 @@ public sealed class FilesystemCapabilityTests
 
         var searched = await fixture.Filesystem.SearchTextAsync(
             ".",
-            "generated needle",
+            ["generated needle"],
             workId);
         Assert.True(searched.IsSuccess, searched.Error?.Message);
         Assert.Empty(searched.Value!.Matches);
@@ -151,7 +215,7 @@ public sealed class FilesystemCapabilityTests
 
         var directSearch = await fixture.Filesystem.SearchTextAsync(
             "bin",
-            "generated needle",
+            ["generated needle"],
             workId);
         Assert.True(directSearch.IsSuccess, directSearch.Error?.Message);
         Assert.Equal("generated.txt", Assert.Single(directSearch.Value!.Matches).Path);
@@ -185,7 +249,7 @@ public sealed class FilesystemCapabilityTests
 
         var searched = await fixture.Filesystem.SearchTextAsync(
             ".",
-            "secret needle",
+            ["secret needle"],
             workId,
             includeGenerated: true,
             excludeDirectories: [".OBSIDIAN"]);

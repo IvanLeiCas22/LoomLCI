@@ -41,6 +41,7 @@ public sealed record FilesystemFindPathsResult(
 
 public sealed record FilesystemTextMatch(
     string Path,
+    string Query,
     int Line,
     int Column,
     string Text,
@@ -49,7 +50,7 @@ public sealed record FilesystemTextMatch(
 
 public sealed record FilesystemSearchTextResult(
     string Root,
-    string Query,
+    IReadOnlyList<string> Queries,
     IReadOnlyList<FilesystemTextMatch> Matches,
     int FilesRead,
     long BytesRead,
@@ -117,7 +118,7 @@ public interface IFilesystemProvider
 
     Task<LoomResult<FilesystemSearchTextResult>> SearchTextAsync(
         string root,
-        string query,
+        IReadOnlyList<string> queries,
         bool caseSensitive,
         FilesystemTraversalOptions traversal,
         int maxDepth,
