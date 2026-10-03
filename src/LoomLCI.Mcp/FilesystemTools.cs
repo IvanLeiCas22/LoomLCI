@@ -61,7 +61,8 @@ public sealed record FilesystemReadFileDto(
     int StartLine,
     int EndLine,
     int TotalLines,
-    bool Truncated,
+    [property: Description("True when the file has lines before startLine that were not returned.")] bool HasMoreBefore,
+    [property: Description("True when the file has lines after endLine that were not returned.")] bool HasMoreAfter,
     string Text);
 
 public sealed record FilesystemReadFilesDto(
@@ -220,7 +221,7 @@ public sealed class FilesystemTools
         Destructive = false,
         Idempotent = true,
         OpenWorld = false)]
-    [Description("Reads known UTF-8-compatible text files, optionally by 1-based line range. Use this when exact file paths are already known; prefer filesystem_search_text when you first need to locate content. Multiple files can be read in one call.")]
+    [Description("Reads known UTF-8-compatible text files, optionally by 1-based line range. Each file result reports hasMoreBefore and hasMoreAfter so partial ranges are explicit without implying transport truncation. Use this when exact file paths are already known; prefer filesystem_search_text when you first need to locate content. Multiple files can be read in one call.")]
     public async Task<CallToolResult> ReadFiles(
         [Description("One to 32 files to read. Offset is the optional 1-based starting line and limit is the optional maximum line count.")][MinLength(1)][MaxLength(32)] FilesystemReadFileInput[] files,
         [Description("Optional work session handle used to resolve relative paths.")] string? workId = null,
@@ -398,7 +399,8 @@ public sealed class FilesystemTools
                             file.StartLine,
                             file.EndLine,
                             file.TotalLines,
-                            file.Truncated,
+                            file.HasMoreBefore,
+                            file.HasMoreAfter,
                             file.Text)).ToArray())))
             : ToolEnvelope<FilesystemReadFilesDto>.From(
                 LoomResult<FilesystemReadFilesDto>.Failure(result.Error!));

@@ -316,7 +316,8 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                 var available = Math.Max(0, lines.Count - start + 1);
                 var count = request.Limit is null ? available : Math.Min(available, request.Limit.Value);
                 var end = count == 0 ? start - 1 : start + count - 1;
-                var truncated = end < lines.Count;
+                var hasMoreBefore = start > 1;
+                var hasMoreAfter = end < lines.Count;
                 var selected = BuildTextSlice(lines, start - 1, count);
 
                 results.Add(new FilesystemReadFileResult(
@@ -325,7 +326,8 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                     start,
                     end,
                     lines.Count,
-                    truncated,
+                    hasMoreBefore,
+                    hasMoreAfter,
                     selected));
             }
 

@@ -419,6 +419,9 @@ public sealed class McpStdioTests
                 "files");
             var file = Assert.Single(files.EnumerateArray());
             Assert.Equal("alpha needle", GetRequiredProperty(file, "text").GetString());
+            Assert.False(GetRequiredProperty(file, "hasMoreBefore").GetBoolean());
+            Assert.False(GetRequiredProperty(file, "hasMoreAfter").GetBoolean());
+            Assert.False(file.TryGetProperty("truncated", out _));
 
             var replace = await client.CallToolAsync(
                 "filesystem_apply_patch",

@@ -63,7 +63,61 @@ public sealed class FilesystemCapabilityTests
         Assert.Equal(2, file.StartLine);
         Assert.Equal(2, file.EndLine);
         Assert.Equal("needle value", file.Text);
-        Assert.True(file.Truncated);
+        Assert.True(file.HasMoreBefore);
+        Assert.True(file.HasMoreAfter);
+    }
+
+    [Fact]
+    public async Task ReadFilesReportsOmittedLinesBeforeAndAfterRange()
+    {
+        await using var fixture = new FilesystemFixture();
+        await File.WriteAllTextAsync(
+            Path.Combine(fixture.Root, "ranges.txt"),
+            "one\ntwo\nthree\nfour\nfive");
+
+        var work = fixture.Sessions.Create(fixture.Root);
+        Assert.True(work.IsSuccess);
+
+        var read = await fixture.Filesystem.ReadFilesAsync(
+            [
+                ("ranges.txt", null, null),
+                ("ranges.txt", 1, 2),
+                ("ranges.txt", 3, 1),
+                ("ranges.txt", 4, null)
+            ],
+            work.Value!.Id);
+
+        Assert.True(read.IsSuccess, read.Error?.Message);
+        Assert.Collection(
+            read.Value!.Files,
+            file =>
+            {
+                Assert.Equal((1, 5, 5), (file.StartLine, file.EndLine, file.TotalLines));
+                Assert.False(file.HasMoreBefore);
+                Assert.False(file.HasMoreAfter);
+                Assert.Equal("one\ntwo\nthree\nfour\nfive", file.Text);
+            },
+            file =>
+            {
+                Assert.Equal((1, 2, 5), (file.StartLine, file.EndLine, file.TotalLines));
+                Assert.False(file.HasMoreBefore);
+                Assert.True(file.HasMoreAfter);
+                Assert.Equal("one\ntwo", file.Text);
+            },
+            file =>
+            {
+                Assert.Equal((3, 3, 5), (file.StartLine, file.EndLine, file.TotalLines));
+                Assert.True(file.HasMoreBefore);
+                Assert.True(file.HasMoreAfter);
+                Assert.Equal("three", file.Text);
+            },
+            file =>
+            {
+                Assert.Equal((4, 5, 5), (file.StartLine, file.EndLine, file.TotalLines));
+                Assert.True(file.HasMoreBefore);
+                Assert.False(file.HasMoreAfter);
+                Assert.Equal("four\nfive", file.Text);
+            });
     }
 
     [Fact]

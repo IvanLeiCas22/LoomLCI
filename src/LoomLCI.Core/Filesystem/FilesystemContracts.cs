@@ -71,7 +71,8 @@ public sealed record FilesystemReadFileResult(
     int StartLine,
     int EndLine,
     int TotalLines,
-    bool Truncated,
+    bool HasMoreBefore,
+    bool HasMoreAfter,
     string Text);
 
 public sealed record FilesystemReadFilesResult(
