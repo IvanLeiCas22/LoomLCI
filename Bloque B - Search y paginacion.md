@@ -200,16 +200,18 @@ El agente no interpreta tokens. Flujo:
    - tests de varias páginas, cambio de page size, args mismatched y árbol modificado;
    - smoke live: `list_tree` continuó 2→3 entradas sin repetir; `find_paths` continuó 2→3 matches sin repetir.
 
-2. **B2 – Streaming text search + search cursor**
-   - reader por líneas con byte offsets;
-   - eliminar 16 MiB per-file skip;
-   - 64 MiB como page scan budget;
-   - tests con archivo >16 MiB, resume dentro de archivo, result-limit y scan-limit.
+2. **B2 – Streaming text search + search cursor** ✅
+   - reader streaming con offsets exactos y soporte UTF-8/16/32;
+   - eliminado el skip de archivos >16 MiB;
+   - 64 MiB como page scan budget continuable;
+   - cursor stateless dentro del archivo + stale detection;
+   - binary-prefix heuristic con diagnostics;
+   - bounded excerpts integrados para evitar líneas gigantes;
+   - suite y smoke live >64 MiB correctos.
 
-3. **B3 – Bounded excerpts + MCP metadata**
-   - evitar líneas gigantes en tool output;
-   - integration tests de schema/descriptions;
-   - smoke live/fresh-agent test de paginación completa.
+3. **B3 – Ergonomía/validación final**
+   - la parte funcional de bounded excerpts + MCP metadata + integration tests fue absorbida por B2;
+   - pendiente sólo refresh de schema + fresh-agent test de paginación completa.
 
 ## Criterios de aceptación
 
