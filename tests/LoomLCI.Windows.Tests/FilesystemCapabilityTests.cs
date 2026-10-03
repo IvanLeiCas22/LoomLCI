@@ -121,6 +121,48 @@ public sealed class FilesystemCapabilityTests
     }
 
     [Fact]
+    public async Task ReadFilesCanRangeReadTextFileLargerThanWholeFileLimit()
+    {
+        await using var fixture = new FilesystemFixture();
+        var path = Path.Combine(fixture.Root, "large.txt");
+        await using (var writer = new StreamWriter(path, append: false))
+        {
+            await writer.WriteAsync("first\ntarget\n");
+            var block = string.Concat(Enumerable.Repeat(new string('x', 255) + "\n", 256));
+            for (var i = 0; i < 260; i++)
+            {
+                await writer.WriteAsync(block);
+            }
+        }
+
+        Assert.True(new FileInfo(path).Length > 16L * 1024 * 1024);
+
+        var work = fixture.Sessions.Create(fixture.Root);
+        Assert.True(work.IsSuccess);
+
+        var ranged = await fixture.Filesystem.ReadFilesAsync(
+            [("large.txt", 2, 1)],
+            work.Value!.Id);
+
+        Assert.True(ranged.IsSuccess, ranged.Error?.Message);
+        var file = Assert.Single(ranged.Value!.Files);
+        Assert.Equal(2, file.StartLine);
+        Assert.Equal(2, file.EndLine);
+        Assert.Equal("target", file.Text);
+        Assert.True(file.HasMoreBefore);
+        Assert.True(file.HasMoreAfter);
+        Assert.True(file.TotalLines > 60_000);
+
+        var unbounded = await fixture.Filesystem.ReadFilesAsync(
+            [("large.txt", null, null)],
+            work.Value.Id);
+
+        Assert.False(unbounded.IsSuccess);
+        Assert.Equal("unsupported", unbounded.Error?.Code);
+        Assert.Contains("line limit", unbounded.Error?.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task TextSearchHandlesMultipleQueriesInOneTraversal()
     {
         await using var fixture = new FilesystemFixture();
@@ -143,6 +185,10 @@ public sealed class FilesystemCapabilityTests
         Assert.Equal(["alpha", "beta", "missing"], searched.Value!.Queries);
         Assert.Equal(1, searched.Value.FilesRead);
         Assert.False(searched.Value.Truncated);
+        Assert.False(searched.Value.ResultLimitReached);
+        Assert.False(searched.Value.ScanLimitReached);
+        Assert.Equal(0, searched.Value.SkippedLargeFileCount);
+        Assert.Empty(searched.Value.SkippedLargeFiles);
         Assert.Collection(
             searched.Value.Matches,
             match =>
@@ -186,6 +232,37 @@ public sealed class FilesystemCapabilityTests
         Assert.True(limited.IsSuccess, limited.Error?.Message);
         Assert.Equal(2, limited.Value!.Matches.Count);
         Assert.True(limited.Value.Truncated);
+        Assert.True(limited.Value.ResultLimitReached);
+        Assert.False(limited.Value.ScanLimitReached);
+        Assert.Equal(0, limited.Value.SkippedLargeFileCount);
+    }
+
+    [Fact]
+    public async Task TextSearchReportsLargeFilesThatWereSkipped()
+    {
+        await using var fixture = new FilesystemFixture();
+        var largePath = Path.Combine(fixture.Root, "large.txt");
+        await using (var stream = new FileStream(largePath, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            stream.SetLength(17L * 1024 * 1024);
+        }
+
+        var work = fixture.Sessions.Create(fixture.Root);
+        Assert.True(work.IsSuccess);
+
+        var searched = await fixture.Filesystem.SearchTextAsync(
+            ".",
+            ["needle"],
+            work.Value!.Id,
+            contextLines: 0);
+
+        Assert.True(searched.IsSuccess, searched.Error?.Message);
+        Assert.Empty(searched.Value!.Matches);
+        Assert.True(searched.Value.Truncated);
+        Assert.False(searched.Value.ResultLimitReached);
+        Assert.False(searched.Value.ScanLimitReached);
+        Assert.Equal(1, searched.Value.SkippedLargeFileCount);
+        Assert.Equal(["large.txt"], searched.Value.SkippedLargeFiles);
     }
 
     [Fact]
@@ -489,6 +566,78 @@ public sealed class FilesystemCapabilityTests
         var removeDirectory = await fixture.Filesystem.DeleteDirectoryAsync("notes", workId);
         Assert.True(removeDirectory.IsSuccess, removeDirectory.Error?.Message);
         Assert.False(Directory.Exists(Path.Combine(fixture.Root, "notes")));
+    }
+
+    [Fact]
+    public async Task DeleteAndMoveSupportLargeBinaryFilesWithoutTextValidation()
+    {
+        await using var fixture = new FilesystemFixture();
+        var source = Path.Combine(fixture.Root, "large.bin");
+        var destination = Path.Combine(fixture.Root, "destination.bin");
+
+        await using (var stream = new FileStream(source, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            stream.SetLength(17L * 1024 * 1024);
+        }
+        await File.WriteAllBytesAsync(destination, [1, 2, 3, 4]);
+
+        var work = fixture.Sessions.Create(fixture.Root);
+        Assert.True(work.IsSuccess);
+
+        var move = await fixture.Filesystem.ApplyPatchAsync(
+            [new FilesystemPatchChange(
+                FilesystemPatchOperation.Move,
+                FromPath: "large.bin",
+                ToPath: "destination.bin",
+                Overwrite: true)],
+            work.Value!.Id);
+
+        Assert.True(move.IsSuccess, move.Error?.Message);
+        Assert.False(File.Exists(source));
+        Assert.Equal(17L * 1024 * 1024, new FileInfo(destination).Length);
+
+        var delete = await fixture.Filesystem.ApplyPatchAsync(
+            [new FilesystemPatchChange(
+                FilesystemPatchOperation.Delete,
+                Path: "destination.bin")],
+            work.Value.Id);
+
+        Assert.True(delete.IsSuccess, delete.Error?.Message);
+        Assert.False(File.Exists(destination));
+        Assert.Empty(Directory.EnumerateFiles(fixture.Root, "*.loomlci-*.bak"));
+    }
+
+    [Fact]
+    public async Task LargeFileDeleteRollsBackFromDiskBackupWhenLaterChangeFails()
+    {
+        await using var fixture = new FilesystemFixture();
+        var large = Path.Combine(fixture.Root, "large.bin");
+        await using (var stream = new FileStream(large, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            stream.SetLength(17L * 1024 * 1024);
+        }
+        Directory.CreateDirectory(Path.Combine(fixture.Root, "blocked"));
+
+        var work = fixture.Sessions.Create(fixture.Root);
+        Assert.True(work.IsSuccess);
+
+        var result = await fixture.Filesystem.ApplyPatchAsync(
+            [
+                new FilesystemPatchChange(
+                    FilesystemPatchOperation.Delete,
+                    Path: "large.bin"),
+                new FilesystemPatchChange(
+                    FilesystemPatchOperation.Write,
+                    Path: "blocked",
+                    Content: "cannot write over a directory",
+                    Overwrite: true)
+            ],
+            work.Value!.Id);
+
+        Assert.False(result.IsSuccess);
+        Assert.True(File.Exists(large));
+        Assert.Equal(17L * 1024 * 1024, new FileInfo(large).Length);
+        Assert.Empty(Directory.EnumerateFiles(fixture.Root, "*.loomlci-*.bak"));
     }
 
     [Fact]

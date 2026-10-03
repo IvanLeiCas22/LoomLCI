@@ -57,7 +57,11 @@ public sealed record FilesystemSearchTextResult(
     IReadOnlyList<FilesystemTextMatch> Matches,
     int FilesRead,
     long BytesRead,
-    bool Truncated);
+    bool Truncated,
+    bool ResultLimitReached,
+    bool ScanLimitReached,
+    int SkippedLargeFileCount,
+    IReadOnlyList<string> SkippedLargeFiles);
 
 public sealed record FilesystemReadFileRequest(
     string RequestedPath,

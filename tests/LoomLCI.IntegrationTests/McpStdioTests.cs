@@ -107,6 +107,8 @@ public sealed class McpStdioTests
         var searchText = Assert.Single(tools, tool => tool.Name == "filesystem_search_text");
         Assert.Contains("one to 32 literal text queries", searchText.Description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("grouped by matching line", searchText.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("skippedLargeFileCount", searchText.Description, StringComparison.Ordinal);
+        Assert.Contains("scanLimitReached", searchText.Description, StringComparison.Ordinal);
         var searchProperties = GetRequiredProperty(searchText.JsonSchema, "properties");
         var searchQueries = GetRequiredProperty(searchProperties, "queries");
         Assert.Equal(1, GetRequiredProperty(searchQueries, "minItems").GetInt32());
@@ -116,13 +118,16 @@ public sealed class McpStdioTests
         GetRequiredProperty(searchProperties, "excludeDirectories");
 
         var readFiles = Assert.Single(tools, tool => tool.Name == "filesystem_read_files");
+        Assert.Contains("bounded ranges", readFiles.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("16 MiB", readFiles.Description, StringComparison.OrdinalIgnoreCase);
         var readProperties = GetRequiredProperty(readFiles.JsonSchema, "properties");
         var filesSchema = GetRequiredProperty(readProperties, "files");
         Assert.Equal(1, GetRequiredProperty(filesSchema, "minItems").GetInt32());
         Assert.Equal(32, GetRequiredProperty(filesSchema, "maxItems").GetInt32());
 
         var applyPatch = Assert.Single(tools, tool => tool.Name == "filesystem_apply_patch");
-        Assert.Equal("Apply text-file patch", applyPatch.ProtocolTool.Title);
+        Assert.Equal("Apply file changes", applyPatch.ProtocolTool.Title);
+        Assert.Contains("large or binary files", applyPatch.Description, StringComparison.OrdinalIgnoreCase);
         Assert.False(applyPatch.ProtocolTool.Annotations?.OpenWorldHint ?? true);
         var applyProperties = GetRequiredProperty(applyPatch.JsonSchema, "properties");
         var changesItems = GetRequiredProperty(GetRequiredProperty(applyProperties, "changes"), "items");

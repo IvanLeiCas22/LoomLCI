@@ -48,7 +48,11 @@ public sealed record FilesystemSearchTextDto(
     IReadOnlyList<FilesystemTextMatchDto> Matches,
     int FilesRead,
     long BytesRead,
-    bool Truncated);
+    bool Truncated,
+    bool ResultLimitReached,
+    bool ScanLimitReached,
+    int SkippedLargeFileCount,
+    IReadOnlyList<string> SkippedLargeFiles);
 
 public sealed record FilesystemReadFileInput(
     [property: Description("File path to read. May be absolute or relative to the work session base directory.")] string Path,
@@ -184,7 +188,7 @@ public sealed class FilesystemTools
         Destructive = false,
         Idempotent = true,
         OpenWorld = false)]
-    [Description("Searches one to 32 literal text queries in a single filesystem traversal with OR semantics. Results are grouped by matching line: each line appears once with queryMatches identifying every query that matched and its first matching column. maxResults limits matching lines, not individual query matches. Recursive traversal prunes common generated/infrastructure directories by default; explicitly targeting one of those directories as path still works. Use this when content locations are unknown; use filesystem_find_paths for path/name lookup and filesystem_read_files after locating files that need fuller context.")]
+    [Description("Searches one to 32 literal text queries in a single filesystem traversal with OR semantics. Results are grouped by matching line: each line appears once with queryMatches identifying every query that matched and its first matching column. maxResults limits matching lines, not individual query matches. Search currently scans at most 64 MiB total and skips individual files over 16 MiB; truncated is true whenever results are incomplete, while resultLimitReached, scanLimitReached, skippedLargeFileCount, and skippedLargeFiles explain why. Recursive traversal prunes common generated/infrastructure directories by default; explicitly targeting one of those directories as path still works. Use this when content locations are unknown; use filesystem_find_paths for path/name lookup and filesystem_read_files after locating files that need fuller context.")]
     public async Task<CallToolResult> SearchText(
         [Description("File or directory path to search. May be absolute or relative to the work session base directory.")] string path,
         [Description("One to 32 non-empty literal text queries. Multiple queries use OR semantics and are searched in one traversal; this is not regex.")][MinLength(1)][MaxLength(32)] string[] queries,
@@ -221,7 +225,7 @@ public sealed class FilesystemTools
         Destructive = false,
         Idempotent = true,
         OpenWorld = false)]
-    [Description("Reads known UTF-8-compatible text files, optionally by 1-based line range. Each file result reports hasMoreBefore and hasMoreAfter so partial ranges are explicit without implying transport truncation. Use this when exact file paths are already known; prefer filesystem_search_text when you first need to locate content. Multiple files can be read in one call.")]
+    [Description("Reads known text files, optionally by 1-based line range. Large files can be read in bounded ranges by supplying limit; unbounded whole-file reads over 16 MiB are rejected to avoid oversized tool results. Each file result reports hasMoreBefore and hasMoreAfter so partial ranges are explicit without implying transport truncation. Use this when exact file paths are already known; prefer filesystem_search_text when you first need to locate content. Multiple files can be read in one call.")]
     public async Task<CallToolResult> ReadFiles(
         [Description("One to 32 files to read. Offset is the optional 1-based starting line and limit is the optional maximum line count.")][MinLength(1)][MaxLength(32)] FilesystemReadFileInput[] files,
         [Description("Optional work session handle used to resolve relative paths.")] string? workId = null,
@@ -237,14 +241,14 @@ public sealed class FilesystemTools
 
     [McpServerTool(
         Name = "filesystem_apply_patch",
-        Title = "Apply text-file patch",
+        Title = "Apply file changes",
         UseStructuredContent = true,
         OutputSchemaType = typeof(ToolEnvelope<FilesystemPatchDto>),
         ReadOnly = false,
         Destructive = true,
         Idempotent = false,
         OpenWorld = false)]
-    [Description("Creates, overwrites, replaces within, deletes, or moves text files using structured operations. Prefer this over shell commands for text-file edits. Each call accepts up to 64 validated changes; dependent edits to the same path must be split into separate calls.")]
+    [Description("Applies structured file changes. write and replace are text operations with a 16 MiB text-content limit; delete and move operate on files without reading their contents, so they also work for large or binary files. Prefer this over shell commands for equivalent filesystem changes. Each call accepts up to 64 validated changes; dependent edits to the same path must be split into separate calls.")]
     public async Task<CallToolResult> ApplyPatch(
         [Description("One to 64 patch operations. write uses path+content; replace uses path+oldText+newText; delete uses path; move uses fromPath+toPath.")][MinLength(1)][MaxLength(64)] FilesystemPatchChangeInput[] changes,
         [Description("Optional work session handle used to resolve relative paths.")] string? workId = null,
@@ -383,7 +387,11 @@ public sealed class FilesystemTools
                             match.ContextAfter)).ToArray(),
                         result.Value.FilesRead,
                         result.Value.BytesRead,
-                        result.Value.Truncated)))
+                        result.Value.Truncated,
+                        result.Value.ResultLimitReached,
+                        result.Value.ScanLimitReached,
+                        result.Value.SkippedLargeFileCount,
+                        result.Value.SkippedLargeFiles)))
             : ToolEnvelope<FilesystemSearchTextDto>.From(
                 LoomResult<FilesystemSearchTextDto>.Failure(result.Error!));
 

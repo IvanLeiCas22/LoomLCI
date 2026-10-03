@@ -9,6 +9,7 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
     private const long MaxTextFileBytes = 16L * 1024 * 1024;
     private const long MaxSearchTotalBytes = 64L * 1024 * 1024;
     private const long MaxReadTotalBytes = 64L * 1024 * 1024;
+    private const int MaxSkippedLargeFileSamples = 20;
 
     private static readonly string[] DefaultGeneratedDirectories =
     [
@@ -174,7 +175,10 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
             var comparison = caseSensitive ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
             var filesRead = 0;
             long bytesRead = 0;
-            var truncated = false;
+            var resultLimitReached = false;
+            var scanLimitReached = false;
+            var skippedLargeFileCount = 0;
+            var skippedLargeFiles = new List<string>();
 
             foreach (var file in files)
             {
@@ -183,12 +187,17 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                 var info = new FileInfo(file.FullPath);
                 if (info.Length > MaxTextFileBytes)
                 {
+                    skippedLargeFileCount++;
+                    if (skippedLargeFiles.Count < MaxSkippedLargeFileSamples)
+                    {
+                        skippedLargeFiles.Add(file.RelativePath);
+                    }
                     continue;
                 }
 
                 if (bytesRead + info.Length > MaxSearchTotalBytes)
                 {
-                    truncated = true;
+                    scanLimitReached = true;
                     break;
                 }
 
@@ -223,7 +232,7 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
 
                     if (matches.Count >= maxResults)
                     {
-                        truncated = true;
+                        resultLimitReached = true;
                         break;
                     }
 
@@ -247,14 +256,25 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                         after));
                 }
 
-                if (truncated)
+                if (resultLimitReached || scanLimitReached)
                 {
                     break;
                 }
             }
 
+            var truncated = resultLimitReached || scanLimitReached || skippedLargeFileCount > 0;
             return LoomResult<FilesystemSearchTextResult>.Success(
-                new FilesystemSearchTextResult(root, queries, matches, filesRead, bytesRead, truncated));
+                new FilesystemSearchTextResult(
+                    root,
+                    queries,
+                    matches,
+                    filesRead,
+                    bytesRead,
+                    truncated,
+                    resultLimitReached,
+                    scanLimitReached,
+                    skippedLargeFileCount,
+                    skippedLargeFiles));
         }
         catch (OperationCanceledException)
         {
@@ -286,49 +306,43 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                 }
 
                 var info = new FileInfo(request.FullPath);
-                if (info.Length > MaxTextFileBytes)
+                if (request.Limit is null && info.Length > MaxTextFileBytes)
                 {
                     return LoomResult<FilesystemReadFilesResult>.Failure(
-                        LoomErrors.Unsupported($"File '{request.FullPath}' exceeds the 16 MiB text read limit."));
+                        LoomErrors.Unsupported(
+                            $"File '{request.FullPath}' exceeds the 16 MiB unbounded text read limit. " +
+                            "Specify a line limit to read large files in bounded ranges."));
                 }
 
-                totalBytes += info.Length;
+                var ranged = await ReadTextRangeAsync(
+                    request.FullPath,
+                    request.Offset,
+                    request.Limit,
+                    cancellationToken).ConfigureAwait(false);
+                if (!ranged.IsSuccess)
+                {
+                    return LoomResult<FilesystemReadFilesResult>.Failure(ranged.Error!);
+                }
+
+                var value = ranged.Value!;
+                totalBytes += Encoding.UTF8.GetByteCount(value.Text);
                 if (totalBytes > MaxReadTotalBytes)
                 {
                     return LoomResult<FilesystemReadFilesResult>.Failure(
-                        LoomErrors.Unsupported("The requested files exceed the 64 MiB aggregate text read limit."));
+                        LoomErrors.Unsupported(
+                            "The returned text would exceed the 64 MiB aggregate read limit. " +
+                            "Use smaller line ranges or split the files across calls."));
                 }
-
-                var text = await File.ReadAllTextAsync(request.FullPath, cancellationToken).ConfigureAwait(false);
-                if (text.IndexOf('\0') >= 0)
-                {
-                    return LoomResult<FilesystemReadFilesResult>.Failure(
-                        LoomErrors.Unsupported($"File '{request.FullPath}' does not appear to be a text file."));
-                }
-
-                var lines = ParseTextLines(text);
-                var start = request.Offset ?? 1;
-                if (start > lines.Count + 1)
-                {
-                    start = lines.Count + 1;
-                }
-
-                var available = Math.Max(0, lines.Count - start + 1);
-                var count = request.Limit is null ? available : Math.Min(available, request.Limit.Value);
-                var end = count == 0 ? start - 1 : start + count - 1;
-                var hasMoreBefore = start > 1;
-                var hasMoreAfter = end < lines.Count;
-                var selected = BuildTextSlice(lines, start - 1, count);
 
                 results.Add(new FilesystemReadFileResult(
                     request.RequestedPath,
                     request.FullPath,
-                    start,
-                    end,
-                    lines.Count,
-                    hasMoreBefore,
-                    hasMoreAfter,
-                    selected));
+                    value.StartLine,
+                    value.EndLine,
+                    value.TotalLines,
+                    value.HasMoreBefore,
+                    value.HasMoreAfter,
+                    value.Text));
             }
 
             return LoomResult<FilesystemReadFilesResult>.Success(new FilesystemReadFilesResult(results));
@@ -353,6 +367,7 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                 ValidatePatch(changes, cancellationToken);
 
                 var undo = new Stack<Action>();
+                var cleanup = new Stack<Action>();
                 try
                 {
                     foreach (var change in changes)
@@ -365,21 +380,33 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                             {
                                 var path = change.Path!;
                                 var existed = File.Exists(path);
-                                var originalBytes = existed ? File.ReadAllBytes(path) : null;
                                 var encoding = existed ? GetExistingTextEncoding(path) : new UTF8Encoding(false);
+                                string? backup = null;
+
+                                if (existed)
+                                {
+                                    backup = CreateSiblingBackupPath(path);
+                                    File.Move(path, backup);
+                                    var capturedBackup = backup;
+                                    undo.Push(() =>
+                                    {
+                                        if (File.Exists(path))
+                                        {
+                                            File.Delete(path);
+                                        }
+                                        if (File.Exists(capturedBackup))
+                                        {
+                                            File.Move(capturedBackup, path, true);
+                                        }
+                                    });
+                                    cleanup.Push(() => DeleteFileIfExists(capturedBackup));
+                                }
+                                else
+                                {
+                                    undo.Push(() => DeleteFileIfExists(path));
+                                }
 
                                 File.WriteAllText(path, change.Content!, encoding);
-                                undo.Push(() =>
-                                {
-                                    if (existed)
-                                    {
-                                        File.WriteAllBytes(path, originalBytes!);
-                                    }
-                                    else if (File.Exists(path))
-                                    {
-                                        File.Delete(path);
-                                    }
-                                });
                                 break;
                             }
 
@@ -397,9 +424,16 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                             case FilesystemPatchOperation.Delete:
                             {
                                 var path = change.Path!;
-                                var originalBytes = File.ReadAllBytes(path);
-                                File.Delete(path);
-                                undo.Push(() => File.WriteAllBytes(path, originalBytes));
+                                var backup = CreateSiblingBackupPath(path);
+                                File.Move(path, backup);
+                                undo.Push(() =>
+                                {
+                                    if (File.Exists(backup))
+                                    {
+                                        File.Move(backup, path, true);
+                                    }
+                                });
+                                cleanup.Push(() => DeleteFileIfExists(backup));
                                 break;
                             }
 
@@ -407,20 +441,29 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                             {
                                 var from = change.FromPath!;
                                 var to = change.ToPath!;
-                                var destinationExisted = File.Exists(to);
-                                var destinationOriginal = destinationExisted ? File.ReadAllBytes(to) : null;
+                                string? destinationBackup = null;
 
-                                File.Move(from, to, change.Overwrite);
+                                if (File.Exists(to))
+                                {
+                                    destinationBackup = CreateSiblingBackupPath(to);
+                                    File.Move(to, destinationBackup);
+                                    var capturedBackup = destinationBackup;
+                                    undo.Push(() =>
+                                    {
+                                        if (File.Exists(capturedBackup))
+                                        {
+                                            File.Move(capturedBackup, to, true);
+                                        }
+                                    });
+                                    cleanup.Push(() => DeleteFileIfExists(capturedBackup));
+                                }
+
+                                File.Move(from, to, overwrite: false);
                                 undo.Push(() =>
                                 {
                                     if (File.Exists(to))
                                     {
                                         File.Move(to, from, true);
-                                    }
-
-                                    if (destinationExisted)
-                                    {
-                                        File.WriteAllBytes(to, destinationOriginal!);
                                     }
                                 });
                                 break;
@@ -443,6 +486,18 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                     }
 
                     throw;
+                }
+
+                while (cleanup.Count > 0)
+                {
+                    try
+                    {
+                        cleanup.Pop().Invoke();
+                    }
+                    catch
+                    {
+                        // The requested changes are already committed. Cleanup is best-effort.
+                    }
                 }
 
                 return LoomResult<FilesystemPatchResult>.Success(
@@ -561,7 +616,7 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                 {
                     var path = change.Path!;
                     EnsureUnique(touched, path);
-                    EnsureTextFile(path);
+                    EnsureFileExists(path);
                     break;
                 }
 
@@ -571,7 +626,7 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                     var to = change.ToPath!;
                     EnsureUnique(touched, from);
                     EnsureUnique(touched, to);
-                    EnsureTextFile(from);
+                    EnsureFileExists(from);
                     EnsureParentExists(to);
 
                     if (File.Exists(to) && !change.Overwrite)
@@ -745,6 +800,139 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
         return builder.ToString();
     }
 
+    private static async Task<LoomResult<StreamingTextRange>> ReadTextRangeAsync(
+        string path,
+        int? offset,
+        int? limit,
+        CancellationToken cancellationToken)
+    {
+        var requestedStart = offset ?? 1;
+        var selected = new List<TextLine>(Math.Min(limit ?? 128, 10_000));
+        var current = new StringBuilder();
+        var buffer = new char[8192];
+        var pendingCarriageReturn = false;
+        var totalLines = 0;
+
+        await using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete,
+            bufferSize: 8192,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        using var reader = new StreamReader(
+            stream,
+            Encoding.UTF8,
+            detectEncodingFromByteOrderMarks: true,
+            bufferSize: 8192,
+            leaveOpen: false);
+
+        void CompleteLine(string separator)
+        {
+            totalLines++;
+            if (totalLines >= requestedStart &&
+                (limit is null || selected.Count < limit.Value))
+            {
+                selected.Add(new TextLine(current.ToString(), separator));
+            }
+
+            current.Clear();
+        }
+
+        while (true)
+        {
+            var read = await reader.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
+            if (read == 0)
+            {
+                break;
+            }
+
+            for (var i = 0; i < read; i++)
+            {
+                var ch = buffer[i];
+                if (ch == '\0')
+                {
+                    return LoomResult<StreamingTextRange>.Failure(
+                        LoomErrors.Unsupported($"File '{path}' does not appear to be a text file."));
+                }
+
+                if (pendingCarriageReturn)
+                {
+                    if (ch == '\n')
+                    {
+                        CompleteLine("\r\n");
+                        pendingCarriageReturn = false;
+                        continue;
+                    }
+
+                    CompleteLine("\r");
+                    pendingCarriageReturn = false;
+                }
+
+                if (ch == '\r')
+                {
+                    pendingCarriageReturn = true;
+                }
+                else if (ch == '\n')
+                {
+                    CompleteLine("\n");
+                }
+                else
+                {
+                    current.Append(ch);
+                }
+            }
+        }
+
+        if (pendingCarriageReturn)
+        {
+            CompleteLine("\r");
+        }
+        else if (current.Length > 0)
+        {
+            CompleteLine(string.Empty);
+        }
+
+        var start = Math.Min(requestedStart, totalLines + 1);
+        var end = selected.Count == 0 ? start - 1 : start + selected.Count - 1;
+        var text = BuildStreamingTextSlice(selected, start, totalLines);
+
+        return LoomResult<StreamingTextRange>.Success(new StreamingTextRange(
+            start,
+            end,
+            totalLines,
+            start > 1,
+            end < totalLines,
+            text));
+    }
+
+    private static string BuildStreamingTextSlice(
+        IReadOnlyList<TextLine> selected,
+        int startLine,
+        int totalLines)
+    {
+        if (selected.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var builder = new StringBuilder();
+        for (var index = 0; index < selected.Count; index++)
+        {
+            var line = selected[index];
+            builder.Append(line.Content);
+
+            var isLastSelected = index == selected.Count - 1;
+            var isLastFileLine = startLine + index == totalLines;
+            if (!isLastSelected || isLastFileLine)
+            {
+                builder.Append(line.Separator);
+            }
+        }
+
+        return builder.ToString();
+    }
+
     private static Encoding GetExistingTextEncoding(string path)
     {
         Span<byte> prefix = stackalloc byte[4];
@@ -809,12 +997,22 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
         }
     }
 
-    private static void EnsureTextFile(string path)
+    private static void EnsureFileExists(string path)
     {
+        if (Directory.Exists(path))
+        {
+            throw Conflict($"Path '{path}' is a directory, not a file.");
+        }
+
         if (!File.Exists(path))
         {
             throw new PatchValidationException(LoomErrors.NotFound($"File '{path}' was not found."));
         }
+    }
+
+    private static void EnsureTextFile(string path)
+    {
+        EnsureFileExists(path);
 
         var info = new FileInfo(path);
         if (info.Length > MaxTextFileBytes)
@@ -837,6 +1035,35 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
         {
             throw new PatchValidationException(
                 LoomErrors.Unsupported($"Content for '{path}' exceeds the 16 MiB text patch limit."));
+        }
+    }
+
+    private static string CreateSiblingBackupPath(string path)
+    {
+        var directory = Path.GetDirectoryName(path);
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            throw new IOException($"Could not determine a parent directory for '{path}'.");
+        }
+
+        var name = Path.GetFileName(path);
+        while (true)
+        {
+            var candidate = Path.Combine(
+                directory,
+                $".{name}.loomlci-{Guid.NewGuid():N}.bak");
+            if (!File.Exists(candidate) && !Directory.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+    }
+
+    private static void DeleteFileIfExists(string path)
+    {
+        if (File.Exists(path))
+        {
+            File.Delete(path);
         }
     }
 
@@ -869,6 +1096,14 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
         };
 
     private sealed record TextLine(string Content, string Separator);
+
+    private sealed record StreamingTextRange(
+        int StartLine,
+        int EndLine,
+        int TotalLines,
+        bool HasMoreBefore,
+        bool HasMoreAfter,
+        string Text);
 
     private sealed class PatchValidationException(LoomError error) : Exception(error.Message)
     {
