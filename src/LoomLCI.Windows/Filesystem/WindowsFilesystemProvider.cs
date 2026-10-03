@@ -10,8 +10,20 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
     private const long MaxSearchTotalBytes = 64L * 1024 * 1024;
     private const long MaxReadTotalBytes = 64L * 1024 * 1024;
 
+    private static readonly string[] DefaultGeneratedDirectories =
+    [
+        ".git",
+        ".vs",
+        ".venv",
+        "__pycache__",
+        "bin",
+        "node_modules",
+        "obj"
+    ];
+
     public Task<LoomResult<FilesystemListTreeResult>> ListTreeAsync(
         string root,
+        FilesystemTraversalOptions traversal,
         int maxDepth,
         int maxEntries,
         CancellationToken cancellationToken)
@@ -28,7 +40,7 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                 var entries = new List<FilesystemEntry>(Math.Min(maxEntries, 1024));
                 var truncated = false;
 
-                foreach (var item in Enumerate(root, maxDepth, cancellationToken))
+                foreach (var item in Enumerate(root, traversal, maxDepth, cancellationToken))
                 {
                     if (entries.Count >= maxEntries)
                     {
@@ -36,7 +48,12 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                         break;
                     }
 
-                    entries.Add(ToEntry(root, item.FullPath, item.Depth, item.Type));
+                    entries.Add(ToEntry(
+                        root,
+                        item.FullPath,
+                        item.Depth,
+                        item.Type,
+                        item.ChildrenExcluded));
                 }
 
                 return LoomResult<FilesystemListTreeResult>.Success(
@@ -57,6 +74,7 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
         IReadOnlyList<string> queries,
         FilesystemPathMatchMode matchMode,
         FilesystemEntryType? type,
+        FilesystemTraversalOptions traversal,
         int maxDepth,
         int maxResults,
         CancellationToken cancellationToken)
@@ -74,7 +92,7 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                 var matches = new List<FilesystemEntry>(Math.Min(maxResults, 256));
                 var truncated = false;
 
-                foreach (var item in Enumerate(root, maxDepth, cancellationToken))
+                foreach (var item in Enumerate(root, traversal, maxDepth, cancellationToken))
                 {
                     if (type is not null && item.Type != type)
                     {
@@ -100,7 +118,12 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                         break;
                     }
 
-                    matches.Add(ToEntry(root, item.FullPath, item.Depth, item.Type));
+                    matches.Add(ToEntry(
+                        root,
+                        item.FullPath,
+                        item.Depth,
+                        item.Type,
+                        item.ChildrenExcluded));
                 }
 
                 return LoomResult<FilesystemFindPathsResult>.Success(
@@ -120,6 +143,7 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
         string root,
         string query,
         bool caseSensitive,
+        FilesystemTraversalOptions traversal,
         int maxDepth,
         int maxResults,
         int contextLines,
@@ -134,7 +158,7 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
             }
             else if (Directory.Exists(root))
             {
-                files = Enumerate(root, maxDepth, cancellationToken)
+                files = Enumerate(root, traversal, maxDepth, cancellationToken)
                     .Where(item => item.Type == FilesystemEntryType.File)
                     .Select(item => (
                         item.FullPath,
@@ -554,11 +578,19 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
         }
     }
 
-    private static IEnumerable<(string FullPath, int Depth, FilesystemEntryType Type)> Enumerate(
+    private static IEnumerable<(
+        string FullPath,
+        int Depth,
+        FilesystemEntryType Type,
+        string? ChildrenExcluded)> Enumerate(
         string root,
+        FilesystemTraversalOptions traversal,
         int maxDepth,
         CancellationToken cancellationToken)
     {
+        var excludedDirectories = traversal.ExcludeDirectories is null
+            ? null
+            : new HashSet<string>(traversal.ExcludeDirectories, StringComparer.OrdinalIgnoreCase);
         var pending = new Queue<(string Directory, int Depth)>();
         pending.Enqueue((root, 0));
 
@@ -581,10 +613,13 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                     : isDirectory
                         ? FilesystemEntryType.Directory
                         : FilesystemEntryType.File;
+                var childrenExcluded = isDirectory && !isReparse
+                    ? GetChildrenExcludedReason(Path.GetFileName(path), traversal, excludedDirectories)
+                    : null;
 
-                yield return (path, depth, type);
+                yield return (path, depth, type, childrenExcluded);
 
-                if (isDirectory && !isReparse && depth < maxDepth)
+                if (isDirectory && !isReparse && childrenExcluded is null && depth < maxDepth)
                 {
                     pending.Enqueue((path, depth));
                 }
@@ -592,11 +627,26 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
         }
     }
 
+    private static string? GetChildrenExcludedReason(
+        string directoryName,
+        FilesystemTraversalOptions traversal,
+        HashSet<string>? excludedDirectories)
+    {
+        if (!traversal.IncludeGenerated &&
+            DefaultGeneratedDirectories.Contains(directoryName, StringComparer.OrdinalIgnoreCase))
+        {
+            return "generated";
+        }
+
+        return excludedDirectories?.Contains(directoryName) == true ? "excluded" : null;
+    }
+
     private static FilesystemEntry ToEntry(
         string root,
         string fullPath,
         int depth,
-        FilesystemEntryType type)
+        FilesystemEntryType type,
+        string? childrenExcluded)
     {
         long? size = type == FilesystemEntryType.File ? new FileInfo(fullPath).Length : null;
         return new FilesystemEntry(
@@ -604,7 +654,8 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
             Path.GetFileName(fullPath),
             type,
             size,
-            depth);
+            depth,
+            childrenExcluded);
     }
 
     private static string NormalizeRelative(string path)

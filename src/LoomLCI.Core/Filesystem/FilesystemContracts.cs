@@ -13,12 +13,17 @@ public enum FilesystemPathMatchMode
     Suffix
 }
 
+public sealed record FilesystemTraversalOptions(
+    bool IncludeGenerated = false,
+    IReadOnlyList<string>? ExcludeDirectories = null);
+
 public sealed record FilesystemEntry(
     string Path,
     string Name,
     FilesystemEntryType Type,
     long? Size,
-    int Depth);
+    int Depth,
+    string? ChildrenExcluded = null);
 
 public sealed record FilesystemListTreeResult(
     string Root,
@@ -95,6 +100,7 @@ public interface IFilesystemProvider
 {
     Task<LoomResult<FilesystemListTreeResult>> ListTreeAsync(
         string root,
+        FilesystemTraversalOptions traversal,
         int maxDepth,
         int maxEntries,
         CancellationToken cancellationToken);
@@ -104,6 +110,7 @@ public interface IFilesystemProvider
         IReadOnlyList<string> queries,
         FilesystemPathMatchMode matchMode,
         FilesystemEntryType? type,
+        FilesystemTraversalOptions traversal,
         int maxDepth,
         int maxResults,
         CancellationToken cancellationToken);
@@ -112,6 +119,7 @@ public interface IFilesystemProvider
         string root,
         string query,
         bool caseSensitive,
+        FilesystemTraversalOptions traversal,
         int maxDepth,
         int maxResults,
         int contextLines,

@@ -78,6 +78,12 @@ public sealed class McpStdioTests
         var listTree = Assert.Single(tools, tool => tool.Name == "filesystem_list_tree");
         Assert.Equal("List directory tree", listTree.ProtocolTool.Title);
         Assert.Contains("discover project structure", listTree.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("generated/infrastructure", listTree.Description, StringComparison.OrdinalIgnoreCase);
+        var listProperties = GetRequiredProperty(listTree.JsonSchema, "properties");
+        Assert.False(GetRequiredProperty(GetRequiredProperty(listProperties, "includeGenerated"), "default").GetBoolean());
+        Assert.Equal(
+            64,
+            GetRequiredProperty(GetRequiredProperty(listProperties, "excludeDirectories"), "maxItems").GetInt32());
 
         var findPaths = Assert.Single(tools, tool => tool.Name == "filesystem_find_paths");
         Assert.Equal("Find paths", findPaths.ProtocolTool.Title);
@@ -87,9 +93,16 @@ public sealed class McpStdioTests
         AssertSchemaRange(GetRequiredProperty(findProperties, "maxResults"), 1, 1000);
         AssertSchemaEnum(GetRequiredProperty(findProperties, "matchMode"), "substring", "suffix");
         AssertSchemaEnum(GetRequiredProperty(findProperties, "type"), "any", "file", "directory", "symlink");
+        GetRequiredProperty(findProperties, "includeGenerated");
+        GetRequiredProperty(findProperties, "excludeDirectories");
         var queriesSchema = GetRequiredProperty(findProperties, "queries");
         Assert.Equal(1, GetRequiredProperty(queriesSchema, "minItems").GetInt32());
         Assert.Equal(32, GetRequiredProperty(queriesSchema, "maxItems").GetInt32());
+
+        var searchText = Assert.Single(tools, tool => tool.Name == "filesystem_search_text");
+        var searchProperties = GetRequiredProperty(searchText.JsonSchema, "properties");
+        GetRequiredProperty(searchProperties, "includeGenerated");
+        GetRequiredProperty(searchProperties, "excludeDirectories");
 
         var readFiles = Assert.Single(tools, tool => tool.Name == "filesystem_read_files");
         var readProperties = GetRequiredProperty(readFiles.JsonSchema, "properties");

@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 using LoomLCI.Core;
 using LoomLCI.Core.Filesystem;
 using ModelContextProtocol.Protocol;
@@ -12,7 +13,8 @@ public sealed record FilesystemEntryDto(
     string Name,
     string Type,
     long? Size,
-    int Depth);
+    int Depth,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ChildrenExcluded);
 
 public sealed record FilesystemListTreeDto(
     string Root,
@@ -95,10 +97,12 @@ public sealed class FilesystemTools
         Destructive = false,
         Idempotent = true,
         OpenWorld = false)]
-    [Description("Lists a bounded recursive directory tree. Use this to discover project structure when exact paths are not yet known. It does not read file contents; prefer filesystem_find_paths for name/path lookup, filesystem_search_text for content search, and filesystem_read_files once exact files are known.")]
+    [Description("Lists a bounded recursive directory tree. Use this to discover project structure when exact paths are not yet known. Recursive traversal prunes common generated/infrastructure directories by default while still showing the directory itself; explicitly targeting one of those directories as path still works. It does not read file contents; prefer filesystem_find_paths for name/path lookup, filesystem_search_text for content search, and filesystem_read_files once exact files are known.")]
     public async Task<CallToolResult> ListTree(
         [Description("Directory path. May be absolute or relative to the work session base directory.")] string path = ".",
         [Description("Optional work session handle used to resolve relative paths.")] string? workId = null,
+        [Description("When false, recursive traversal prunes .git, .vs, .venv, __pycache__, bin, node_modules, and obj. Explicitly targeting one of those directories as path still traverses it.")] bool includeGenerated = false,
+        [Description("Optional exact directory names to prune in addition to the defaults. Names are case-insensitive on Windows and are not glob patterns or paths.")][MaxLength(64)] string[]? excludeDirectories = null,
         [Description("Maximum recursion depth.")][Range(1, 32)] int maxDepth = 3,
         [Description("Maximum entries returned.")][Range(1, 5000)] int maxEntries = 1000,
         CancellationToken cancellationToken = default)
@@ -106,6 +110,8 @@ public sealed class FilesystemTools
         var result = await _filesystem.ListTreeAsync(
             path,
             ParseWorkId(workId),
+            includeGenerated,
+            excludeDirectories,
             maxDepth,
             maxEntries,
             cancellationToken).ConfigureAwait(false);
@@ -122,13 +128,15 @@ public sealed class FilesystemTools
         Destructive = false,
         Idempotent = true,
         OpenWorld = false)]
-    [Description("Finds files or directories by literal path/name fragments. Use this when searching for paths, filenames, or extensions; it does not inspect file contents. Use filesystem_search_text instead for text inside files. matchMode=suffix is useful for exact filename endings or extensions.")]
+    [Description("Finds files or directories by literal path/name fragments. Recursive traversal prunes common generated/infrastructure directories by default; explicitly targeting one of those directories as path still works. Use this when searching for paths, filenames, or extensions; it does not inspect file contents. Use filesystem_search_text instead for text inside files. matchMode=suffix is useful for exact filename endings or extensions.")]
     public async Task<CallToolResult> FindPaths(
         [Description("Root directory to search. May be absolute or relative to the work session base directory.")] string path,
         [Description("One to 32 non-empty literal path queries. Multiple queries use OR semantics.")][MinLength(1)][MaxLength(32)] string[] queries,
         [Description("Path matching strategy: substring matches anywhere in the relative path; suffix matches only path endings.")][AllowedValues("substring", "suffix")] string matchMode = "substring",
         [Description("Optional entry type filter.")][AllowedValues("any", "file", "directory", "symlink")] string type = "any",
         [Description("Optional work session handle used to resolve relative paths.")] string? workId = null,
+        [Description("When false, recursive traversal prunes .git, .vs, .venv, __pycache__, bin, node_modules, and obj. Explicitly targeting one of those directories as path still traverses it.")] bool includeGenerated = false,
+        [Description("Optional exact directory names to prune in addition to the defaults. Names are case-insensitive on Windows and are not glob patterns or paths.")][MaxLength(64)] string[]? excludeDirectories = null,
         [Description("Maximum recursion depth.")][Range(1, 32)] int maxDepth = 12,
         [Description("Maximum matching entries returned.")][Range(1, 1000)] int maxResults = 100,
         CancellationToken cancellationToken = default)
@@ -153,6 +161,8 @@ public sealed class FilesystemTools
             parsedMode,
             parsedType,
             ParseWorkId(workId),
+            includeGenerated,
+            excludeDirectories,
             maxDepth,
             maxResults,
             cancellationToken).ConfigureAwait(false);
@@ -169,12 +179,14 @@ public sealed class FilesystemTools
         Destructive = false,
         Idempotent = true,
         OpenWorld = false)]
-    [Description("Searches literal text inside files and returns path, line, column, and small context. Use this when the content location is unknown; use filesystem_find_paths for path/name lookup and filesystem_read_files after locating files that need fuller context.")]
+    [Description("Searches literal text inside files and returns path, line, column, and small context. Recursive traversal prunes common generated/infrastructure directories by default; explicitly targeting one of those directories as path still works. Use this when the content location is unknown; use filesystem_find_paths for path/name lookup and filesystem_read_files after locating files that need fuller context.")]
     public async Task<CallToolResult> SearchText(
         [Description("File or directory path to search. May be absolute or relative to the work session base directory.")] string path,
         [Description("Non-empty literal text query; this is not regex.")] string query,
         [Description("Optional work session handle used to resolve relative paths.")] string? workId = null,
         [Description("Whether matching is case-sensitive.")] bool caseSensitive = false,
+        [Description("When false, recursive traversal prunes .git, .vs, .venv, __pycache__, bin, node_modules, and obj. Explicitly targeting one of those directories as path still traverses it.")] bool includeGenerated = false,
+        [Description("Optional exact directory names to prune in addition to the defaults. Names are case-insensitive on Windows and are not glob patterns or paths.")][MaxLength(64)] string[]? excludeDirectories = null,
         [Description("Maximum recursion depth.")][Range(1, 32)] int maxDepth = 12,
         [Description("Maximum matches returned.")][Range(1, 500)] int maxResults = 100,
         [Description("Context lines returned before and after each match.")][Range(0, 3)] int contextLines = 1,
@@ -185,6 +197,8 @@ public sealed class FilesystemTools
             query,
             ParseWorkId(workId),
             caseSensitive,
+            includeGenerated,
+            excludeDirectories,
             maxDepth,
             maxResults,
             contextLines,
@@ -389,7 +403,8 @@ public sealed class FilesystemTools
             entry.Name,
             entry.Type.ToString().ToLowerInvariant(),
             entry.Size,
-            entry.Depth);
+            entry.Depth,
+            entry.ChildrenExcluded);
 
     private static bool TryParseMatchMode(string value, out FilesystemPathMatchMode mode)
     {

@@ -64,6 +64,152 @@ public sealed class FilesystemCapabilityTests
     }
 
     [Fact]
+    public async Task RecursiveDiscoveryPrunesGeneratedDirectoriesByDefault()
+    {
+        await using var fixture = new FilesystemFixture();
+        var generatedDirectories = new[]
+        {
+            ".git",
+            ".vs",
+            ".venv",
+            "__pycache__",
+            "bin",
+            "node_modules",
+            "obj"
+        };
+
+        foreach (var directory in generatedDirectories)
+        {
+            Directory.CreateDirectory(Path.Combine(fixture.Root, directory));
+            await File.WriteAllTextAsync(
+                Path.Combine(fixture.Root, directory, "hidden.txt"),
+                "generated needle");
+        }
+
+        Directory.CreateDirectory(Path.Combine(fixture.Root, ".obsidian"));
+        await File.WriteAllTextAsync(
+            Path.Combine(fixture.Root, ".obsidian", "visible.txt"),
+            "visible content");
+
+        var work = fixture.Sessions.Create(fixture.Root);
+        Assert.True(work.IsSuccess);
+        var workId = work.Value!.Id;
+
+        var tree = await fixture.Filesystem.ListTreeAsync(".", workId, maxDepth: 3);
+        Assert.True(tree.IsSuccess, tree.Error?.Message);
+        foreach (var directory in generatedDirectories)
+        {
+            var entry = Assert.Single(tree.Value!.Entries, item => item.Path == directory);
+            Assert.Equal("generated", entry.ChildrenExcluded);
+            Assert.DoesNotContain(tree.Value.Entries, item => item.Path == $"{directory}/hidden.txt");
+        }
+
+        Assert.Contains(tree.Value!.Entries, item => item.Path == ".obsidian/visible.txt");
+
+        var found = await fixture.Filesystem.FindPathsAsync(
+            ".",
+            ["hidden.txt"],
+            FilesystemPathMatchMode.Suffix,
+            FilesystemEntryType.File,
+            workId);
+        Assert.True(found.IsSuccess, found.Error?.Message);
+        Assert.Empty(found.Value!.Matches);
+
+        var searched = await fixture.Filesystem.SearchTextAsync(
+            ".",
+            "generated needle",
+            workId);
+        Assert.True(searched.IsSuccess, searched.Error?.Message);
+        Assert.Empty(searched.Value!.Matches);
+    }
+
+    [Fact]
+    public async Task GeneratedDirectoriesCanBeIncludedOrTargetedDirectly()
+    {
+        await using var fixture = new FilesystemFixture();
+        Directory.CreateDirectory(Path.Combine(fixture.Root, "bin"));
+        await File.WriteAllTextAsync(
+            Path.Combine(fixture.Root, "bin", "generated.txt"),
+            "generated needle");
+
+        var work = fixture.Sessions.Create(fixture.Root);
+        Assert.True(work.IsSuccess);
+        var workId = work.Value!.Id;
+
+        var included = await fixture.Filesystem.ListTreeAsync(
+            ".",
+            workId,
+            includeGenerated: true,
+            maxDepth: 3);
+        Assert.True(included.IsSuccess, included.Error?.Message);
+        Assert.Contains(included.Value!.Entries, entry => entry.Path == "bin/generated.txt");
+        Assert.Null(Assert.Single(included.Value.Entries, entry => entry.Path == "bin").ChildrenExcluded);
+
+        var directTree = await fixture.Filesystem.ListTreeAsync("bin", workId, maxDepth: 2);
+        Assert.True(directTree.IsSuccess, directTree.Error?.Message);
+        Assert.Contains(directTree.Value!.Entries, entry => entry.Path == "generated.txt");
+
+        var directSearch = await fixture.Filesystem.SearchTextAsync(
+            "bin",
+            "generated needle",
+            workId);
+        Assert.True(directSearch.IsSuccess, directSearch.Error?.Message);
+        Assert.Equal("generated.txt", Assert.Single(directSearch.Value!.Matches).Path);
+    }
+
+    [Fact]
+    public async Task CustomDirectoryExclusionsAreAdditive()
+    {
+        await using var fixture = new FilesystemFixture();
+        Directory.CreateDirectory(Path.Combine(fixture.Root, ".obsidian"));
+        Directory.CreateDirectory(Path.Combine(fixture.Root, "bin"));
+        await File.WriteAllTextAsync(Path.Combine(fixture.Root, ".obsidian", "note.md"), "secret needle");
+        await File.WriteAllTextAsync(Path.Combine(fixture.Root, "bin", "generated.txt"), "generated needle");
+
+        var work = fixture.Sessions.Create(fixture.Root);
+        Assert.True(work.IsSuccess);
+        var workId = work.Value!.Id;
+
+        var tree = await fixture.Filesystem.ListTreeAsync(
+            ".",
+            workId,
+            includeGenerated: true,
+            excludeDirectories: [".OBSIDIAN"],
+            maxDepth: 3);
+        Assert.True(tree.IsSuccess, tree.Error?.Message);
+        Assert.Equal(
+            "excluded",
+            Assert.Single(tree.Value!.Entries, entry => entry.Path == ".obsidian").ChildrenExcluded);
+        Assert.DoesNotContain(tree.Value.Entries, entry => entry.Path == ".obsidian/note.md");
+        Assert.Contains(tree.Value.Entries, entry => entry.Path == "bin/generated.txt");
+
+        var searched = await fixture.Filesystem.SearchTextAsync(
+            ".",
+            "secret needle",
+            workId,
+            includeGenerated: true,
+            excludeDirectories: [".OBSIDIAN"]);
+        Assert.True(searched.IsSuccess, searched.Error?.Message);
+        Assert.Empty(searched.Value!.Matches);
+    }
+
+    [Fact]
+    public async Task TraversalRejectsDirectoryPathsAsExclusions()
+    {
+        await using var fixture = new FilesystemFixture();
+        var work = fixture.Sessions.Create(fixture.Root);
+        Assert.True(work.IsSuccess);
+
+        var result = await fixture.Filesystem.ListTreeAsync(
+            ".",
+            work.Value!.Id,
+            excludeDirectories: ["nested/path"]);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("invalid_argument", result.Error?.Code);
+    }
+
+    [Fact]
     public async Task AbsolutePathCanBeReadWithoutWorkSession()
     {
         await using var fixture = new FilesystemFixture();

@@ -22,6 +22,8 @@ public sealed class FilesystemCapability
     public Task<LoomResult<FilesystemListTreeResult>> ListTreeAsync(
         string path,
         WorkId? workId = null,
+        bool includeGenerated = false,
+        IReadOnlyList<string>? excludeDirectories = null,
         int maxDepth = 3,
         int maxEntries = 1000,
         CancellationToken cancellationToken = default)
@@ -42,9 +44,20 @@ public sealed class FilesystemCapability
                         LoomErrors.InvalidArgument("max_entries must be between 1 and 5000."));
                 }
 
+                var traversal = CreateTraversalOptions(includeGenerated, excludeDirectories);
+                if (!traversal.IsSuccess)
+                {
+                    return LoomResult<FilesystemListTreeResult>.Failure(traversal.Error!);
+                }
+
                 var resolved = ResolvePath(path, context.WorkSession?.BaseDirectory);
                 return resolved.IsSuccess
-                    ? await _provider.ListTreeAsync(resolved.Value!, maxDepth, maxEntries, token).ConfigureAwait(false)
+                    ? await _provider.ListTreeAsync(
+                        resolved.Value!,
+                        traversal.Value!,
+                        maxDepth,
+                        maxEntries,
+                        token).ConfigureAwait(false)
                     : LoomResult<FilesystemListTreeResult>.Failure(resolved.Error!);
             },
             cancellationToken);
@@ -55,6 +68,8 @@ public sealed class FilesystemCapability
         FilesystemPathMatchMode matchMode = FilesystemPathMatchMode.Substring,
         FilesystemEntryType? type = null,
         WorkId? workId = null,
+        bool includeGenerated = false,
+        IReadOnlyList<string>? excludeDirectories = null,
         int maxDepth = 12,
         int maxResults = 100,
         CancellationToken cancellationToken = default)
@@ -75,6 +90,12 @@ public sealed class FilesystemCapability
                         LoomErrors.InvalidArgument("max_depth must be 1..32 and max_results must be 1..1000."));
                 }
 
+                var traversal = CreateTraversalOptions(includeGenerated, excludeDirectories);
+                if (!traversal.IsSuccess)
+                {
+                    return LoomResult<FilesystemFindPathsResult>.Failure(traversal.Error!);
+                }
+
                 var resolved = ResolvePath(path, context.WorkSession?.BaseDirectory);
                 return resolved.IsSuccess
                     ? await _provider.FindPathsAsync(
@@ -82,6 +103,7 @@ public sealed class FilesystemCapability
                         queries,
                         matchMode,
                         type,
+                        traversal.Value!,
                         maxDepth,
                         maxResults,
                         token).ConfigureAwait(false)
@@ -94,6 +116,8 @@ public sealed class FilesystemCapability
         string query,
         WorkId? workId = null,
         bool caseSensitive = false,
+        bool includeGenerated = false,
+        IReadOnlyList<string>? excludeDirectories = null,
         int maxDepth = 12,
         int maxResults = 100,
         int contextLines = 1,
@@ -118,12 +142,19 @@ public sealed class FilesystemCapability
                             "max_depth must be 1..32, max_results 1..500, and context_lines 0..3."));
                 }
 
+                var traversal = CreateTraversalOptions(includeGenerated, excludeDirectories);
+                if (!traversal.IsSuccess)
+                {
+                    return LoomResult<FilesystemSearchTextResult>.Failure(traversal.Error!);
+                }
+
                 var resolved = ResolvePath(path, context.WorkSession?.BaseDirectory);
                 return resolved.IsSuccess
                     ? await _provider.SearchTextAsync(
                         resolved.Value!,
                         query,
                         caseSensitive,
+                        traversal.Value!,
                         maxDepth,
                         maxResults,
                         contextLines,
@@ -346,6 +377,36 @@ public sealed class FilesystemCapability
                 return LoomResult<FilesystemPatchChange>.Failure(
                     LoomErrors.InvalidArgument("Unsupported patch operation."));
         }
+    }
+
+    private static LoomResult<FilesystemTraversalOptions> CreateTraversalOptions(
+        bool includeGenerated,
+        IReadOnlyList<string>? excludeDirectories)
+    {
+        if (excludeDirectories is { Count: > 64 })
+        {
+            return LoomResult<FilesystemTraversalOptions>.Failure(
+                LoomErrors.InvalidArgument("exclude_directories must contain at most 64 directory names."));
+        }
+
+        if (excludeDirectories is not null)
+        {
+            foreach (var directory in excludeDirectories)
+            {
+                if (string.IsNullOrWhiteSpace(directory) ||
+                    directory is "." or ".." ||
+                    directory.Contains('/') ||
+                    directory.Contains('\\'))
+                {
+                    return LoomResult<FilesystemTraversalOptions>.Failure(
+                        LoomErrors.InvalidArgument(
+                            "exclude_directories values must be non-empty directory names, not paths."));
+                }
+            }
+        }
+
+        return LoomResult<FilesystemTraversalOptions>.Success(
+            new FilesystemTraversalOptions(includeGenerated, excludeDirectories));
     }
 
     private static LoomResult<string> ResolvePath(string? requested, string? baseDirectory)
