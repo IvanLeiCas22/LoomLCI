@@ -30,14 +30,16 @@ public sealed record FilesystemListTreeResult(
     int MaxDepth,
     int MaxEntries,
     IReadOnlyList<FilesystemEntry> Entries,
-    bool Truncated);
+    bool Truncated,
+    string? NextCursor);
 
 public sealed record FilesystemFindPathsResult(
     string Root,
     IReadOnlyList<string> Queries,
     FilesystemPathMatchMode MatchMode,
     IReadOnlyList<FilesystemEntry> Matches,
-    bool Truncated);
+    bool Truncated,
+    string? NextCursor);
 
 public sealed record FilesystemTextQueryMatch(
     string Query,
@@ -112,6 +114,7 @@ public interface IFilesystemProvider
         FilesystemTraversalOptions traversal,
         int maxDepth,
         int maxEntries,
+        string? cursor,
         CancellationToken cancellationToken);
 
     Task<LoomResult<FilesystemFindPathsResult>> FindPathsAsync(
@@ -122,6 +125,7 @@ public interface IFilesystemProvider
         FilesystemTraversalOptions traversal,
         int maxDepth,
         int maxResults,
+        string? cursor,
         CancellationToken cancellationToken);
 
     Task<LoomResult<FilesystemSearchTextResult>> SearchTextAsync(

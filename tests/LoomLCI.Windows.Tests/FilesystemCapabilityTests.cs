@@ -68,6 +68,163 @@ public sealed class FilesystemCapabilityTests
     }
 
     [Fact]
+    public async Task ListTreeContinuationPreservesBfsAndAllowsPageSizeChanges()
+    {
+        await using var fixture = new FilesystemFixture();
+        Directory.CreateDirectory(Path.Combine(fixture.Root, "a"));
+        await File.WriteAllTextAsync(Path.Combine(fixture.Root, "a", "inner.txt"), "inner");
+        await File.WriteAllTextAsync(Path.Combine(fixture.Root, "b.txt"), "b");
+        await File.WriteAllTextAsync(Path.Combine(fixture.Root, "c.txt"), "c");
+
+        var work = fixture.Sessions.Create(fixture.Root);
+        Assert.True(work.IsSuccess);
+        var workId = work.Value!.Id;
+
+        var first = await fixture.Filesystem.ListTreeAsync(
+            ".",
+            workId,
+            maxDepth: 2,
+            maxEntries: 2);
+        Assert.True(first.IsSuccess, first.Error?.Message);
+        Assert.Equal(["a", "b.txt"], first.Value!.Entries.Select(entry => entry.Path));
+        Assert.True(first.Value.Truncated);
+        Assert.False(string.IsNullOrWhiteSpace(first.Value.NextCursor));
+
+        var second = await fixture.Filesystem.ListTreeAsync(
+            ".",
+            workId,
+            maxDepth: 2,
+            maxEntries: 1,
+            cursor: first.Value.NextCursor);
+        Assert.True(second.IsSuccess, second.Error?.Message);
+        Assert.Equal(["c.txt"], second.Value!.Entries.Select(entry => entry.Path));
+        Assert.True(second.Value.Truncated);
+        Assert.False(string.IsNullOrWhiteSpace(second.Value.NextCursor));
+
+        var third = await fixture.Filesystem.ListTreeAsync(
+            ".",
+            workId,
+            maxDepth: 2,
+            maxEntries: 10,
+            cursor: second.Value.NextCursor);
+        Assert.True(third.IsSuccess, third.Error?.Message);
+        Assert.Equal(["a/inner.txt"], third.Value!.Entries.Select(entry => entry.Path));
+        Assert.False(third.Value.Truncated);
+        Assert.Null(third.Value.NextCursor);
+    }
+
+    [Fact]
+    public async Task FindPathsContinuationReturnsEveryMatchWithoutDuplicates()
+    {
+        await using var fixture = new FilesystemFixture();
+        Directory.CreateDirectory(Path.Combine(fixture.Root, "sub"));
+        await File.WriteAllTextAsync(Path.Combine(fixture.Root, "a.cs"), "a");
+        await File.WriteAllTextAsync(Path.Combine(fixture.Root, "b.cs"), "b");
+        await File.WriteAllTextAsync(Path.Combine(fixture.Root, "other.txt"), "other");
+        await File.WriteAllTextAsync(Path.Combine(fixture.Root, "sub", "c.cs"), "c");
+
+        var work = fixture.Sessions.Create(fixture.Root);
+        Assert.True(work.IsSuccess);
+        var workId = work.Value!.Id;
+
+        var first = await fixture.Filesystem.FindPathsAsync(
+            ".",
+            [".cs"],
+            FilesystemPathMatchMode.Suffix,
+            FilesystemEntryType.File,
+            workId,
+            maxResults: 1);
+        Assert.True(first.IsSuccess, first.Error?.Message);
+        Assert.Equal(["a.cs"], first.Value!.Matches.Select(match => match.Path));
+        Assert.NotNull(first.Value.NextCursor);
+
+        var second = await fixture.Filesystem.FindPathsAsync(
+            ".",
+            [".cs"],
+            FilesystemPathMatchMode.Suffix,
+            FilesystemEntryType.File,
+            workId,
+            maxResults: 2,
+            cursor: first.Value.NextCursor);
+        Assert.True(second.IsSuccess, second.Error?.Message);
+        Assert.Equal(["b.cs", "sub/c.cs"], second.Value!.Matches.Select(match => match.Path));
+        Assert.False(second.Value.Truncated);
+        Assert.Null(second.Value.NextCursor);
+    }
+
+    [Fact]
+    public async Task TraversalCursorRejectsMismatchedInputsAndMalformedValues()
+    {
+        await using var fixture = new FilesystemFixture();
+        await File.WriteAllTextAsync(Path.Combine(fixture.Root, "a.txt"), "a");
+        await File.WriteAllTextAsync(Path.Combine(fixture.Root, "b.txt"), "b");
+
+        var work = fixture.Sessions.Create(fixture.Root);
+        Assert.True(work.IsSuccess);
+        var workId = work.Value!.Id;
+
+        var first = await fixture.Filesystem.ListTreeAsync(
+            ".",
+            workId,
+            maxDepth: 2,
+            maxEntries: 1);
+        Assert.True(first.IsSuccess, first.Error?.Message);
+        Assert.NotNull(first.Value!.NextCursor);
+
+        var mismatched = await fixture.Filesystem.ListTreeAsync(
+            ".",
+            workId,
+            maxDepth: 3,
+            maxEntries: 1,
+            cursor: first.Value.NextCursor);
+        Assert.False(mismatched.IsSuccess);
+        Assert.Equal("invalid_argument", mismatched.Error?.Code);
+
+        var malformed = await fixture.Filesystem.ListTreeAsync(
+            ".",
+            workId,
+            maxDepth: 2,
+            maxEntries: 1,
+            cursor: "not-a-valid-cursor");
+        Assert.False(malformed.IsSuccess);
+        Assert.Equal("invalid_argument", malformed.Error?.Code);
+    }
+
+    [Fact]
+    public async Task TraversalCursorDetectsMutationAtResumePoint()
+    {
+        await using var fixture = new FilesystemFixture();
+        await File.WriteAllTextAsync(Path.Combine(fixture.Root, "a.txt"), "a");
+        await File.WriteAllTextAsync(Path.Combine(fixture.Root, "b.txt"), "b");
+        await File.WriteAllTextAsync(Path.Combine(fixture.Root, "c.txt"), "c");
+
+        var work = fixture.Sessions.Create(fixture.Root);
+        Assert.True(work.IsSuccess);
+        var workId = work.Value!.Id;
+
+        var first = await fixture.Filesystem.ListTreeAsync(
+            ".",
+            workId,
+            maxDepth: 1,
+            maxEntries: 1);
+        Assert.True(first.IsSuccess, first.Error?.Message);
+        Assert.Equal("a.txt", Assert.Single(first.Value!.Entries).Path);
+        Assert.NotNull(first.Value.NextCursor);
+
+        await File.WriteAllTextAsync(Path.Combine(fixture.Root, "aa.txt"), "aa");
+
+        var resumed = await fixture.Filesystem.ListTreeAsync(
+            ".",
+            workId,
+            maxDepth: 1,
+            maxEntries: 1,
+            cursor: first.Value.NextCursor);
+        Assert.False(resumed.IsSuccess);
+        Assert.Equal("conflict", resumed.Error?.Code);
+        Assert.Equal("cursor_stale", resumed.Error?.Details?["reason"]);
+    }
+
+    [Fact]
     public async Task ReadFilesReportsOmittedLinesBeforeAndAfterRange()
     {
         await using var fixture = new FilesystemFixture();

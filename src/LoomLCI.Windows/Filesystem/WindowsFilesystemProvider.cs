@@ -27,6 +27,7 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
         FilesystemTraversalOptions traversal,
         int maxDepth,
         int maxEntries,
+        string? cursor,
         CancellationToken cancellationToken)
         => Task.Run(() =>
         {
@@ -38,14 +39,48 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                         LoomErrors.NotFound($"Directory '{root}' was not found."));
                 }
 
+                var fingerprint = FilesystemCursorCodec.CreateListTreeFingerprint(root, traversal, maxDepth);
+                var decoded = FilesystemCursorCodec.Decode(cursor, "list_tree", fingerprint);
+                if (!decoded.IsSuccess)
+                {
+                    return LoomResult<FilesystemListTreeResult>.Failure(decoded.Error!);
+                }
+
+                var continuation = decoded.Value;
                 var entries = new List<FilesystemEntry>(Math.Min(maxEntries, 1024));
-                var truncated = false;
+                string? nextCursor = null;
+                var ordinal = 0L;
+                var resumeValidated = continuation is null;
 
                 foreach (var item in Enumerate(root, traversal, maxDepth, cancellationToken))
                 {
+                    var relative = NormalizeRelative(Path.GetRelativePath(root, item.FullPath));
+
+                    if (!resumeValidated)
+                    {
+                        if (ordinal < continuation!.Ordinal)
+                        {
+                            ordinal++;
+                            continue;
+                        }
+
+                        if (ordinal != continuation.Ordinal ||
+                            !string.Equals(relative, continuation.ExpectedPath, StringComparison.OrdinalIgnoreCase) ||
+                            item.Type != continuation.ExpectedType)
+                        {
+                            return LoomResult<FilesystemListTreeResult>.Failure(
+                                FilesystemCursorCodec.StaleCursorError());
+                        }
+
+                        resumeValidated = true;
+                    }
+
                     if (entries.Count >= maxEntries)
                     {
-                        truncated = true;
+                        nextCursor = FilesystemCursorCodec.Encode(
+                            "list_tree",
+                            fingerprint,
+                            new FilesystemTraversalContinuation(ordinal, relative, item.Type));
                         break;
                     }
 
@@ -55,10 +90,23 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                         item.Depth,
                         item.Type,
                         item.ChildrenExcluded));
+                    ordinal++;
+                }
+
+                if (!resumeValidated)
+                {
+                    return LoomResult<FilesystemListTreeResult>.Failure(
+                        FilesystemCursorCodec.StaleCursorError());
                 }
 
                 return LoomResult<FilesystemListTreeResult>.Success(
-                    new FilesystemListTreeResult(root, maxDepth, maxEntries, entries, truncated));
+                    new FilesystemListTreeResult(
+                        root,
+                        maxDepth,
+                        maxEntries,
+                        entries,
+                        nextCursor is not null,
+                        nextCursor));
             }
             catch (OperationCanceledException)
             {
@@ -78,6 +126,7 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
         FilesystemTraversalOptions traversal,
         int maxDepth,
         int maxResults,
+        string? cursor,
         CancellationToken cancellationToken)
         => Task.Run(() =>
         {
@@ -89,46 +138,94 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                         LoomErrors.NotFound($"Directory '{root}' was not found."));
                 }
 
+                var fingerprint = FilesystemCursorCodec.CreateFindPathsFingerprint(
+                    root,
+                    queries,
+                    matchMode,
+                    type,
+                    traversal,
+                    maxDepth);
+                var decoded = FilesystemCursorCodec.Decode(cursor, "find_paths", fingerprint);
+                if (!decoded.IsSuccess)
+                {
+                    return LoomResult<FilesystemFindPathsResult>.Failure(decoded.Error!);
+                }
+
+                var continuation = decoded.Value;
                 var comparison = StringComparison.OrdinalIgnoreCase;
                 var matches = new List<FilesystemEntry>(Math.Min(maxResults, 256));
-                var truncated = false;
+                string? nextCursor = null;
+                var ordinal = 0L;
+                var resumeValidated = continuation is null;
 
                 foreach (var item in Enumerate(root, traversal, maxDepth, cancellationToken))
                 {
-                    if (type is not null && item.Type != type)
-                    {
-                        continue;
-                    }
-
                     var relative = NormalizeRelative(Path.GetRelativePath(root, item.FullPath));
-                    var matched = queries.Any(query => matchMode switch
-                    {
-                        FilesystemPathMatchMode.Substring => relative.Contains(query, comparison),
-                        FilesystemPathMatchMode.Suffix => relative.EndsWith(query, comparison),
-                        _ => false
-                    });
 
-                    if (!matched)
+                    if (!resumeValidated)
                     {
-                        continue;
+                        if (ordinal < continuation!.Ordinal)
+                        {
+                            ordinal++;
+                            continue;
+                        }
+
+                        if (ordinal != continuation.Ordinal ||
+                            !string.Equals(relative, continuation.ExpectedPath, StringComparison.OrdinalIgnoreCase) ||
+                            item.Type != continuation.ExpectedType)
+                        {
+                            return LoomResult<FilesystemFindPathsResult>.Failure(
+                                FilesystemCursorCodec.StaleCursorError());
+                        }
+
+                        resumeValidated = true;
                     }
 
-                    if (matches.Count >= maxResults)
+                    var matched =
+                        (type is null || item.Type == type) &&
+                        queries.Any(query => matchMode switch
+                        {
+                            FilesystemPathMatchMode.Substring => relative.Contains(query, comparison),
+                            FilesystemPathMatchMode.Suffix => relative.EndsWith(query, comparison),
+                            _ => false
+                        });
+
+                    if (matched)
                     {
-                        truncated = true;
-                        break;
+                        if (matches.Count >= maxResults)
+                        {
+                            nextCursor = FilesystemCursorCodec.Encode(
+                                "find_paths",
+                                fingerprint,
+                                new FilesystemTraversalContinuation(ordinal, relative, item.Type));
+                            break;
+                        }
+
+                        matches.Add(ToEntry(
+                            root,
+                            item.FullPath,
+                            item.Depth,
+                            item.Type,
+                            item.ChildrenExcluded));
                     }
 
-                    matches.Add(ToEntry(
-                        root,
-                        item.FullPath,
-                        item.Depth,
-                        item.Type,
-                        item.ChildrenExcluded));
+                    ordinal++;
+                }
+
+                if (!resumeValidated)
+                {
+                    return LoomResult<FilesystemFindPathsResult>.Failure(
+                        FilesystemCursorCodec.StaleCursorError());
                 }
 
                 return LoomResult<FilesystemFindPathsResult>.Success(
-                    new FilesystemFindPathsResult(root, queries, matchMode, matches, truncated));
+                    new FilesystemFindPathsResult(
+                        root,
+                        queries,
+                        matchMode,
+                        matches,
+                        nextCursor is not null,
+                        nextCursor));
             }
             catch (OperationCanceledException)
             {
@@ -667,7 +764,8 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
             var (directory, parentDepth) = pending.Dequeue();
 
             foreach (var path in Directory.EnumerateFileSystemEntries(directory)
-                         .OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
+                         .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+                         .ThenBy(p => p, StringComparer.Ordinal))
             {
                 cancellationToken.ThrowIfCancellationRequested();
 

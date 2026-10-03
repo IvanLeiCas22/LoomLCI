@@ -21,14 +21,16 @@ public sealed record FilesystemListTreeDto(
     int MaxDepth,
     int MaxEntries,
     IReadOnlyList<FilesystemEntryDto> Entries,
-    bool Truncated);
+    bool Truncated,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? NextCursor);
 
 public sealed record FilesystemFindPathsDto(
     string Root,
     IReadOnlyList<string> Queries,
     string MatchMode,
     IReadOnlyList<FilesystemEntryDto> Matches,
-    bool Truncated);
+    bool Truncated,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? NextCursor);
 
 public sealed record FilesystemTextQueryMatchDto(
     string Query,
@@ -106,14 +108,15 @@ public sealed class FilesystemTools
         Destructive = false,
         Idempotent = true,
         OpenWorld = false)]
-    [Description("Lists a bounded recursive directory tree. Use this to discover project structure when exact paths are not yet known. Recursive traversal prunes common generated/infrastructure directories by default while still showing the directory itself; explicitly targeting one of those directories as path still works. A returned directory may include childrenExcluded='generated' when default pruning skipped its children or childrenExcluded='excluded' when excludeDirectories skipped them; the field is omitted when children were traversed normally. It does not read file contents; prefer filesystem_find_paths for name/path lookup, filesystem_search_text for content search, and filesystem_read_files once exact files are known.")]
+    [Description("Lists a bounded recursive directory tree. Use this to discover project structure when exact paths are not yet known. If nextCursor is returned, pass it back as cursor with the same traversal inputs to continue without repeating entries; maxEntries may change between pages. The cursor is opaque and becomes invalid if traversal parameters change or the filesystem changes at the resume point. Recursive traversal prunes common generated/infrastructure directories by default while still showing the directory itself; explicitly targeting one of those directories as path still works. A returned directory may include childrenExcluded='generated' when default pruning skipped its children or childrenExcluded='excluded' when excludeDirectories skipped them; the field is omitted when children were traversed normally. It does not read file contents; prefer filesystem_find_paths for name/path lookup, filesystem_search_text for content search, and filesystem_read_files once exact files are known.")]
     public async Task<CallToolResult> ListTree(
         [Description("Directory path. May be absolute or relative to the work session base directory.")] string path = ".",
         [Description("Optional work session handle used to resolve relative paths.")] string? workId = null,
         [Description("When false, recursive traversal prunes .git, .vs, .venv, __pycache__, bin, node_modules, obj, and .obsidian/plugins. Explicitly targeting one of those directories as path still traverses it.")] bool includeGenerated = false,
         [Description("Optional exact directory names to prune in addition to the defaults. Names are case-insensitive on Windows and are not glob patterns or paths.")][MaxLength(64)] string[]? excludeDirectories = null,
         [Description("Maximum recursion depth.")][Range(1, 32)] int maxDepth = 3,
-        [Description("Maximum entries returned.")][Range(1, 5000)] int maxEntries = 1000,
+        [Description("Maximum entries returned in this page.")][Range(1, 5000)] int maxEntries = 1000,
+        [Description("Opaque nextCursor from a previous filesystem_list_tree call with the same traversal inputs. Omit for the first page; maxEntries may differ between pages.")][MaxLength(4096)] string? cursor = null,
         CancellationToken cancellationToken = default)
     {
         var result = await _filesystem.ListTreeAsync(
@@ -123,6 +126,7 @@ public sealed class FilesystemTools
             excludeDirectories,
             maxDepth,
             maxEntries,
+            cursor,
             cancellationToken).ConfigureAwait(false);
 
         return McpToolResults.From(MapListTree(result));
@@ -137,7 +141,7 @@ public sealed class FilesystemTools
         Destructive = false,
         Idempotent = true,
         OpenWorld = false)]
-    [Description("Finds files or directories by literal path/name fragments. Recursive traversal prunes common generated/infrastructure directories by default; explicitly targeting one of those directories as path still works. Directory matches may include childrenExcluded='generated' when default pruning skipped their children or childrenExcluded='excluded' when excludeDirectories skipped them; the field is omitted when children were traversed normally. Use this when searching for paths, filenames, or extensions; it does not inspect file contents. Use filesystem_search_text instead for text inside files. matchMode=suffix is useful for exact filename endings or extensions.")]
+    [Description("Finds files or directories by literal path/name fragments. If nextCursor is returned, pass it back as cursor with the same search/traversal inputs to continue without repeating matches; maxResults may change between pages. The cursor is opaque and becomes invalid if those inputs change or the filesystem changes at the resume point. Recursive traversal prunes common generated/infrastructure directories by default; explicitly targeting one of those directories as path still works. Directory matches may include childrenExcluded='generated' when default pruning skipped their children or childrenExcluded='excluded' when excludeDirectories skipped them; the field is omitted when children were traversed normally. Use this when searching for paths, filenames, or extensions; it does not inspect file contents. Use filesystem_search_text instead for text inside files. matchMode=suffix is useful for exact filename endings or extensions.")]
     public async Task<CallToolResult> FindPaths(
         [Description("Root directory to search. May be absolute or relative to the work session base directory.")] string path,
         [Description("One to 32 non-empty literal path queries. Multiple queries use OR semantics.")][MinLength(1)][MaxLength(32)] string[] queries,
@@ -147,7 +151,8 @@ public sealed class FilesystemTools
         [Description("When false, recursive traversal prunes .git, .vs, .venv, __pycache__, bin, node_modules, obj, and .obsidian/plugins. Explicitly targeting one of those directories as path still traverses it.")] bool includeGenerated = false,
         [Description("Optional exact directory names to prune in addition to the defaults. Names are case-insensitive on Windows and are not glob patterns or paths.")][MaxLength(64)] string[]? excludeDirectories = null,
         [Description("Maximum recursion depth.")][Range(1, 32)] int maxDepth = 12,
-        [Description("Maximum matching entries returned.")][Range(1, 1000)] int maxResults = 100,
+        [Description("Maximum matching entries returned in this page.")][Range(1, 1000)] int maxResults = 100,
+        [Description("Opaque nextCursor from a previous filesystem_find_paths call with the same search/traversal inputs. Omit for the first page; maxResults may differ between pages.")][MaxLength(4096)] string? cursor = null,
         CancellationToken cancellationToken = default)
     {
         if (!TryParseMatchMode(matchMode, out var parsedMode))
@@ -174,6 +179,7 @@ public sealed class FilesystemTools
             excludeDirectories,
             maxDepth,
             maxResults,
+            cursor,
             cancellationToken).ConfigureAwait(false);
 
         return McpToolResults.From(MapFindPaths(result));
@@ -350,7 +356,8 @@ public sealed class FilesystemTools
                         result.Value.MaxDepth,
                         result.Value.MaxEntries,
                         result.Value.Entries.Select(ToDto).ToArray(),
-                        result.Value.Truncated)))
+                        result.Value.Truncated,
+                        result.Value.NextCursor)))
             : ToolEnvelope<FilesystemListTreeDto>.From(
                 LoomResult<FilesystemListTreeDto>.Failure(result.Error!));
 
@@ -364,7 +371,8 @@ public sealed class FilesystemTools
                         result.Value.Queries,
                         result.Value.MatchMode.ToString().ToLowerInvariant(),
                         result.Value.Matches.Select(ToDto).ToArray(),
-                        result.Value.Truncated)))
+                        result.Value.Truncated,
+                        result.Value.NextCursor)))
             : ToolEnvelope<FilesystemFindPathsDto>.From(
                 LoomResult<FilesystemFindPathsDto>.Failure(result.Error!));
 

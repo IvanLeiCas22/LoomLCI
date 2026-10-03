@@ -83,6 +83,10 @@ public sealed class McpStdioTests
         var listProperties = GetRequiredProperty(listTree.JsonSchema, "properties");
         Assert.False(GetRequiredProperty(GetRequiredProperty(listProperties, "includeGenerated"), "default").GetBoolean());
         Assert.Contains("childrenExcluded", listTree.Description, StringComparison.Ordinal);
+        Assert.Contains("nextCursor", listTree.Description, StringComparison.Ordinal);
+        Assert.Contains("opaque", listTree.Description, StringComparison.OrdinalIgnoreCase);
+        GetRequiredProperty(listProperties, "cursor");
+        Assert.Equal(4096, GetRequiredProperty(GetRequiredProperty(listProperties, "cursor"), "maxLength").GetInt32());
         Assert.Contains("generated", listTree.Description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("excluded", listTree.Description, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(
@@ -93,7 +97,10 @@ public sealed class McpStdioTests
         Assert.Equal("Find paths", findPaths.ProtocolTool.Title);
         Assert.Contains("does not inspect file contents", findPaths.Description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("childrenExcluded", findPaths.Description, StringComparison.Ordinal);
+        Assert.Contains("nextCursor", findPaths.Description, StringComparison.Ordinal);
+        Assert.Contains("opaque", findPaths.Description, StringComparison.OrdinalIgnoreCase);
         var findProperties = GetRequiredProperty(findPaths.JsonSchema, "properties");
+        Assert.Equal(4096, GetRequiredProperty(GetRequiredProperty(findProperties, "cursor"), "maxLength").GetInt32());
         AssertSchemaRange(GetRequiredProperty(findProperties, "maxDepth"), 1, 32);
         AssertSchemaRange(GetRequiredProperty(findProperties, "maxResults"), 1, 1000);
         AssertSchemaEnum(GetRequiredProperty(findProperties, "matchMode"), "substring", "suffix");
@@ -360,6 +367,12 @@ public sealed class McpStdioTests
                             ["op"] = "write",
                             ["path"] = "notes/note.txt",
                             ["content"] = "alpha needle"
+                        },
+                        new Dictionary<string, object?>
+                        {
+                            ["op"] = "write",
+                            ["path"] = "notes/other.txt",
+                            ["content"] = "secondary"
                         }
                     },
                     ["workId"] = workId
@@ -371,16 +384,33 @@ public sealed class McpStdioTests
                 new Dictionary<string, object?>
                 {
                     ["path"] = ".",
-                    ["workId"] = workId
+                    ["workId"] = workId,
+                    ["maxEntries"] = 1
                 });
             var listRoot = GetStructured(list.StructuredContent);
             Assert.True(GetRequiredProperty(listRoot, "ok").GetBoolean());
-            var entries = GetRequiredProperty(
-                GetRequiredProperty(listRoot, "result"),
-                "entries");
-            Assert.Contains(
-                entries.EnumerateArray(),
-                entry => GetRequiredProperty(entry, "path").GetString() == "notes/note.txt");
+            var listResult = GetRequiredProperty(listRoot, "result");
+            var entries = GetRequiredProperty(listResult, "entries");
+            Assert.Equal("notes", GetRequiredProperty(Assert.Single(entries.EnumerateArray()), "path").GetString());
+            var listCursor = GetRequiredProperty(listResult, "nextCursor").GetString();
+            Assert.False(string.IsNullOrWhiteSpace(listCursor));
+
+            var listNext = await client.CallToolAsync(
+                "filesystem_list_tree",
+                new Dictionary<string, object?>
+                {
+                    ["path"] = ".",
+                    ["workId"] = workId,
+                    ["maxEntries"] = 2,
+                    ["cursor"] = listCursor
+                });
+            var listNextResult = GetRequiredProperty(GetStructured(listNext.StructuredContent), "result");
+            Assert.Equal(
+                ["notes/note.txt", "notes/other.txt"],
+                GetRequiredProperty(listNextResult, "entries")
+                    .EnumerateArray()
+                    .Select(entry => GetRequiredProperty(entry, "path").GetString()));
+            Assert.False(listNextResult.TryGetProperty("nextCursor", out _));
 
             var found = await client.CallToolAsync(
                 "filesystem_find_paths",
@@ -390,14 +420,31 @@ public sealed class McpStdioTests
                     ["queries"] = new[] { ".txt" },
                     ["matchMode"] = "suffix",
                     ["type"] = "file",
-                    ["workId"] = workId
+                    ["workId"] = workId,
+                    ["maxResults"] = 1
                 });
             var foundRoot = GetStructured(found.StructuredContent);
             Assert.True(GetRequiredProperty(foundRoot, "ok").GetBoolean());
-            var matches = GetRequiredProperty(
-                GetRequiredProperty(foundRoot, "result"),
-                "matches");
-            Assert.Single(matches.EnumerateArray());
+            var foundResult = GetRequiredProperty(foundRoot, "result");
+            Assert.Single(GetRequiredProperty(foundResult, "matches").EnumerateArray());
+            var findCursor = GetRequiredProperty(foundResult, "nextCursor").GetString();
+            Assert.False(string.IsNullOrWhiteSpace(findCursor));
+
+            var foundNext = await client.CallToolAsync(
+                "filesystem_find_paths",
+                new Dictionary<string, object?>
+                {
+                    ["path"] = ".",
+                    ["queries"] = new[] { ".txt" },
+                    ["matchMode"] = "suffix",
+                    ["type"] = "file",
+                    ["workId"] = workId,
+                    ["maxResults"] = 2,
+                    ["cursor"] = findCursor
+                });
+            var foundNextResult = GetRequiredProperty(GetStructured(foundNext.StructuredContent), "result");
+            Assert.Single(GetRequiredProperty(foundNextResult, "matches").EnumerateArray());
+            Assert.False(foundNextResult.TryGetProperty("nextCursor", out _));
 
             var searched = await client.CallToolAsync(
                 "filesystem_search_text",

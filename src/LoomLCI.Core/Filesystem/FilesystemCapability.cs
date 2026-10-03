@@ -26,6 +26,7 @@ public sealed class FilesystemCapability
         IReadOnlyList<string>? excludeDirectories = null,
         int maxDepth = 3,
         int maxEntries = 1000,
+        string? cursor = null,
         CancellationToken cancellationToken = default)
         => _invocations.RunAsync(
             "filesystem.list_tree",
@@ -57,6 +58,7 @@ public sealed class FilesystemCapability
                         traversal.Value!,
                         maxDepth,
                         maxEntries,
+                        cursor,
                         token).ConfigureAwait(false)
                     : LoomResult<FilesystemListTreeResult>.Failure(resolved.Error!);
             },
@@ -72,6 +74,7 @@ public sealed class FilesystemCapability
         IReadOnlyList<string>? excludeDirectories = null,
         int maxDepth = 12,
         int maxResults = 100,
+        string? cursor = null,
         CancellationToken cancellationToken = default)
         => _invocations.RunAsync(
             "filesystem.find_paths",
@@ -106,6 +109,7 @@ public sealed class FilesystemCapability
                         traversal.Value!,
                         maxDepth,
                         maxResults,
+                        cursor,
                         token).ConfigureAwait(false)
                     : LoomResult<FilesystemFindPathsResult>.Failure(resolved.Error!);
             },
