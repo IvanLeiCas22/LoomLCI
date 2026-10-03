@@ -173,7 +173,8 @@ Una primera implementación controlable puede preservar todo hasta la cuota y, s
 - Los spools se eliminan al liberar el recurso/WorkSession.
 - El provider limpia el proceso si la inicialización del spool falla.
 - Smoke live: `abcdef` recuperado carácter por carácter; 1.200.000 caracteres accesibles desde cursor 0 y 1.100.000; `😀X` leído como `😀` (cursor 0→2) y luego `X` (2→3).
-- Validación final: 40/40 tests, Release y Debug sin warnings/errores.
+- Prueba fresca posterior validó cursores, output grande, Unicode, presupuesto stdout/stderr, retención post-terminate y cleanup. Única fricción detectada: después de `work_close` los handles session-owned ya no pueden inspeccionarse; se aclaró explícitamente en la metadata de `work_close` que cualquier estado/output final debe leerse antes de cerrar.
+- Validación final previa a esa aclaración: 40/40 tests, Release y Debug sin warnings/errores.
 
 ## No incluir en este bloque
 
