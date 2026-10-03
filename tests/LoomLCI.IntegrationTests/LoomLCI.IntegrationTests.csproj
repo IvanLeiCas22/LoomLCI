@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -23,7 +23,6 @@
     <ProjectReference Include="..\..\src\LoomLCI.Core\LoomLCI.Core.csproj" />
     <ProjectReference Include="..\..\src\LoomLCI.Windows\LoomLCI.Windows.csproj" />
     <ProjectReference Include="..\..\src\LoomLCI.Mcp\LoomLCI.Mcp.csproj" />
-    <ProjectReference Include="..\..\src\LoomLCI.Host\LoomLCI.Host.csproj" />
   </ItemGroup>
 
 </Project>

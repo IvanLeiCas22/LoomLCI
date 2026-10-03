@@ -11,7 +11,8 @@ public static class McpServiceCollectionExtensions
             .AddMcpServer()
             .WithStdioServerTransport()
             .WithTools<WorkTools>()
-            .WithTools<ProcessTools>();
+            .WithTools<ProcessTools>()
+            .WithTools<FilesystemTools>();
 
         return services;
     }

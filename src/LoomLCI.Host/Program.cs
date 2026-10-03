@@ -1,9 +1,11 @@
+using LoomLCI.Core.Filesystem;
 using LoomLCI.Core.Invocations;
 using LoomLCI.Core.Observability;
 using LoomLCI.Core.Processes;
 using LoomLCI.Core.Resources;
 using LoomLCI.Core.Work;
 using LoomLCI.Mcp;
+using LoomLCI.Windows.Filesystem;
 using LoomLCI.Windows.Processes;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -23,6 +25,8 @@ builder.Services.AddSingleton<WorkSessionManager>();
 builder.Services.AddSingleton<InvocationRunner>();
 builder.Services.AddSingleton<IProcessProvider, WindowsProcessProvider>();
 builder.Services.AddSingleton<ProcessCapability>();
+builder.Services.AddSingleton<IFilesystemProvider, WindowsFilesystemProvider>();
+builder.Services.AddSingleton<FilesystemCapability>();
 
 builder.Services.AddLoomMcpStdio();
 

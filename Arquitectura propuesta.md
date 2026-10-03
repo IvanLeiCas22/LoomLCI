@@ -74,4 +74,4 @@ Helper nativo sólo si una limitación medida lo exige.
 ## Primera versión
 Un único proceso de usuario en la sesión interactiva de Windows. Sin Windows Service, sandbox, daemon privilegiado ni UI propia obligatoria.
 
-Orden actual: Process vertical slice ✓ → Filesystem → ConPTY/Job Objects → Python Runtime → Agent Support → Computer → evaluaciones.
+Orden actual: Process vertical slice ✓ → Filesystem ✓ → ConPTY/Job Objects → Python Runtime → Agent Support → Computer → evaluaciones.

@@ -10,7 +10,7 @@
   "interface": {
     "displayName": "LoomLCI",
     "shortDescription": "Acceso local a tu PC mediante LoomLCI.",
-    "longDescription": "LoomLCI es un runtime local Full Trust para que ChatGPT pueda trabajar con capacidades estructuradas de la computadora. La versión actual expone WorkSession y Process; Filesystem, Python Runtime, Agent Support y Computer se agregarán progresivamente.",
+    "longDescription": "LoomLCI es un runtime local Full Trust para que ChatGPT pueda trabajar con capacidades estructuradas de la computadora. La versión actual expone WorkSession, Process y Filesystem; Python Runtime, Agent Support y Computer se agregarán progresivamente.",
     "developerName": "Iván Leiva Castell",
     "category": "Developer Tools",
     "capabilities": ["Read", "Write", "Interactive"],
