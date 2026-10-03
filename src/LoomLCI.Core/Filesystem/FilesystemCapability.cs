@@ -125,6 +125,7 @@ public sealed class FilesystemCapability
         int maxDepth = 12,
         int maxResults = 100,
         int contextLines = 1,
+        string? cursor = null,
         CancellationToken cancellationToken = default)
         => _invocations.RunAsync(
             "filesystem.search_text",
@@ -163,6 +164,7 @@ public sealed class FilesystemCapability
                         maxDepth,
                         maxResults,
                         contextLines,
+                        cursor,
                         token).ConfigureAwait(false)
                     : LoomResult<FilesystemSearchTextResult>.Failure(resolved.Error!);
             },

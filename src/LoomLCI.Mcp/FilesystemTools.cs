@@ -36,13 +36,20 @@ public sealed record FilesystemTextQueryMatchDto(
     string Query,
     int Column);
 
+public sealed record FilesystemTextLineExcerptDto(
+    string Text,
+    int StartColumn,
+    bool Truncated);
+
 public sealed record FilesystemTextMatchDto(
     string Path,
     int Line,
     string Text,
+    int TextStartColumn,
+    bool TextTruncated,
     IReadOnlyList<FilesystemTextQueryMatchDto> QueryMatches,
-    IReadOnlyList<string> ContextBefore,
-    IReadOnlyList<string> ContextAfter);
+    IReadOnlyList<FilesystemTextLineExcerptDto> ContextBefore,
+    IReadOnlyList<FilesystemTextLineExcerptDto> ContextAfter);
 
 public sealed record FilesystemSearchTextDto(
     string Root,
@@ -53,8 +60,9 @@ public sealed record FilesystemSearchTextDto(
     bool Truncated,
     bool ResultLimitReached,
     bool ScanLimitReached,
-    int SkippedLargeFileCount,
-    IReadOnlyList<string> SkippedLargeFiles);
+    int SkippedBinaryFileCount,
+    IReadOnlyList<string> SkippedBinaryFiles,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? NextCursor);
 
 public sealed record FilesystemReadFileInput(
     [property: Description("File path to read. May be absolute or relative to the work session base directory.")] string Path,
@@ -194,7 +202,7 @@ public sealed class FilesystemTools
         Destructive = false,
         Idempotent = true,
         OpenWorld = false)]
-    [Description("Searches one to 32 literal text queries in a single filesystem traversal with OR semantics. Results are grouped by matching line: each line appears once with queryMatches identifying every query that matched and its first matching column. maxResults limits matching lines, not individual query matches. Search currently scans at most 64 MiB total and skips individual files over 16 MiB; truncated is true whenever results are incomplete, while resultLimitReached, scanLimitReached, skippedLargeFileCount, and skippedLargeFiles explain why. Recursive traversal prunes common generated/infrastructure directories by default; explicitly targeting one of those directories as path still works. Use this when content locations are unknown; use filesystem_find_paths for path/name lookup and filesystem_read_files after locating files that need fuller context.")]
+    [Description("Searches one to 32 literal text queries in a single filesystem traversal with OR semantics. Results are grouped by matching physical line: each line appears once with queryMatches identifying every query that matched and its first 1-based UTF-16 column. Matching lines and context are bounded excerpts; textStartColumn/textTruncated and context excerpt metadata indicate when text was shortened. maxResults limits matching lines per page. Search streams files of any size and scans up to about 64 MiB per page; if nextCursor is returned, pass it back as cursor with the same search/traversal inputs to continue. maxResults may change between pages. resultLimitReached and scanLimitReached explain why the current page stopped. Files classified as binary by an initial decoded-prefix NUL heuristic are skipped and reported by skippedBinaryFileCount/skippedBinaryFiles. Recursive traversal pruning matches the other filesystem discovery tools. Use filesystem_read_files after locating files that need fuller exact context.")]
     public async Task<CallToolResult> SearchText(
         [Description("File or directory path to search. May be absolute or relative to the work session base directory.")] string path,
         [Description("One to 32 non-empty literal text queries. Multiple queries use OR semantics and are searched in one traversal; this is not regex.")][MinLength(1)][MaxLength(32)] string[] queries,
@@ -203,8 +211,9 @@ public sealed class FilesystemTools
         [Description("When false, recursive traversal prunes .git, .vs, .venv, __pycache__, bin, node_modules, obj, and .obsidian/plugins. Explicitly targeting one of those directories as path still traverses it.")] bool includeGenerated = false,
         [Description("Optional exact directory names to prune in addition to the defaults. Names are case-insensitive on Windows and are not glob patterns or paths.")][MaxLength(64)] string[]? excludeDirectories = null,
         [Description("Maximum recursion depth.")][Range(1, 32)] int maxDepth = 12,
-        [Description("Maximum matching lines returned across all queries.")][Range(1, 500)] int maxResults = 100,
+        [Description("Maximum matching lines returned in this page across all queries.")][Range(1, 500)] int maxResults = 100,
         [Description("Context lines returned before and after each match.")][Range(0, 3)] int contextLines = 1,
+        [Description("Opaque nextCursor from a previous filesystem_search_text call with the same search/traversal inputs. Omit for the first page; maxResults may differ between pages.")][MaxLength(4096)] string? cursor = null,
         CancellationToken cancellationToken = default)
     {
         var result = await _filesystem.SearchTextAsync(
@@ -217,6 +226,7 @@ public sealed class FilesystemTools
             maxDepth,
             maxResults,
             contextLines,
+            cursor,
             cancellationToken).ConfigureAwait(false);
 
         return McpToolResults.From(MapSearchText(result));
@@ -388,18 +398,21 @@ public sealed class FilesystemTools
                             match.Path,
                             match.Line,
                             match.Text,
+                            match.TextStartColumn,
+                            match.TextTruncated,
                             match.QueryMatches.Select(queryMatch => new FilesystemTextQueryMatchDto(
                                 queryMatch.Query,
                                 queryMatch.Column)).ToArray(),
-                            match.ContextBefore,
-                            match.ContextAfter)).ToArray(),
+                            match.ContextBefore.Select(ToDto).ToArray(),
+                            match.ContextAfter.Select(ToDto).ToArray())).ToArray(),
                         result.Value.FilesRead,
                         result.Value.BytesRead,
                         result.Value.Truncated,
                         result.Value.ResultLimitReached,
                         result.Value.ScanLimitReached,
-                        result.Value.SkippedLargeFileCount,
-                        result.Value.SkippedLargeFiles)))
+                        result.Value.SkippedBinaryFileCount,
+                        result.Value.SkippedBinaryFiles,
+                        result.Value.NextCursor)))
             : ToolEnvelope<FilesystemSearchTextDto>.From(
                 LoomResult<FilesystemSearchTextDto>.Failure(result.Error!));
 
@@ -420,6 +433,9 @@ public sealed class FilesystemTools
                             file.Text)).ToArray())))
             : ToolEnvelope<FilesystemReadFilesDto>.From(
                 LoomResult<FilesystemReadFilesDto>.Failure(result.Error!));
+
+    private static FilesystemTextLineExcerptDto ToDto(FilesystemTextLineExcerpt value)
+        => new(value.Text, value.StartColumn, value.Truncated);
 
     private static FilesystemEntryDto ToDto(FilesystemEntry entry)
         => new(

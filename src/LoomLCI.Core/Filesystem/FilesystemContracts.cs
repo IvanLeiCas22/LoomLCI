@@ -45,13 +45,20 @@ public sealed record FilesystemTextQueryMatch(
     string Query,
     int Column);
 
+public sealed record FilesystemTextLineExcerpt(
+    string Text,
+    int StartColumn,
+    bool Truncated);
+
 public sealed record FilesystemTextMatch(
     string Path,
     int Line,
     string Text,
+    int TextStartColumn,
+    bool TextTruncated,
     IReadOnlyList<FilesystemTextQueryMatch> QueryMatches,
-    IReadOnlyList<string> ContextBefore,
-    IReadOnlyList<string> ContextAfter);
+    IReadOnlyList<FilesystemTextLineExcerpt> ContextBefore,
+    IReadOnlyList<FilesystemTextLineExcerpt> ContextAfter);
 
 public sealed record FilesystemSearchTextResult(
     string Root,
@@ -62,8 +69,9 @@ public sealed record FilesystemSearchTextResult(
     bool Truncated,
     bool ResultLimitReached,
     bool ScanLimitReached,
-    int SkippedLargeFileCount,
-    IReadOnlyList<string> SkippedLargeFiles);
+    int SkippedBinaryFileCount,
+    IReadOnlyList<string> SkippedBinaryFiles,
+    string? NextCursor);
 
 public sealed record FilesystemReadFileRequest(
     string RequestedPath,
@@ -136,6 +144,7 @@ public interface IFilesystemProvider
         int maxDepth,
         int maxResults,
         int contextLines,
+        string? cursor,
         CancellationToken cancellationToken);
 
     Task<LoomResult<FilesystemReadFilesResult>> ReadFilesAsync(

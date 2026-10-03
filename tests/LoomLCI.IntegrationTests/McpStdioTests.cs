@@ -113,10 +113,13 @@ public sealed class McpStdioTests
 
         var searchText = Assert.Single(tools, tool => tool.Name == "filesystem_search_text");
         Assert.Contains("one to 32 literal text queries", searchText.Description, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("grouped by matching line", searchText.Description, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("skippedLargeFileCount", searchText.Description, StringComparison.Ordinal);
-        Assert.Contains("scanLimitReached", searchText.Description, StringComparison.Ordinal);
+        Assert.Contains("grouped by matching physical line", searchText.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("nextCursor", searchText.Description, StringComparison.Ordinal);
+        Assert.Contains("skippedBinaryFileCount", searchText.Description, StringComparison.Ordinal);
+        Assert.Contains("64 MiB per page", searchText.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("bounded excerpts", searchText.Description, StringComparison.OrdinalIgnoreCase);
         var searchProperties = GetRequiredProperty(searchText.JsonSchema, "properties");
+        Assert.Equal(4096, GetRequiredProperty(GetRequiredProperty(searchProperties, "cursor"), "maxLength").GetInt32());
         var searchQueries = GetRequiredProperty(searchProperties, "queries");
         Assert.Equal(1, GetRequiredProperty(searchQueries, "minItems").GetInt32());
         Assert.Equal(32, GetRequiredProperty(searchQueries, "maxItems").GetInt32());
@@ -451,20 +454,44 @@ public sealed class McpStdioTests
                 new Dictionary<string, object?>
                 {
                     ["path"] = ".",
-                    ["queries"] = new[] { "needle", "beta" },
-                    ["workId"] = workId
+                    ["queries"] = new[] { "needle", "secondary" },
+                    ["workId"] = workId,
+                    ["maxResults"] = 1,
+                    ["contextLines"] = 0
                 });
             var searchedRoot = GetStructured(searched.StructuredContent);
             Assert.True(GetRequiredProperty(searchedRoot, "ok").GetBoolean());
             var searchedResult = GetRequiredProperty(searchedRoot, "result");
+            Assert.True(GetRequiredProperty(searchedResult, "resultLimitReached").GetBoolean());
             var searchedQueries = GetRequiredProperty(searchedResult, "queries");
             Assert.Equal(2, searchedQueries.GetArrayLength());
-            var textMatches = GetRequiredProperty(searchedResult, "matches");
-            var textMatch = Assert.Single(textMatches.EnumerateArray());
-            var queryMatches = GetRequiredProperty(textMatch, "queryMatches");
-            var queryMatch = Assert.Single(queryMatches.EnumerateArray());
-            Assert.Equal("needle", GetRequiredProperty(queryMatch, "query").GetString());
-            Assert.Equal(7, GetRequiredProperty(queryMatch, "column").GetInt32());
+            var textMatch = Assert.Single(GetRequiredProperty(searchedResult, "matches").EnumerateArray());
+            Assert.Equal(1, GetRequiredProperty(textMatch, "textStartColumn").GetInt32());
+            Assert.False(GetRequiredProperty(textMatch, "textTruncated").GetBoolean());
+            var searchCursor = GetRequiredProperty(searchedResult, "nextCursor").GetString();
+            Assert.False(string.IsNullOrWhiteSpace(searchCursor));
+
+            var searchedNext = await client.CallToolAsync(
+                "filesystem_search_text",
+                new Dictionary<string, object?>
+                {
+                    ["path"] = ".",
+                    ["queries"] = new[] { "needle", "secondary" },
+                    ["workId"] = workId,
+                    ["maxResults"] = 2,
+                    ["contextLines"] = 0,
+                    ["cursor"] = searchCursor
+                });
+            var searchedNextResult = GetRequiredProperty(
+                GetStructured(searchedNext.StructuredContent),
+                "result");
+            var nextTextMatch = Assert.Single(
+                GetRequiredProperty(searchedNextResult, "matches").EnumerateArray());
+            var queryMatch = Assert.Single(
+                GetRequiredProperty(nextTextMatch, "queryMatches").EnumerateArray());
+            Assert.Equal("secondary", GetRequiredProperty(queryMatch, "query").GetString());
+            Assert.Equal(1, GetRequiredProperty(queryMatch, "column").GetInt32());
+            Assert.False(searchedNextResult.TryGetProperty("nextCursor", out _));
 
             var read = await client.CallToolAsync(
                 "filesystem_read_files",

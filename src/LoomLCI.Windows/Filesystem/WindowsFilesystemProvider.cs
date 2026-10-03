@@ -7,9 +7,22 @@ namespace LoomLCI.Windows.Filesystem;
 public sealed class WindowsFilesystemProvider : IFilesystemProvider
 {
     private const long MaxTextFileBytes = 16L * 1024 * 1024;
-    private const long MaxSearchTotalBytes = 64L * 1024 * 1024;
+    private const long DefaultMaxSearchTotalBytes = 64L * 1024 * 1024;
     private const long MaxReadTotalBytes = 64L * 1024 * 1024;
-    private const int MaxSkippedLargeFileSamples = 20;
+    private readonly long _maxSearchTotalBytes;
+
+    public WindowsFilesystemProvider()
+        : this(DefaultMaxSearchTotalBytes)
+    {
+    }
+
+    internal WindowsFilesystemProvider(long maxSearchTotalBytes)
+    {
+        _maxSearchTotalBytes = maxSearchTotalBytes > 0
+            ? maxSearchTotalBytes
+            : throw new ArgumentOutOfRangeException(nameof(maxSearchTotalBytes));
+    }
+    private const int MaxSkippedFileSamples = 20;
 
     private static readonly string[] DefaultGeneratedDirectories =
     [
@@ -245,121 +258,198 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
         int maxDepth,
         int maxResults,
         int contextLines,
+        string? cursor,
         CancellationToken cancellationToken)
     {
         try
         {
-            IEnumerable<(string FullPath, string RelativePath)> files;
-            if (File.Exists(root))
-            {
-                files = [(root, Path.GetFileName(root))];
-            }
-            else if (Directory.Exists(root))
-            {
-                files = Enumerate(root, traversal, maxDepth, cancellationToken)
-                    .Where(item => item.Type == FilesystemEntryType.File)
-                    .Select(item => (
-                        item.FullPath,
-                        NormalizeRelative(Path.GetRelativePath(root, item.FullPath))));
-            }
-            else
+            if (!File.Exists(root) && !Directory.Exists(root))
             {
                 return LoomResult<FilesystemSearchTextResult>.Failure(
                     LoomErrors.NotFound($"Path '{root}' was not found."));
             }
 
+            var fingerprint = FilesystemCursorCodec.CreateSearchTextFingerprint(
+                root,
+                queries,
+                caseSensitive,
+                traversal,
+                maxDepth,
+                contextLines);
+            var decoded = FilesystemCursorCodec.DecodeSearch(cursor, fingerprint);
+            if (!decoded.IsSuccess)
+            {
+                return LoomResult<FilesystemSearchTextResult>.Failure(decoded.Error!);
+            }
+
+            var continuation = decoded.Value;
             var matches = new List<FilesystemTextMatch>(Math.Min(maxResults, 128));
-            var comparison = caseSensitive ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
             var filesRead = 0;
             long bytesRead = 0;
             var resultLimitReached = false;
             var scanLimitReached = false;
-            var skippedLargeFileCount = 0;
-            var skippedLargeFiles = new List<string>();
+            var skippedBinaryFileCount = 0;
+            var skippedBinaryFiles = new List<string>();
+            string? nextCursor = null;
+            var resumeValidated = continuation is null;
 
-            foreach (var file in files)
+            foreach (var file in EnumerateSearchFiles(
+                         root,
+                         traversal,
+                         maxDepth,
+                         cancellationToken))
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var info = new FileInfo(file.FullPath);
-                if (info.Length > MaxTextFileBytes)
+                var resumesThisFile = false;
+                if (!resumeValidated)
                 {
-                    skippedLargeFileCount++;
-                    if (skippedLargeFiles.Count < MaxSkippedLargeFileSamples)
-                    {
-                        skippedLargeFiles.Add(file.RelativePath);
-                    }
-                    continue;
-                }
-
-                if (bytesRead + info.Length > MaxSearchTotalBytes)
-                {
-                    scanLimitReached = true;
-                    break;
-                }
-
-                var text = await File.ReadAllTextAsync(file.FullPath, cancellationToken).ConfigureAwait(false);
-                bytesRead += info.Length;
-                filesRead++;
-
-                if (text.IndexOf('\0') >= 0)
-                {
-                    continue;
-                }
-
-                var lines = ParseTextLines(text);
-                for (var i = 0; i < lines.Count; i++)
-                {
-                    var lineText = lines[i].Content;
-                    List<FilesystemTextQueryMatch>? queryMatches = null;
-                    foreach (var query in queries)
-                    {
-                        var column = lineText.IndexOf(query, comparison);
-                        if (column >= 0)
-                        {
-                            queryMatches ??= new List<FilesystemTextQueryMatch>(queries.Count);
-                            queryMatches.Add(new FilesystemTextQueryMatch(query, column + 1));
-                        }
-                    }
-
-                    if (queryMatches is null)
+                    if (file.Ordinal < continuation!.Ordinal)
                     {
                         continue;
                     }
 
-                    if (matches.Count >= maxResults)
+                    if (file.Ordinal != continuation.Ordinal ||
+                        !string.Equals(
+                            file.RelativePath,
+                            continuation.ExpectedPath,
+                            StringComparison.OrdinalIgnoreCase))
                     {
-                        resultLimitReached = true;
-                        break;
+                        return LoomResult<FilesystemSearchTextResult>.Failure(
+                            FilesystemCursorCodec.StaleCursorError());
                     }
 
-                    var beforeStart = Math.Max(0, i - contextLines);
-                    var afterEnd = Math.Min(lines.Count - 1, i + contextLines);
-                    var before = Enumerable.Range(beforeStart, i - beforeStart)
-                        .Select(index => lines[index].Content)
-                        .ToArray();
-                    var after = i + 1 <= afterEnd
-                        ? Enumerable.Range(i + 1, afterEnd - i)
-                            .Select(index => lines[index].Content)
-                            .ToArray()
-                        : Array.Empty<string>();
-
-                    matches.Add(new FilesystemTextMatch(
-                        file.RelativePath,
-                        i + 1,
-                        lineText,
-                        queryMatches,
-                        before,
-                        after));
+                    resumeValidated = true;
+                    resumesThisFile = true;
                 }
 
-                if (resultLimitReached || scanLimitReached)
+                var before = new FileInfo(file.FullPath);
+                var beforeLength = before.Length;
+                var beforeWriteTicks = before.LastWriteTimeUtc.Ticks;
+                var format = await StreamingTextSearchReader.InspectAsync(
+                    file.FullPath,
+                    cancellationToken).ConfigureAwait(false);
+
+                if (resumesThisFile &&
+                    (beforeLength != continuation!.FileLength ||
+                     beforeWriteTicks != continuation.LastWriteTimeUtcTicks ||
+                     !string.Equals(
+                         format.EncodingId,
+                         continuation.EncodingId,
+                         StringComparison.Ordinal)))
                 {
+                    return LoomResult<FilesystemSearchTextResult>.Failure(
+                        FilesystemCursorCodec.StaleCursorError());
+                }
+
+                if (format.IsBinary)
+                {
+                    if (resumesThisFile)
+                    {
+                        return LoomResult<FilesystemSearchTextResult>.Failure(
+                            FilesystemCursorCodec.StaleCursorError());
+                    }
+
+                    skippedBinaryFileCount++;
+                    if (skippedBinaryFiles.Count < MaxSkippedFileSamples)
+                    {
+                        skippedBinaryFiles.Add(file.RelativePath);
+                    }
+                    continue;
+                }
+
+                var startLine = resumesThisFile
+                    ? continuation!.ContextStartLine
+                    : 1;
+                var startOffset = resumesThisFile
+                    ? continuation!.ContextStartByteOffset
+                    : format.PreambleLength;
+                var emitMatchesFromLine = resumesThisFile
+                    ? continuation!.NextLine
+                    : 1;
+
+                var remainingBudget = _maxSearchTotalBytes - bytesRead;
+                if (remainingBudget <= 0)
+                {
+                    scanLimitReached = true;
+                    nextCursor = FilesystemCursorCodec.EncodeSearch(
+                        fingerprint,
+                        new FilesystemSearchContinuation(
+                            file.Ordinal,
+                            file.RelativePath,
+                            emitMatchesFromLine,
+                            resumesThisFile
+                                ? continuation!.NextByteOffset
+                                : format.PreambleLength,
+                            startLine,
+                            startOffset,
+                            beforeLength,
+                            beforeWriteTicks,
+                            format.EncodingId));
                     break;
                 }
+
+                filesRead++;
+                var scanned = await StreamingTextSearchFileScanner.ScanAsync(
+                    file.FullPath,
+                    file.RelativePath,
+                    format,
+                    queries,
+                    caseSensitive,
+                    contextLines,
+                    startLine,
+                    startOffset,
+                    emitMatchesFromLine,
+                    maxResults - matches.Count,
+                    remainingBudget,
+                    cancellationToken).ConfigureAwait(false);
+
+                var after = new FileInfo(file.FullPath);
+                if (after.Length != beforeLength ||
+                    after.LastWriteTimeUtc.Ticks != beforeWriteTicks)
+                {
+                    return LoomResult<FilesystemSearchTextResult>.Failure(
+                        new LoomError(
+                            "conflict",
+                            $"File '{file.RelativePath}' changed while it was being searched. Restart the search.",
+                            false,
+                            new Dictionary<string, object?>
+                            {
+                                ["reason"] = "file_changed_during_search"
+                            }));
+                }
+
+                matches.AddRange(scanned.Matches);
+                bytesRead += scanned.BytesRead;
+                resultLimitReached |= scanned.ResultLimitReached;
+                scanLimitReached |= scanned.ScanLimitReached;
+
+                if (scanned.ResumePoint is { } point)
+                {
+                    nextCursor = FilesystemCursorCodec.EncodeSearch(
+                        fingerprint,
+                        new FilesystemSearchContinuation(
+                            file.Ordinal,
+                            file.RelativePath,
+                            point.NextLine,
+                            point.NextByteOffset,
+                            point.ContextStartLine,
+                            point.ContextStartByteOffset,
+                            beforeLength,
+                            beforeWriteTicks,
+                            format.EncodingId));
+                    break;
+                }
+
+                continuation = null;
             }
 
-            var truncated = resultLimitReached || scanLimitReached || skippedLargeFileCount > 0;
+            if (!resumeValidated)
+            {
+                return LoomResult<FilesystemSearchTextResult>.Failure(
+                    FilesystemCursorCodec.StaleCursorError());
+            }
+
             return LoomResult<FilesystemSearchTextResult>.Success(
                 new FilesystemSearchTextResult(
                     root,
@@ -367,11 +457,12 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                     matches,
                     filesRead,
                     bytesRead,
-                    truncated,
+                    nextCursor is not null,
                     resultLimitReached,
                     scanLimitReached,
-                    skippedLargeFileCount,
-                    skippedLargeFiles));
+                    skippedBinaryFileCount,
+                    skippedBinaryFiles,
+                    nextCursor));
         }
         catch (OperationCanceledException)
         {
@@ -739,6 +830,36 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                     break;
                 }
             }
+        }
+    }
+
+    private static IEnumerable<(
+        long Ordinal,
+        string FullPath,
+        string RelativePath)> EnumerateSearchFiles(
+        string root,
+        FilesystemTraversalOptions traversal,
+        int maxDepth,
+        CancellationToken cancellationToken)
+    {
+        if (File.Exists(root))
+        {
+            yield return (0, root, Path.GetFileName(root));
+            yield break;
+        }
+
+        var ordinal = 0L;
+        foreach (var item in Enumerate(root, traversal, maxDepth, cancellationToken))
+        {
+            if (item.Type == FilesystemEntryType.File)
+            {
+                yield return (
+                    ordinal,
+                    item.FullPath,
+                    NormalizeRelative(Path.GetRelativePath(root, item.FullPath)));
+            }
+
+            ordinal++;
         }
     }
 

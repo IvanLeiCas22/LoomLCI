@@ -1,3 +1,4 @@
+using System.Text;
 using LoomLCI.Core;
 using LoomLCI.Core.Filesystem;
 using LoomLCI.Core.Invocations;
@@ -52,8 +53,10 @@ public sealed class FilesystemCapabilityTests
         var queryMatch = Assert.Single(match.QueryMatches);
         Assert.Equal("needle", queryMatch.Query);
         Assert.Equal(1, queryMatch.Column);
-        Assert.Equal(["first line"], match.ContextBefore);
-        Assert.Equal(["last line"], match.ContextAfter);
+        Assert.Equal(["first line"], match.ContextBefore.Select(line => line.Text));
+        Assert.Equal(["last line"], match.ContextAfter.Select(line => line.Text));
+        Assert.All(match.ContextBefore, line => Assert.False(line.Truncated));
+        Assert.All(match.ContextAfter, line => Assert.False(line.Truncated));
 
         var read = await fixture.Filesystem.ReadFilesAsync(
             [("src/alpha.txt", 2, 1)],
@@ -344,8 +347,9 @@ public sealed class FilesystemCapabilityTests
         Assert.False(searched.Value.Truncated);
         Assert.False(searched.Value.ResultLimitReached);
         Assert.False(searched.Value.ScanLimitReached);
-        Assert.Equal(0, searched.Value.SkippedLargeFileCount);
-        Assert.Empty(searched.Value.SkippedLargeFiles);
+        Assert.Equal(0, searched.Value.SkippedBinaryFileCount);
+        Assert.Empty(searched.Value.SkippedBinaryFiles);
+        Assert.Null(searched.Value.NextCursor);
         Assert.Collection(
             searched.Value.Matches,
             match =>
@@ -391,18 +395,69 @@ public sealed class FilesystemCapabilityTests
         Assert.True(limited.Value.Truncated);
         Assert.True(limited.Value.ResultLimitReached);
         Assert.False(limited.Value.ScanLimitReached);
-        Assert.Equal(0, limited.Value.SkippedLargeFileCount);
+        Assert.Equal(0, limited.Value.SkippedBinaryFileCount);
+        Assert.NotNull(limited.Value.NextCursor);
+
+        var continued = await fixture.Filesystem.SearchTextAsync(
+            ".",
+            ["alpha", "beta"],
+            workId,
+            maxResults: 10,
+            contextLines: 0,
+            cursor: limited.Value.NextCursor);
+        Assert.True(continued.IsSuccess, continued.Error?.Message);
+        Assert.Equal([3], continued.Value!.Matches.Select(match => match.Line));
+        Assert.False(continued.Value.Truncated);
+        Assert.Null(continued.Value.NextCursor);
     }
 
     [Fact]
-    public async Task TextSearchReportsLargeFilesThatWereSkipped()
+    public async Task TextSearchFindsMatchBeyondFormerLargeFileLimit()
     {
         await using var fixture = new FilesystemFixture();
         var largePath = Path.Combine(fixture.Root, "large.txt");
-        await using (var stream = new FileStream(largePath, FileMode.Create, FileAccess.Write, FileShare.None))
+        await using (var writer = new StreamWriter(
+                         largePath,
+                         append: false,
+                         new UTF8Encoding(false)))
         {
-            stream.SetLength(17L * 1024 * 1024);
+            var block = new string('x', 1023) + "\n";
+            for (var i = 0; i < 17 * 1024; i++)
+            {
+                await writer.WriteAsync(block);
+            }
+            await writer.WriteLineAsync("needle after old limit");
         }
+
+        Assert.True(new FileInfo(largePath).Length > 16L * 1024 * 1024);
+        var work = fixture.Sessions.Create(fixture.Root);
+        Assert.True(work.IsSuccess);
+
+        var searched = await fixture.Filesystem.SearchTextAsync(
+            ".",
+            ["needle"],
+            work.Value!.Id,
+            contextLines: 0);
+
+        Assert.True(searched.IsSuccess, searched.Error?.Message);
+        var match = Assert.Single(searched.Value!.Matches);
+        Assert.Equal("large.txt", match.Path);
+        Assert.Contains("needle after old limit", match.Text, StringComparison.Ordinal);
+        Assert.False(searched.Value.Truncated);
+        Assert.False(searched.Value.ScanLimitReached);
+        Assert.Equal(0, searched.Value.SkippedBinaryFileCount);
+    }
+
+    [Fact]
+    public async Task TextSearchReportsBinaryFilesFromPrefixHeuristic()
+    {
+        await using var fixture = new FilesystemFixture();
+        await File.WriteAllBytesAsync(
+            Path.Combine(fixture.Root, "binary.dat"),
+            Encoding.UTF8.GetBytes("alpha\0needle"));
+        await File.WriteAllTextAsync(
+            Path.Combine(fixture.Root, "text.txt"),
+            "needle");
 
         var work = fixture.Sessions.Create(fixture.Root);
         Assert.True(work.IsSuccess);
@@ -414,12 +469,191 @@ public sealed class FilesystemCapabilityTests
             contextLines: 0);
 
         Assert.True(searched.IsSuccess, searched.Error?.Message);
-        Assert.Empty(searched.Value!.Matches);
-        Assert.True(searched.Value.Truncated);
-        Assert.False(searched.Value.ResultLimitReached);
-        Assert.False(searched.Value.ScanLimitReached);
-        Assert.Equal(1, searched.Value.SkippedLargeFileCount);
-        Assert.Equal(["large.txt"], searched.Value.SkippedLargeFiles);
+        Assert.Single(searched.Value!.Matches);
+        Assert.Equal(1, searched.Value.SkippedBinaryFileCount);
+        Assert.Equal(["binary.dat"], searched.Value.SkippedBinaryFiles);
+        Assert.False(searched.Value.Truncated);
+    }
+
+    [Fact]
+    public async Task TextSearchScanBudgetContinuesWithoutGaps()
+    {
+        await using var fixture = new FilesystemFixture(maxSearchTotalBytes: 2048);
+        var path = Path.Combine(fixture.Root, "paged.txt");
+        await File.WriteAllTextAsync(
+            path,
+            new string('a', 1023) + "\n" +
+            new string('b', 1023) + "\n" +
+            new string('c', 400) + "\n" +
+            "needle on fourth line");
+
+        var work = fixture.Sessions.Create(fixture.Root);
+        Assert.True(work.IsSuccess);
+        var workId = work.Value!.Id;
+
+        var first = await fixture.Filesystem.SearchTextAsync(
+            ".",
+            ["needle"],
+            workId,
+            contextLines: 0);
+        Assert.True(first.IsSuccess, first.Error?.Message);
+        Assert.Empty(first.Value!.Matches);
+        Assert.True(first.Value.Truncated);
+        Assert.True(first.Value.ScanLimitReached);
+        Assert.NotNull(first.Value.NextCursor);
+
+        var second = await fixture.Filesystem.SearchTextAsync(
+            ".",
+            ["needle"],
+            workId,
+            contextLines: 0,
+            cursor: first.Value.NextCursor);
+        Assert.True(second.IsSuccess, second.Error?.Message);
+        var match = Assert.Single(second.Value!.Matches);
+        Assert.Equal(4, match.Line);
+        Assert.False(second.Value.Truncated);
+        Assert.False(second.Value.ScanLimitReached);
+        Assert.Null(second.Value.NextCursor);
+    }
+
+    [Fact]
+    public async Task TextSearchCursorDetectsFileMutation()
+    {
+        await using var fixture = new FilesystemFixture();
+        var path = Path.Combine(fixture.Root, "mutable.txt");
+        await File.WriteAllTextAsync(path, "needle one\nneedle two");
+
+        var work = fixture.Sessions.Create(fixture.Root);
+        Assert.True(work.IsSuccess);
+        var workId = work.Value!.Id;
+
+        var first = await fixture.Filesystem.SearchTextAsync(
+            ".",
+            ["needle"],
+            workId,
+            maxResults: 1,
+            contextLines: 0);
+        Assert.True(first.IsSuccess, first.Error?.Message);
+        Assert.NotNull(first.Value!.NextCursor);
+
+        await File.AppendAllTextAsync(path, "\nchanged");
+
+        var resumed = await fixture.Filesystem.SearchTextAsync(
+            ".",
+            ["needle"],
+            workId,
+            maxResults: 10,
+            contextLines: 0,
+            cursor: first.Value.NextCursor);
+        Assert.False(resumed.IsSuccess);
+        Assert.Equal("conflict", resumed.Error?.Code);
+        Assert.Equal("cursor_stale", resumed.Error?.Details?["reason"]);
+    }
+
+    [Fact]
+    public async Task TextSearchCursorRejectsDifferentSearchInputs()
+    {
+        await using var fixture = new FilesystemFixture();
+        await File.WriteAllTextAsync(
+            Path.Combine(fixture.Root, "inputs.txt"),
+            "needle one\nneedle two");
+
+        var work = fixture.Sessions.Create(fixture.Root);
+        Assert.True(work.IsSuccess);
+        var workId = work.Value!.Id;
+
+        var first = await fixture.Filesystem.SearchTextAsync(
+            ".",
+            ["needle"],
+            workId,
+            maxResults: 1,
+            contextLines: 0);
+        Assert.True(first.IsSuccess, first.Error?.Message);
+        Assert.NotNull(first.Value!.NextCursor);
+
+        var mismatched = await fixture.Filesystem.SearchTextAsync(
+            ".",
+            ["other"],
+            workId,
+            maxResults: 10,
+            contextLines: 0,
+            cursor: first.Value.NextCursor);
+        Assert.False(mismatched.IsSuccess);
+        Assert.Equal("invalid_argument", mismatched.Error?.Code);
+    }
+
+    [Fact]
+    public async Task TextSearchContinuationRebuildsContextWithoutRepeatingMatches()
+    {
+        await using var fixture = new FilesystemFixture();
+        await File.WriteAllTextAsync(
+            Path.Combine(fixture.Root, "context.txt"),
+            "before\nhit one\nbetween\nhit two\nafter");
+
+        var work = fixture.Sessions.Create(fixture.Root);
+        Assert.True(work.IsSuccess);
+        var workId = work.Value!.Id;
+
+        var first = await fixture.Filesystem.SearchTextAsync(
+            ".",
+            ["hit"],
+            workId,
+            maxResults: 1,
+            contextLines: 1);
+        Assert.True(first.IsSuccess, first.Error?.Message);
+        var firstMatch = Assert.Single(first.Value!.Matches);
+        Assert.Equal(2, firstMatch.Line);
+        Assert.Equal(["before"], firstMatch.ContextBefore.Select(item => item.Text));
+        Assert.Equal(["between"], firstMatch.ContextAfter.Select(item => item.Text));
+        Assert.NotNull(first.Value.NextCursor);
+
+        var second = await fixture.Filesystem.SearchTextAsync(
+            ".",
+            ["hit"],
+            workId,
+            maxResults: 10,
+            contextLines: 1,
+            cursor: first.Value.NextCursor);
+        Assert.True(second.IsSuccess, second.Error?.Message);
+        var secondMatch = Assert.Single(second.Value!.Matches);
+        Assert.Equal(4, secondMatch.Line);
+        Assert.Equal(["between"], secondMatch.ContextBefore.Select(item => item.Text));
+        Assert.Equal(["after"], secondMatch.ContextAfter.Select(item => item.Text));
+        Assert.Null(second.Value.NextCursor);
+    }
+
+    [Fact]
+    public async Task TextSearchBoundsMatchAndContextExcerpts()
+    {
+        await using var fixture = new FilesystemFixture();
+        await File.WriteAllTextAsync(
+            Path.Combine(fixture.Root, "wide.txt"),
+            new string('a', 800) + "\n" +
+            new string('x', 900) + " needle " + new string('y', 900) + "\n" +
+            new string('z', 800));
+
+        var work = fixture.Sessions.Create(fixture.Root);
+        Assert.True(work.IsSuccess);
+
+        var searched = await fixture.Filesystem.SearchTextAsync(
+            ".",
+            ["needle"],
+            work.Value!.Id,
+            contextLines: 1);
+        Assert.True(searched.IsSuccess, searched.Error?.Message);
+
+        var match = Assert.Single(searched.Value!.Matches);
+        Assert.True(match.TextTruncated);
+        Assert.True(match.Text.Length <= StreamingTextSearchReader.MaxExcerptChars);
+        Assert.Contains("needle", match.Text, StringComparison.Ordinal);
+        Assert.True(match.TextStartColumn > 1);
+        Assert.All(
+            match.ContextBefore.Concat(match.ContextAfter),
+            excerpt =>
+            {
+                Assert.True(excerpt.Truncated);
+                Assert.True(excerpt.Text.Length <= StreamingTextSearchReader.MaxExcerptChars);
+            });
     }
 
     [Fact]
@@ -822,7 +1056,7 @@ public sealed class FilesystemCapabilityTests
 
     private sealed class FilesystemFixture : IAsyncDisposable
     {
-        public FilesystemFixture()
+        public FilesystemFixture(long? maxSearchTotalBytes = null)
         {
             Root = Path.Combine(Path.GetTempPath(), "LoomLCI.Tests", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(Root);
@@ -832,7 +1066,9 @@ public sealed class FilesystemCapabilityTests
             Sessions = new WorkSessionManager(Resources, Events);
             Invocations = new InvocationRunner(Events, Sessions);
             Filesystem = new FilesystemCapability(
-                new WindowsFilesystemProvider(),
+                maxSearchTotalBytes is long budget
+                    ? new WindowsFilesystemProvider(budget)
+                    : new WindowsFilesystemProvider(),
                 Invocations,
                 Events);
         }
