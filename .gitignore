@@ -1,0 +1,18 @@
+.obsidian/
+
+# .NET
+**/bin/
+**/obj/
+.vs/
+TestResults/
+*.user
+*.suo
+
+# Python runtime local state
+.venv/
+**/__pycache__/
+*.py[cod]
+
+# OS/editor noise
+Thumbs.db
+Desktop.ini
