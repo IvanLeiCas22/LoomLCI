@@ -45,12 +45,12 @@ Etapa 1 implementada:
 - `process_read.maxChars` limita respuesta, pero el buffer limita capacidad histórica.
 - Hay un edge case: cortar parcialmente un chunk puede avanzar el cursor completo y perder la parte no devuelta.
 
-Decisión: tratar process output en una etapa separada. Candidato: buffer rápido en memoria + spool temporal a disco asociado al recurso, con cursores sobre el histórico y pérdida explícita sólo al alcanzar una cuota de spool.
+Implementado en [[Bloque A - Process output]]: spool temporal recuperable por stream, cursores absolutos UTF-16, presupuesto de respuesta separado de captura, cuota explícita de 64 MiB por stream y metadata de retención cuando se alcanza.
 
 ## Pendientes
 
 - [x] Etapa 1: lectura ranged de archivos grandes + tests.
 - [x] Señalización detallada de límites de `search_text`.
 - [ ] Diseñar continuación/paginación para list/find/search sin inflar respuestas.
-- [ ] Rediseñar retención de stdout/stderr sin pérdida temprana.
+- [x] Rediseñar retención de stdout/stderr sin pérdida temprana.
 - [ ] Evaluar capacidades estructuradas para PDF/imágenes/documentos separadas de `read_files`.
