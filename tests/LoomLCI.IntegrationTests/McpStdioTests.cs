@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using ModelContextProtocol.Client;
+using ModelContextProtocol.Protocol;
 
 namespace LoomLCI.IntegrationTests;
 
@@ -178,6 +179,9 @@ public sealed class McpStdioTests
             new Dictionary<string, object?> { ["processHandle"] = "proc_not-a-real-handle" });
 
         Assert.True(invalid.IsError is true);
+        var invalidText = GetSingleTextContent(invalid);
+        Assert.StartsWith("not_found: ", invalidText, StringComparison.Ordinal);
+        Assert.Contains("proc_not-a-real-handle", invalidText, StringComparison.Ordinal);
         var invalidRoot = GetStructured(invalid.StructuredContent);
         Assert.False(GetRequiredProperty(invalidRoot, "ok").GetBoolean());
         Assert.Equal(
@@ -194,6 +198,10 @@ public sealed class McpStdioTests
                 ["label"] = "integration-test"
             });
 
+        Assert.Equal(
+            "Tool completed successfully. Structured result attached.",
+            GetSingleTextContent(create));
+        Assert.DoesNotContain(repoRoot, GetSingleTextContent(create), StringComparison.OrdinalIgnoreCase);
         var createRoot = GetStructured(create.StructuredContent);
         Assert.True(GetRequiredProperty(createRoot, "ok").GetBoolean());
         var workId = GetRequiredProperty(
@@ -396,6 +404,10 @@ public sealed class McpStdioTests
                     },
                     ["workId"] = workId
                 });
+            Assert.Equal(
+                "Tool completed successfully. Structured result attached.",
+                GetSingleTextContent(read));
+            Assert.DoesNotContain("alpha needle", GetSingleTextContent(read), StringComparison.Ordinal);
             var readRoot = GetStructured(read.StructuredContent);
             Assert.True(GetRequiredProperty(readRoot, "ok").GetBoolean());
             var files = GetRequiredProperty(
@@ -450,6 +462,12 @@ public sealed class McpStdioTests
                 "net10.0",
                 "LoomLCI.Host.dll")
             : hostDll;
+    }
+
+    private static string GetSingleTextContent(CallToolResult result)
+    {
+        var content = Assert.Single(result.Content);
+        return Assert.IsType<TextContentBlock>(content).Text;
     }
 
     private static JsonElement GetStructured(JsonElement? content)

@@ -19,9 +19,21 @@ internal static class McpToolResults
             [
                 new TextContentBlock
                 {
-                    Text = structured.GetRawText()
+                    Text = ToTextContent(envelope)
                 }
             ]
         };
+    }
+
+    private static string ToTextContent<T>(ToolEnvelope<T> envelope)
+    {
+        if (envelope.Ok)
+        {
+            return "Tool completed successfully. Structured result attached.";
+        }
+
+        return envelope.Error is { } error
+            ? $"{error.Code}: {error.Message}"
+            : "Tool failed.";
     }
 }
