@@ -102,6 +102,7 @@ public sealed class McpStdioTests
 
         var searchText = Assert.Single(tools, tool => tool.Name == "filesystem_search_text");
         Assert.Contains("one to 32 literal text queries", searchText.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("grouped by matching line", searchText.Description, StringComparison.OrdinalIgnoreCase);
         var searchProperties = GetRequiredProperty(searchText.JsonSchema, "properties");
         var searchQueries = GetRequiredProperty(searchProperties, "queries");
         Assert.Equal(1, GetRequiredProperty(searchQueries, "minItems").GetInt32());
@@ -389,7 +390,10 @@ public sealed class McpStdioTests
             Assert.Equal(2, searchedQueries.GetArrayLength());
             var textMatches = GetRequiredProperty(searchedResult, "matches");
             var textMatch = Assert.Single(textMatches.EnumerateArray());
-            Assert.Equal("needle", GetRequiredProperty(textMatch, "query").GetString());
+            var queryMatches = GetRequiredProperty(textMatch, "queryMatches");
+            var queryMatch = Assert.Single(queryMatches.EnumerateArray());
+            Assert.Equal("needle", GetRequiredProperty(queryMatch, "query").GetString());
+            Assert.Equal(7, GetRequiredProperty(queryMatch, "column").GetInt32());
 
             var read = await client.CallToolAsync(
                 "filesystem_read_files",

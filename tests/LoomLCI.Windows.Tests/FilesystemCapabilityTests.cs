@@ -47,10 +47,11 @@ public sealed class FilesystemCapabilityTests
         Assert.True(searched.IsSuccess, searched.Error?.Message);
         Assert.Equal(["needle"], searched.Value!.Queries);
         var match = Assert.Single(searched.Value.Matches);
-        Assert.Equal("needle", match.Query);
         Assert.Equal("src/alpha.txt", match.Path);
         Assert.Equal(2, match.Line);
-        Assert.Equal(1, match.Column);
+        var queryMatch = Assert.Single(match.QueryMatches);
+        Assert.Equal("needle", queryMatch.Query);
+        Assert.Equal(1, queryMatch.Column);
         Assert.Equal(["first line"], match.ContextBefore);
         Assert.Equal(["last line"], match.ContextAfter);
 
@@ -92,27 +93,33 @@ public sealed class FilesystemCapabilityTests
             searched.Value.Matches,
             match =>
             {
-                Assert.Equal("alpha", match.Query);
                 Assert.Equal(1, match.Line);
-                Assert.Equal(1, match.Column);
+                Assert.Collection(
+                    match.QueryMatches,
+                    queryMatch =>
+                    {
+                        Assert.Equal("alpha", queryMatch.Query);
+                        Assert.Equal(1, queryMatch.Column);
+                    },
+                    queryMatch =>
+                    {
+                        Assert.Equal("beta", queryMatch.Query);
+                        Assert.Equal(7, queryMatch.Column);
+                    });
             },
             match =>
             {
-                Assert.Equal("beta", match.Query);
-                Assert.Equal(1, match.Line);
-                Assert.Equal(7, match.Column);
-            },
-            match =>
-            {
-                Assert.Equal("beta", match.Query);
                 Assert.Equal(2, match.Line);
-                Assert.Equal(1, match.Column);
+                var queryMatch = Assert.Single(match.QueryMatches);
+                Assert.Equal("beta", queryMatch.Query);
+                Assert.Equal(1, queryMatch.Column);
             },
             match =>
             {
-                Assert.Equal("alpha", match.Query);
                 Assert.Equal(3, match.Line);
-                Assert.Equal(7, match.Column);
+                var queryMatch = Assert.Single(match.QueryMatches);
+                Assert.Equal("alpha", queryMatch.Query);
+                Assert.Equal(7, queryMatch.Column);
             });
 
         var limited = await fixture.Filesystem.SearchTextAsync(
@@ -125,6 +132,41 @@ public sealed class FilesystemCapabilityTests
         Assert.True(limited.IsSuccess, limited.Error?.Message);
         Assert.Equal(2, limited.Value!.Matches.Count);
         Assert.True(limited.Value.Truncated);
+    }
+
+    [Fact]
+    public async Task TextSearchGroupsOverlappingQueriesByLine()
+    {
+        await using var fixture = new FilesystemFixture();
+        await File.WriteAllTextAsync(
+            Path.Combine(fixture.Root, "overlap.txt"),
+            "call SearchTextAsync now");
+
+        var work = fixture.Sessions.Create(fixture.Root);
+        Assert.True(work.IsSuccess);
+
+        var searched = await fixture.Filesystem.SearchTextAsync(
+            ".",
+            ["SearchText", "SearchTextAsync"],
+            work.Value!.Id,
+            caseSensitive: true,
+            contextLines: 0);
+
+        Assert.True(searched.IsSuccess, searched.Error?.Message);
+        var match = Assert.Single(searched.Value!.Matches);
+        Assert.Equal(1, match.Line);
+        Assert.Collection(
+            match.QueryMatches,
+            queryMatch =>
+            {
+                Assert.Equal("SearchText", queryMatch.Query);
+                Assert.Equal(6, queryMatch.Column);
+            },
+            queryMatch =>
+            {
+                Assert.Equal("SearchTextAsync", queryMatch.Query);
+                Assert.Equal(6, queryMatch.Column);
+            });
     }
 
     [Fact]

@@ -205,45 +205,46 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                 for (var i = 0; i < lines.Count; i++)
                 {
                     var lineText = lines[i].Content;
+                    List<FilesystemTextQueryMatch>? queryMatches = null;
                     foreach (var query in queries)
                     {
                         var column = lineText.IndexOf(query, comparison);
-                        if (column < 0)
+                        if (column >= 0)
                         {
-                            continue;
+                            queryMatches ??= new List<FilesystemTextQueryMatch>(queries.Count);
+                            queryMatches.Add(new FilesystemTextQueryMatch(query, column + 1));
                         }
-
-                        if (matches.Count >= maxResults)
-                        {
-                            truncated = true;
-                            break;
-                        }
-
-                        var beforeStart = Math.Max(0, i - contextLines);
-                        var afterEnd = Math.Min(lines.Count - 1, i + contextLines);
-                        var before = Enumerable.Range(beforeStart, i - beforeStart)
-                            .Select(index => lines[index].Content)
-                            .ToArray();
-                        var after = i + 1 <= afterEnd
-                            ? Enumerable.Range(i + 1, afterEnd - i)
-                                .Select(index => lines[index].Content)
-                                .ToArray()
-                            : Array.Empty<string>();
-
-                        matches.Add(new FilesystemTextMatch(
-                            file.RelativePath,
-                            query,
-                            i + 1,
-                            column + 1,
-                            lineText,
-                            before,
-                            after));
                     }
 
-                    if (truncated)
+                    if (queryMatches is null)
                     {
+                        continue;
+                    }
+
+                    if (matches.Count >= maxResults)
+                    {
+                        truncated = true;
                         break;
                     }
+
+                    var beforeStart = Math.Max(0, i - contextLines);
+                    var afterEnd = Math.Min(lines.Count - 1, i + contextLines);
+                    var before = Enumerable.Range(beforeStart, i - beforeStart)
+                        .Select(index => lines[index].Content)
+                        .ToArray();
+                    var after = i + 1 <= afterEnd
+                        ? Enumerable.Range(i + 1, afterEnd - i)
+                            .Select(index => lines[index].Content)
+                            .ToArray()
+                        : Array.Empty<string>();
+
+                    matches.Add(new FilesystemTextMatch(
+                        file.RelativePath,
+                        i + 1,
+                        lineText,
+                        queryMatches,
+                        before,
+                        after));
                 }
 
                 if (truncated)

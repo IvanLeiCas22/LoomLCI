@@ -30,12 +30,15 @@ public sealed record FilesystemFindPathsDto(
     IReadOnlyList<FilesystemEntryDto> Matches,
     bool Truncated);
 
+public sealed record FilesystemTextQueryMatchDto(
+    string Query,
+    int Column);
+
 public sealed record FilesystemTextMatchDto(
     string Path,
-    string Query,
     int Line,
-    int Column,
     string Text,
+    IReadOnlyList<FilesystemTextQueryMatchDto> QueryMatches,
     IReadOnlyList<string> ContextBefore,
     IReadOnlyList<string> ContextAfter);
 
@@ -180,7 +183,7 @@ public sealed class FilesystemTools
         Destructive = false,
         Idempotent = true,
         OpenWorld = false)]
-    [Description("Searches one to 32 literal text queries in a single filesystem traversal with OR semantics. Each returned match identifies the query that matched and includes path, line, the first matching column, and small context. A line matching multiple queries yields one result per matching query. maxResults is a global limit across all query matches. Recursive traversal prunes common generated/infrastructure directories by default; explicitly targeting one of those directories as path still works. Use this when content locations are unknown; use filesystem_find_paths for path/name lookup and filesystem_read_files after locating files that need fuller context.")]
+    [Description("Searches one to 32 literal text queries in a single filesystem traversal with OR semantics. Results are grouped by matching line: each line appears once with queryMatches identifying every query that matched and its first matching column. maxResults limits matching lines, not individual query matches. Recursive traversal prunes common generated/infrastructure directories by default; explicitly targeting one of those directories as path still works. Use this when content locations are unknown; use filesystem_find_paths for path/name lookup and filesystem_read_files after locating files that need fuller context.")]
     public async Task<CallToolResult> SearchText(
         [Description("File or directory path to search. May be absolute or relative to the work session base directory.")] string path,
         [Description("One to 32 non-empty literal text queries. Multiple queries use OR semantics and are searched in one traversal; this is not regex.")][MinLength(1)][MaxLength(32)] string[] queries,
@@ -189,7 +192,7 @@ public sealed class FilesystemTools
         [Description("When false, recursive traversal prunes .git, .vs, .venv, __pycache__, bin, node_modules, and obj. Explicitly targeting one of those directories as path still traverses it.")] bool includeGenerated = false,
         [Description("Optional exact directory names to prune in addition to the defaults. Names are case-insensitive on Windows and are not glob patterns or paths.")][MaxLength(64)] string[]? excludeDirectories = null,
         [Description("Maximum recursion depth.")][Range(1, 32)] int maxDepth = 12,
-        [Description("Maximum matches returned.")][Range(1, 500)] int maxResults = 100,
+        [Description("Maximum matching lines returned across all queries.")][Range(1, 500)] int maxResults = 100,
         [Description("Context lines returned before and after each match.")][Range(0, 3)] int contextLines = 1,
         CancellationToken cancellationToken = default)
     {
@@ -370,10 +373,11 @@ public sealed class FilesystemTools
                         result.Value.Queries,
                         result.Value.Matches.Select(match => new FilesystemTextMatchDto(
                             match.Path,
-                            match.Query,
                             match.Line,
-                            match.Column,
                             match.Text,
+                            match.QueryMatches.Select(queryMatch => new FilesystemTextQueryMatchDto(
+                                queryMatch.Query,
+                                queryMatch.Column)).ToArray(),
                             match.ContextBefore,
                             match.ContextAfter)).ToArray(),
                         result.Value.FilesRead,

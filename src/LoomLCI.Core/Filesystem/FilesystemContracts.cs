@@ -39,12 +39,15 @@ public sealed record FilesystemFindPathsResult(
     IReadOnlyList<FilesystemEntry> Matches,
     bool Truncated);
 
+public sealed record FilesystemTextQueryMatch(
+    string Query,
+    int Column);
+
 public sealed record FilesystemTextMatch(
     string Path,
-    string Query,
     int Line,
-    int Column,
     string Text,
+    IReadOnlyList<FilesystemTextQueryMatch> QueryMatches,
     IReadOnlyList<string> ContextBefore,
     IReadOnlyList<string> ContextAfter);
 
