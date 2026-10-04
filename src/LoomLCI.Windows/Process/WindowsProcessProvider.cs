@@ -6,6 +6,17 @@ namespace LoomLCI.Windows.Processes;
 
 public sealed class WindowsProcessProvider : IProcessProvider
 {
+    private readonly bool _disableReleasePseudoConsole;
+
+    public WindowsProcessProvider()
+    {
+    }
+
+    internal WindowsProcessProvider(bool disableReleasePseudoConsole)
+    {
+        _disableReleasePseudoConsole = disableReleasePseudoConsole;
+    }
+
     public Task<LoomResult<IProcessResource>> StartAsync(
         ProcessLaunchSpec spec,
         CancellationToken cancellationToken)
@@ -15,7 +26,9 @@ public sealed class WindowsProcessProvider : IProcessProvider
         try
         {
             IProcessResource resource =
-                WindowsNativeProcessLauncher.Launch(spec);
+                WindowsNativeProcessLauncher.Launch(
+                    spec,
+                    _disableReleasePseudoConsole);
 
             if (cancellationToken.IsCancellationRequested)
             {

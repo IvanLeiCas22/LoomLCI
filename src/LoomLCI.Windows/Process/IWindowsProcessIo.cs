@@ -25,4 +25,6 @@ internal interface IWindowsProcessIo : IAsyncDisposable
         int columns,
         int rows,
         CancellationToken cancellationToken);
+
+    Task CloseSessionAsync();
 }

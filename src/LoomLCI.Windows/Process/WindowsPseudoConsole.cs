@@ -8,13 +8,21 @@ namespace LoomLCI.Windows.Processes;
 
 internal sealed class WindowsPseudoConsole : IDisposable
 {
+    private static readonly Lazy<bool> ReleasePseudoConsoleAvailable =
+        new(DetectReleasePseudoConsole);
+
     private readonly object _gate = new();
     private readonly ClosePseudoConsoleSafeHandle _handle;
+    private readonly bool _supportsReleasePseudoConsole;
+    private bool _released;
     private bool _disposed;
 
-    private WindowsPseudoConsole(ClosePseudoConsoleSafeHandle handle)
+    private WindowsPseudoConsole(
+        ClosePseudoConsoleSafeHandle handle,
+        bool supportsReleasePseudoConsole)
     {
         _handle = handle;
+        _supportsReleasePseudoConsole = supportsReleasePseudoConsole;
     }
 
     internal IntPtr DangerousGetHandle()
@@ -30,7 +38,8 @@ internal sealed class WindowsPseudoConsole : IDisposable
         SafeHandle input,
         SafeHandle output,
         int columns,
-        int rows)
+        int rows,
+        bool disableReleasePseudoConsole = false)
     {
         var size = CreateSize(columns, rows);
         var result = PInvoke.CreatePseudoConsole(
@@ -46,7 +55,10 @@ internal sealed class WindowsPseudoConsole : IDisposable
             result.ThrowOnFailure();
         }
 
-        return new WindowsPseudoConsole(handle);
+        return new WindowsPseudoConsole(
+            handle,
+            !disableReleasePseudoConsole &&
+            ReleasePseudoConsoleAvailable.Value);
     }
 
     public void Resize(int columns, int rows)
@@ -62,6 +74,40 @@ internal sealed class WindowsPseudoConsole : IDisposable
         }
     }
 
+    public bool TryRelease()
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
+            if (_released)
+            {
+                return true;
+            }
+
+            if (!_supportsReleasePseudoConsole)
+            {
+                return false;
+            }
+
+            try
+            {
+                var result = PInvoke.ReleasePseudoConsole(_handle);
+                if (result.Failed)
+                {
+                    return false;
+                }
+
+                _released = true;
+                return true;
+            }
+            catch (EntryPointNotFoundException)
+            {
+                return false;
+            }
+        }
+    }
+
     public void Dispose()
     {
         lock (_gate)
@@ -73,6 +119,26 @@ internal sealed class WindowsPseudoConsole : IDisposable
 
             _disposed = true;
             _handle.Dispose();
+        }
+    }
+
+    private static bool DetectReleasePseudoConsole()
+    {
+        if (!NativeLibrary.TryLoad("kernel32.dll", out var library))
+        {
+            return false;
+        }
+
+        try
+        {
+            return NativeLibrary.TryGetExport(
+                library,
+                "ReleasePseudoConsole",
+                out _);
+        }
+        finally
+        {
+            NativeLibrary.Free(library);
         }
     }
 

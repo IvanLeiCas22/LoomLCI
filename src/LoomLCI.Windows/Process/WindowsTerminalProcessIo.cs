@@ -8,6 +8,13 @@ namespace LoomLCI.Windows.Processes;
 
 internal sealed class WindowsTerminalProcessIo : IWindowsProcessIo
 {
+    private enum TerminalSessionState
+    {
+        Open,
+        Closing,
+        Closed
+    }
+
     private const long StreamSpoolMaxBytes = 64L * 1024 * 1024;
     private const long StreamSpoolMaxChars = StreamSpoolMaxBytes / sizeof(char);
 
@@ -16,8 +23,12 @@ internal sealed class WindowsTerminalProcessIo : IWindowsProcessIo
     private readonly StreamReader _outputReader;
     private readonly ProcessOutputStore _terminal;
     private readonly CancellationTokenSource _lifetime = new();
-    private readonly SemaphoreSlim _inputGate = new(1, 1);
+    private readonly SemaphoreSlim _operationGate = new(1, 1);
     private readonly Task _outputPump;
+    private readonly object _stateGate = new();
+
+    private TerminalSessionState _state = TerminalSessionState.Open;
+    private Task? _closeTask;
     private bool _disposed;
 
     public WindowsTerminalProcessIo(
@@ -74,80 +85,185 @@ internal sealed class WindowsTerminalProcessIo : IWindowsProcessIo
             return LoomResult<Unit>.Success(Unit.Value);
         }
 
-        await _inputGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await _input.WriteAsync(text.AsMemory(), cancellationToken)
-                .ConfigureAwait(false);
-            await _input.FlushAsync(cancellationToken).ConfigureAwait(false);
-            return LoomResult<Unit>.Success(Unit.Value);
-        }
-        catch (IOException ex)
-        {
-            return LoomResult<Unit>.Failure(
-                LoomErrors.ExecutionFailed(
-                    $"Could not write terminal input: {ex.Message}"));
-        }
-        catch (ObjectDisposedException ex)
-        {
-            return LoomResult<Unit>.Failure(
-                LoomErrors.ExecutionFailed(
-                    $"Could not write terminal input: {ex.Message}"));
+            if (!IsOpen())
+            {
+                return LoomResult<Unit>.Failure(
+                    LoomErrors.Conflict(
+                        "Cannot write terminal input because the terminal is closing or closed."));
+            }
+
+            try
+            {
+                await _input.WriteAsync(text.AsMemory(), cancellationToken)
+                    .ConfigureAwait(false);
+                await _input.FlushAsync(cancellationToken).ConfigureAwait(false);
+                return LoomResult<Unit>.Success(Unit.Value);
+            }
+            catch (IOException ex)
+            {
+                return LoomResult<Unit>.Failure(
+                    LoomErrors.ExecutionFailed(
+                        $"Could not write terminal input: {ex.Message}"));
+            }
+            catch (ObjectDisposedException ex)
+            {
+                return LoomResult<Unit>.Failure(
+                    LoomErrors.ExecutionFailed(
+                        $"Could not write terminal input: {ex.Message}"));
+            }
         }
         finally
         {
-            _inputGate.Release();
+            _operationGate.Release();
         }
     }
 
-    public Task<LoomResult<Unit>> ResizeAsync(
+    public async Task<LoomResult<Unit>> ResizeAsync(
         int columns,
         int rows,
         CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-
+        await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            _pseudoConsole.Resize(columns, rows);
-            return Task.FromResult(
-                LoomResult<Unit>.Success(Unit.Value));
-        }
-        catch (ObjectDisposedException)
-        {
-            return Task.FromResult(
-                LoomResult<Unit>.Failure(
+            if (!IsOpen())
+            {
+                return LoomResult<Unit>.Failure(
                     LoomErrors.Conflict(
-                        "Cannot resize a closed terminal.")));
-        }
-        catch (COMException ex)
-        {
-            return Task.FromResult(
-                LoomResult<Unit>.Failure(
+                        "Cannot resize terminal because the terminal is closing or closed."));
+            }
+
+            try
+            {
+                _pseudoConsole.Resize(columns, rows);
+                return LoomResult<Unit>.Success(Unit.Value);
+            }
+            catch (ObjectDisposedException)
+            {
+                return LoomResult<Unit>.Failure(
+                    LoomErrors.Conflict(
+                        "Cannot resize a closed terminal."));
+            }
+            catch (COMException ex)
+            {
+                return LoomResult<Unit>.Failure(
                     LoomErrors.ExecutionFailed(
-                        $"Could not resize terminal: {ex.Message}")));
+                        $"Could not resize terminal: {ex.Message}"));
+            }
+        }
+        finally
+        {
+            _operationGate.Release();
+        }
+    }
+
+    public Task CloseSessionAsync()
+    {
+        lock (_stateGate)
+        {
+            if (_closeTask is not null)
+            {
+                return _closeTask;
+            }
+
+            if (_state == TerminalSessionState.Closed)
+            {
+                return Task.CompletedTask;
+            }
+
+            _state = TerminalSessionState.Closing;
+            _closeTask = CloseSessionCoreAsync();
+            return _closeTask;
         }
     }
 
     public async ValueTask DisposeAsync()
     {
-        if (_disposed)
+        lock (_stateGate)
         {
-            return;
-        }
+            if (_disposed)
+            {
+                return;
+            }
 
-        _disposed = true;
+            _disposed = true;
+        }
 
         try
         {
-            _input.Dispose();
+            await CloseSessionAsync().ConfigureAwait(false);
         }
-        catch (IOException)
+        finally
+        {
+            _lifetime.Cancel();
+            _outputReader.Dispose();
+            _terminal.Dispose();
+            _operationGate.Dispose();
+            _lifetime.Dispose();
+        }
+    }
+
+    private async Task CloseSessionCoreAsync()
+    {
+        await _operationGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            try
+            {
+                _input.Dispose();
+            }
+            catch (IOException)
+            {
+            }
+        }
+        finally
+        {
+            _operationGate.Release();
+        }
+
+        var released = false;
+        try
+        {
+            released = _pseudoConsole.TryRelease();
+        }
+        catch (ObjectDisposedException)
         {
         }
 
-        _pseudoConsole.Dispose();
+        if (released)
+        {
+            await AwaitOutputPumpAsync().ConfigureAwait(false);
+            _pseudoConsole.Dispose();
+        }
+        else
+        {
+            var closePseudoConsole = Task.Factory.StartNew(
+                static state =>
+                    ((WindowsPseudoConsole)state!).Dispose(),
+                _pseudoConsole,
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
 
+            await Task.WhenAll(
+                    AwaitOutputPumpAsync(),
+                    closePseudoConsole)
+                .ConfigureAwait(false);
+        }
+
+        _outputReader.Dispose();
+
+        lock (_stateGate)
+        {
+            _state = TerminalSessionState.Closed;
+        }
+    }
+
+    private async Task AwaitOutputPumpAsync()
+    {
         try
         {
             await _outputPump.ConfigureAwait(false);
@@ -158,13 +274,13 @@ internal sealed class WindowsTerminalProcessIo : IWindowsProcessIo
         catch (ObjectDisposedException)
         {
         }
-        finally
+    }
+
+    private bool IsOpen()
+    {
+        lock (_stateGate)
         {
-            _lifetime.Cancel();
-            _outputReader.Dispose();
-            _terminal.Dispose();
-            _inputGate.Dispose();
-            _lifetime.Dispose();
+            return !_disposed && _state == TerminalSessionState.Open;
         }
     }
 
@@ -186,6 +302,14 @@ internal sealed class WindowsTerminalProcessIo : IWindowsProcessIo
                     .ConfigureAwait(false);
             }
             catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (IOException)
+            {
+                break;
+            }
+            catch (ObjectDisposedException)
             {
                 break;
             }

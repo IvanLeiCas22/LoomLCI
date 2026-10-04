@@ -20,11 +20,14 @@ internal sealed class WindowsProcessResource : IProcessResource
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Task _exitObserver;
     private readonly object _stateGate = new();
+    private readonly object _jobGate = new();
 
     private ManagedProcessState _state = ManagedProcessState.Running;
     private int? _exitCode;
     private DateTimeOffset? _exitedAt;
     private bool _disposed;
+    private bool _jobTerminated;
+    private bool _jobDisposed;
 
     public WindowsProcessResource(
         int processId,
@@ -150,12 +153,11 @@ internal sealed class WindowsProcessResource : IProcessResource
 
         try
         {
-            _job.Terminate(ForcedTerminationExitCode);
+            TerminateJob(suppressErrors: false);
+            await _exitObserver.ConfigureAwait(false);
 
             if (previousState != ManagedProcessState.Exited)
             {
-                await _exitObserver.ConfigureAwait(false);
-
                 lock (_stateGate)
                 {
                     _state = ManagedProcessState.Terminated;
@@ -196,17 +198,7 @@ internal sealed class WindowsProcessResource : IProcessResource
 
         try
         {
-            try
-            {
-                _job.Terminate(ForcedTerminationExitCode);
-            }
-            catch (Win32Exception)
-            {
-            }
-            finally
-            {
-                _job.Dispose();
-            }
+            TerminateJob(suppressErrors: true);
 
             try
             {
@@ -216,10 +208,12 @@ internal sealed class WindowsProcessResource : IProcessResource
             {
             }
 
+            await _io.CloseSessionAsync().ConfigureAwait(false);
             await _io.DisposeAsync().ConfigureAwait(false);
         }
         finally
         {
+            DisposeJob();
             _lifetime.Cancel();
             _processWaitHandle.Dispose();
             _processHandle.Dispose();
@@ -234,15 +228,30 @@ internal sealed class WindowsProcessResource : IProcessResource
             await WaitAsync(_processWaitHandle, _lifetime.Token)
                 .ConfigureAwait(false);
 
+            bool wasTerminating;
+
             lock (_stateGate)
             {
-                if (_state != ManagedProcessState.Terminating)
+                wasTerminating =
+                    _state == ManagedProcessState.Terminating;
+
+                if (!wasTerminating)
                 {
                     _state = ManagedProcessState.Exited;
                 }
 
                 _exitCode = SafeExitCode();
                 _exitedAt = DateTimeOffset.UtcNow;
+            }
+
+            if (IoMode == ProcessIoMode.Terminal)
+            {
+                if (!wasTerminating)
+                {
+                    TerminateJob(suppressErrors: true);
+                }
+
+                await _io.CloseSessionAsync().ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
@@ -254,9 +263,44 @@ internal sealed class WindowsProcessResource : IProcessResource
     {
         lock (_stateGate)
         {
-            return _state is
-                ManagedProcessState.Running or
-                ManagedProcessState.Starting;
+            return !_disposed &&
+                   _state is
+                       ManagedProcessState.Running or
+                       ManagedProcessState.Starting;
+        }
+    }
+
+    private void TerminateJob(bool suppressErrors)
+    {
+        lock (_jobGate)
+        {
+            if (_jobDisposed || _jobTerminated)
+            {
+                return;
+            }
+
+            try
+            {
+                _job.Terminate(ForcedTerminationExitCode);
+                _jobTerminated = true;
+            }
+            catch (Win32Exception) when (suppressErrors)
+            {
+            }
+        }
+    }
+
+    private void DisposeJob()
+    {
+        lock (_jobGate)
+        {
+            if (_jobDisposed)
+            {
+                return;
+            }
+
+            _jobDisposed = true;
+            _job.Dispose();
         }
     }
 

@@ -19,7 +19,9 @@ internal static class WindowsNativeProcessLauncher
     private const uint ForcedTerminationExitCode = 1;
     private static readonly Lock LaunchGate = new();
 
-    public static WindowsProcessResource Launch(ProcessLaunchSpec spec)
+    public static WindowsProcessResource Launch(
+        ProcessLaunchSpec spec,
+        bool disableReleasePseudoConsole = false)
     {
         var commandLine = WindowsCommandLine.Build(
             spec.Executable,
@@ -42,7 +44,8 @@ internal static class WindowsNativeProcessLauncher
             ProcessIoMode.Terminal => LaunchTerminal(
                 spec,
                 commandLineBuffer,
-                environment),
+                environment,
+                disableReleasePseudoConsole),
             _ => throw new NotSupportedException(
                 $"Unsupported process I/O mode '{spec.IoMode}'.")
         };
@@ -134,7 +137,8 @@ internal static class WindowsNativeProcessLauncher
     private static WindowsProcessResource LaunchTerminal(
         ProcessLaunchSpec spec,
         char[] commandLineBuffer,
-        WindowsEnvironmentBlock environment)
+        WindowsEnvironmentBlock environment,
+        bool disableReleasePseudoConsole)
     {
         if (spec.TerminalColumns is not { } columns ||
             spec.TerminalRows is not { } rows)
@@ -165,7 +169,8 @@ internal static class WindowsNativeProcessLauncher
                 input.ClientSafePipeHandle,
                 output.ClientSafePipeHandle,
                 columns,
-                rows);
+                rows,
+                disableReleasePseudoConsole);
 
             // CreatePseudoConsole duplicates/owns the ConPTY-side handles.
             // The host keeps only its write/read ends.

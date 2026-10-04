@@ -2,7 +2,7 @@
 
 ## Estado
 
-**Diseño aprobado. C2.1 (contrato Core/MCP) y C2.2 (backend ConPTY) implementados y validados; siguiente etapa: C2.3 lifecycle y hardening.**
+**Diseño aprobado. C2.1, C2.2 y C2.3 implementados y validados; siguiente etapa: C2.4 validación final y actualización del runtime/plugin vivo.**
 
 C1 dejó resueltos el launch nativo con `CreateProcessW`, `STARTUPINFOEX`, Job Objects, quoting, environment, working directory, estado, output retenido y lifecycle de `ProcessHandle`. C2 agrega el segundo modo de I/O previsto desde la arquitectura inicial: **terminal mediante ConPTY**.
 
@@ -885,30 +885,41 @@ Validación Release:
 
 Hallazgo de implementación: el canal ConPTY es UTF-8, pero la fidelidad de caracteres suplementarios depende también de cómo el cliente Windows escribe a su consola. C2.2 valida Unicode BMP estable sin confundir esa limitación del cliente con la decodificación del host.
 
-### C2.3 - Lifecycle y hardening
+### C2.3 - Lifecycle y hardening ✓
 
-Diseño refinado:
+Implementado:
 
-- agregar a la abstracción interna de I/O una operación idempotente de cierre de sesión; en pipes es no-op y en terminal ejecuta el teardown sin destruir el spool;
-- `ObserveExitAsync` registra primero el exit real del root y luego dispara/espera cleanup terminal;
-- natural root exit termina descendants del Job, pero conserva el exit code original del root;
-- `process_terminate`, root exit y `work_close` convergen en el mismo teardown terminal;
-- detectar `ReleasePseudoConsole` por disponibilidad real del export, no sólo por versión de Windows;
-- mantener un único task de teardown para que callers concurrentes compartan el mismo cierre;
-- output pump independiente, con EOF/broken-pipe tratados como cierre normal;
-- write/resize serializados contra transición `Open -> Closing`;
-- spool terminal retenido hasta cerrar el ProcessHandle.
+- `CloseSessionAsync` idempotente en la abstracción interna de I/O; pipes es no-op y terminal conserva el spool;
+- state machine terminal interna `Open -> Closing -> Closed`;
+- natural root exit registra primero estado/exit code, luego termina descendants del Job y cierra la sesión terminal;
+- `process_terminate`, root exit y `work_close` convergen en el mismo teardown;
+- detección de `ReleasePseudoConsole` por disponibilidad real del export de `kernel32.dll`;
+- fallback compatible sin `ReleasePseudoConsole`, ejecutando `ClosePseudoConsole` fuera del output pump;
+- seam interno de test para forzar el camino legacy;
+- write y resize serializados contra teardown;
+- EOF, broken pipe y cierre del reader tratados como finalización normal del canal terminal;
+- output retenido sigue disponible después de exit/terminate hasta cerrar el ProcessHandle;
+- Job Object permanece vivo hasta completar root-exit + teardown;
+- cleanup repetido de terminales/spools sin bloqueos.
 
-Validación requerida:
+Validado:
 
-- Ctrl+C smoke y shell reutilizable después del interrupt;
-- natural root exit con descendant: root conserva exit code y descendant desaparece;
-- `process_terminate`: árbol completo eliminado y output final retenido;
-- session-owned: `work_close` elimina árbol/terminal;
-- independent: sobrevive `work_close` y sigue aceptando status/read/write/resize;
-- carreras write/resize/terminate/work_close sin crash, leak ni use-after-close;
-- fallback sin `ReleasePseudoConsole` ejercitado mediante un seam interno de test, aunque la máquina de desarrollo sea 24H2+;
-- repetición de terminales cortos para detectar leaks de `conhost.exe`/handles.
+- Ctrl+C interrumpe el comando y la shell sigue utilizable;
+- root exit natural conserva exit code y elimina descendants;
+- `process_terminate` elimina el árbol y conserva output previo;
+- session-owned se elimina con `work_close`;
+- independent sobrevive `work_close` y mantiene status/read/write/resize;
+- carreras write/resize con terminate y con work_close sin crash/use-after-close;
+- fallback sin `ReleasePseudoConsole` completa dentro de timeout;
+- seis terminales cortos consecutivos cierran recursos y eliminan sus spools.
+
+Validación Release:
+
+- Core: **12/12**;
+- Windows: **76/76**;
+- Integration MCP: **5/5**;
+- total: **93/93**;
+- Host Release: **0 warnings, 0 errores**.
 
 ### C2.4 - Validación final
 
@@ -922,6 +933,6 @@ Validación requerida:
 
 ## Estado de decisión
 
-Diseño aprobado. C2.1 y C2.2 quedaron implementados y validados.
+Diseño aprobado. C2.1, C2.2 y C2.3 quedaron implementados y validados.
 
-El backend ConPTY básico ya funciona end-to-end. El siguiente trabajo es C2.3: lifecycle, teardown compatible, cleanup de árboles y hardening de concurrencia.
+C2 está funcionalmente completo a nivel de código y lifecycle. Resta C2.4: validación final Debug/Release, actualización del runtime/plugin vivo, smoke público por Secure MCP Tunnel y fresh-agent.

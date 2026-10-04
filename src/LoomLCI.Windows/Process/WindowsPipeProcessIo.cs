@@ -149,6 +149,9 @@ internal sealed class WindowsPipeProcessIo : IWindowsProcessIo
                     "Pipe-based processes do not support terminal resize.")));
     }
 
+    public Task CloseSessionAsync()
+        => Task.CompletedTask;
+
     public async ValueTask DisposeAsync()
     {
         if (_disposed)
