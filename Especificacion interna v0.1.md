@@ -12,12 +12,13 @@ Implementado actualmente:
 - Filesystem estructurado;
 - Python Runtime E1 cerrado: contratos Core, worker persistente, provisioning privado, backend Windows/provider, tools MCP públicas `python_execute`/`python_reset` y validación final por Secure MCP Tunnel + fresh-agent;
 - Agent Support F1.1 Core: Work Plan efímero por WorkSession, snapshots read-only, revision/CAS, lifecycle close/expiry, validaciones y eventos;
+- Agent Support F1.2 MCP: tools opcionales `work_plan_get`/`work_plan_update`, schema/annotations, opt-in estático y Host objetivo con catálogo de 19 tools;
 - adapter MCP por STDIO y acceso de ChatGPT normal mediante Secure MCP Tunnel externo.
 
 Diferido; **no debe interpretarse como implementado hoy**:
 
 - abstracción explícita `ExecutionContext` / Policy;
-- Agent Support F1.2/F1.3: exposición MCP opcional y validación end-to-end;
+- Agent Support F1.3: smoke por Secure MCP Tunnel + evaluación fresh-agent;
 - Computer/UI Automation/captura;
 - Known Locations;
 - Streamable HTTP y audit durable.

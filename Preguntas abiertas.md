@@ -25,8 +25,8 @@ Preguntas deliberadamente diferidas:
 ## Agent Support
 
 - F1.1 Core implementado/validado: estado Work Plan dentro de WorkSession, revision/CAS, límites y lifecycle.
-- F1.2 diseñado: `work_plan_get`/`work_plan_update`, schema/annotations y opt-in estático por adapter; implementación pendiente.
-- F1.3 deberá evaluar UX real de approvals/uso natural por ChatGPT sin falsear annotations MCP.
+- F1.2 implementado/validado: `work_plan_get`/`work_plan_update`, schema/annotations y opt-in estático por adapter.
+- F1.3 deberá validar Secure MCP Tunnel y evaluar UX real de approvals/uso natural por ChatGPT sin falsear annotations MCP.
 - Evaluar más adelante si hacen falta dependencias explícitas/DAG; no incluirlas en v0.1 sin evidencia.
 
 ## Operación

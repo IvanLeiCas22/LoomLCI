@@ -2,7 +2,7 @@
 
 ## Estado
 
-**F1.1 Core implementado y validado; investigación específica F1.2 completada y su implementación pendiente de aprobación.**
+**F1.1 Core y F1.2 MCP implementados y validados; F1.3 (Secure MCP Tunnel + fresh-agent) pendiente.**
 
 Este bloque propone una primera capability opcional de Agent Support para mantener una checklist estructurada del trabajo lógico de un agente dentro de una WorkSession. No es un scheduler, no ejecuta pasos y no reemplaza Process, Python, MCP Tasks ni la planificación propia del host.
 
@@ -748,6 +748,50 @@ F1.2 queda listo cuando:
 - suites Debug/Release completas quedan verdes y sin warnings.
 
 El smoke por Secure MCP Tunnel y el comportamiento natural de un fresh-agent pertenecen a F1.3, no deben mezclarse con el criterio de implementación F1.2.
+
+#### Implementación y validación F1.2 ✓
+
+Implementado:
+
+- `LoomLCI.Mcp/WorkPlanTools.cs`;
+- `work_plan_get` y `work_plan_update` con structured content;
+- DTOs MCP separados del enum Core;
+- status públicos lowercase `pending | active | waiting | completed`;
+- schema de `expectedRevision`, `steps`, nested status/text y límite de 32 pasos;
+- annotations cerradas:
+  - get: read-only, non-destructive, non-idempotent, closed-world;
+  - update: mutating, destructive, non-idempotent, closed-world;
+- stale revision preserva `error.details.currentRevision`;
+- `AddLoomMcpStdio(enableWorkPlan: false)` como opt-in estático;
+- Host objetivo registra `WorkPlanCapability` y llama `AddLoomMcpStdio(enableWorkPlan: true)`;
+- catálogo esperado: 17 tools con opt-out y 19 con Work Plan habilitado;
+- ServerInstructions mencionan Work Plan sólo en la rama habilitada y recomiendan usarlo sólo para tareas multi-step no triviales.
+
+Validación F1.2:
+
+- build Host Debug: **0 warnings / 0 errors**;
+- Integration Debug: **9/9**;
+- solución completa Debug: **197/197**;
+- solución completa Release: **197/197**;
+- Core permanece **84/84**;
+- Windows permanece **104/104**;
+- Integration queda **9/9**;
+- `git diff --check` limpio.
+
+Los tests F1.2 verifican:
+
+- opt-in/opt-out por cantidad de registrations MCP (17 vs 19);
+- ServerInstructions del Host habilitado;
+- títulos, descripciones y annotations;
+- schema de inputs nested;
+- roundtrip STDIO real `get -> update -> get`;
+- conflict stale con `currentRevision`;
+- reconciliación con IDs existentes;
+- status inválido como `invalid_argument`;
+- array vacío para limpiar;
+- `resource_closed` después de `work_close`.
+
+Durante la validación se detuvo una instancia previa de `LoomLCI.Host` que bloqueaba las DLL Debug. Eso fue sólo una condición operativa del túnel existente; la reconexión/smoke real queda deliberadamente para F1.3.
 
 ### F1.3 - Validación
 

@@ -1,6 +1,6 @@
 # Plan y tareas
 
-> Estado: modelo concurrente confirmado; F1.1 Core implementado/validado y diseño F1.2 de exposición MCP cerrado. Implementación F1.2 pendiente.
+> Estado: F1.1 Core + F1.2 MCP implementados/validados. Pendiente F1.3: Secure MCP Tunnel + fresh-agent para evaluar uso natural y fricción.
 
 ## Distinciones necesarias
 

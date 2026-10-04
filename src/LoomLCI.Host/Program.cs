@@ -1,3 +1,4 @@
+using LoomLCI.Core.AgentSupport;
 using LoomLCI.Core.Filesystem;
 using LoomLCI.Core.Invocations;
 using LoomLCI.Core.Lifetime;
@@ -29,6 +30,7 @@ builder.Services.AddSingleton<LoomEventBus>();
 builder.Services.AddSingleton<ResourceRegistry>();
 builder.Services.AddSingleton<WorkSessionManager>();
 builder.Services.AddSingleton<InvocationRunner>();
+builder.Services.AddSingleton<WorkPlanCapability>();
 builder.Services.AddSingleton<IProcessProvider, WindowsProcessProvider>();
 builder.Services.AddSingleton<ProcessCapability>();
 builder.Services.AddSingleton<IPythonRuntimeProvider, WindowsPythonRuntimeProvider>();
@@ -37,6 +39,6 @@ builder.Services.AddSingleton<IFilesystemProvider, WindowsFilesystemProvider>();
 builder.Services.AddSingleton<FilesystemCapability>();
 builder.Services.AddHostedService<LifetimeSweeperService>();
 
-builder.Services.AddLoomMcpStdio();
+builder.Services.AddLoomMcpStdio(enableWorkPlan: true);
 
 await builder.Build().RunAsync();

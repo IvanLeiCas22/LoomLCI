@@ -1,12 +1,33 @@
 using System.Diagnostics;
 using System.Text.Json;
+using LoomLCI.Mcp;
+using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
+using ModelContextProtocol.Server;
 
 namespace LoomLCI.IntegrationTests;
 
 public sealed class McpStdioTests
 {
+    [Fact]
+    public void WorkPlanRegistrationIsOptIn()
+    {
+        var disabledServices = new ServiceCollection();
+        disabledServices.AddLoomMcpStdio(enableWorkPlan: false);
+
+        var enabledServices = new ServiceCollection();
+        enabledServices.AddLoomMcpStdio(enableWorkPlan: true);
+
+        var disabledToolRegistrations = disabledServices.Count(
+            descriptor => descriptor.ServiceType == typeof(McpServerTool));
+        var enabledToolRegistrations = enabledServices.Count(
+            descriptor => descriptor.ServiceType == typeof(McpServerTool));
+
+        Assert.Equal(17, disabledToolRegistrations);
+        Assert.Equal(19, enabledToolRegistrations);
+    }
+
     [Fact]
     public async Task StdioAdapterAdvertisesServerInstructions()
     {
@@ -47,6 +68,9 @@ public sealed class McpStdioTests
             Assert.Contains("python_execute", instructions, StringComparison.Ordinal);
             Assert.Contains("Process capabilities", instructions, StringComparison.Ordinal);
             Assert.Contains("opaque values", instructions, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("Work Plan", instructions, StringComparison.Ordinal);
+            Assert.Contains("non-trivial multi-step tasks", instructions, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("on conflict", instructions, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
@@ -243,6 +267,65 @@ public sealed class McpStdioTests
         Assert.True(resetPython.ProtocolTool.Annotations?.DestructiveHint ?? false);
         Assert.True(resetPython.ProtocolTool.Annotations?.IdempotentHint ?? false);
         Assert.False(resetPython.ProtocolTool.Annotations?.OpenWorldHint ?? true);
+
+        var getWorkPlan = Assert.Single(tools, tool => tool.Name == "work_plan_get");
+        Assert.Equal("Get work plan", getWorkPlan.ProtocolTool.Title);
+        Assert.Contains("logical Work Plan", getWorkPlan.Description, StringComparison.Ordinal);
+        Assert.Contains("idle timeout", getWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.True(getWorkPlan.ProtocolTool.Annotations?.ReadOnlyHint ?? false);
+        Assert.False(getWorkPlan.ProtocolTool.Annotations?.DestructiveHint ?? true);
+        Assert.False(getWorkPlan.ProtocolTool.Annotations?.IdempotentHint ?? true);
+        Assert.False(getWorkPlan.ProtocolTool.Annotations?.OpenWorldHint ?? true);
+        var getPlanProperties = GetRequiredProperty(getWorkPlan.JsonSchema, "properties");
+        GetRequiredProperty(getPlanProperties, "workId");
+        var getPlanRequired = GetRequiredProperty(getWorkPlan.JsonSchema, "required")
+            .EnumerateArray()
+            .Select(value => value.GetString())
+            .ToHashSet(StringComparer.Ordinal);
+        Assert.Contains("workId", getPlanRequired);
+
+        var updateWorkPlan = Assert.Single(tools, tool => tool.Name == "work_plan_update");
+        Assert.Equal("Update work plan", updateWorkPlan.ProtocolTool.Title);
+        Assert.Contains("replaces the complete", updateWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("reconcile", updateWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("empty steps array", updateWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.False(updateWorkPlan.ProtocolTool.Annotations?.ReadOnlyHint ?? true);
+        Assert.True(updateWorkPlan.ProtocolTool.Annotations?.DestructiveHint ?? false);
+        Assert.False(updateWorkPlan.ProtocolTool.Annotations?.IdempotentHint ?? true);
+        Assert.False(updateWorkPlan.ProtocolTool.Annotations?.OpenWorldHint ?? true);
+
+        var updatePlanProperties = GetRequiredProperty(updateWorkPlan.JsonSchema, "properties");
+        AssertSchemaRange(
+            GetRequiredProperty(updatePlanProperties, "expectedRevision"),
+            0,
+            long.MaxValue);
+        var stepsSchema = GetRequiredProperty(updatePlanProperties, "steps");
+        Assert.Equal(32, GetRequiredProperty(stepsSchema, "maxItems").GetInt32());
+        Assert.False(stepsSchema.TryGetProperty("minItems", out _));
+
+        var stepProperties = GetRequiredProperty(
+            GetRequiredProperty(stepsSchema, "items"),
+            "properties");
+        var textSchema = GetRequiredProperty(stepProperties, "text");
+        Assert.Equal(1, GetRequiredProperty(textSchema, "minLength").GetInt32());
+        Assert.Equal(512, GetRequiredProperty(textSchema, "maxLength").GetInt32());
+        Assert.Equal(
+            "^[^\\r\\n]*$",
+            GetRequiredProperty(textSchema, "pattern").GetString());
+        AssertSchemaEnum(
+            GetRequiredProperty(stepProperties, "status"),
+            "pending",
+            "active",
+            "waiting",
+            "completed");
+
+        var updatePlanRequired = GetRequiredProperty(updateWorkPlan.JsonSchema, "required")
+            .EnumerateArray()
+            .Select(value => value.GetString())
+            .ToHashSet(StringComparer.Ordinal);
+        Assert.Contains("workId", updatePlanRequired);
+        Assert.Contains("expectedRevision", updatePlanRequired);
+        Assert.Contains("steps", updatePlanRequired);
     }
 
     [Fact]
@@ -961,6 +1044,213 @@ public sealed class McpStdioTests
                 Directory.Delete(scratch, recursive: true);
             }
         }
+    }
+
+    [Fact]
+    public async Task StdioAdapterCanRoundTripWorkPlanAndRecoverFromConflict()
+    {
+        var repoRoot = FindRepoRoot();
+        var hostDll = GetHostDll(repoRoot);
+        Assert.True(File.Exists(hostDll), $"Host was not built: {hostDll}");
+
+        var transport = new StdioClientTransport(new StdioClientTransportOptions
+        {
+            Name = "LoomLCI Work Plan integration test",
+            Command = "dotnet",
+            Arguments = [hostDll],
+            WorkingDirectory = repoRoot,
+            ShutdownTimeout = TimeSpan.FromSeconds(5)
+        });
+
+        await using var client = await McpClient.CreateAsync(transport);
+
+        var create = await client.CallToolAsync(
+            "work_create",
+            new Dictionary<string, object?>
+            {
+                ["baseDirectory"] = repoRoot,
+                ["label"] = "work-plan-integration-test"
+            });
+        var createRoot = GetStructured(create.StructuredContent);
+        Assert.True(GetRequiredProperty(createRoot, "ok").GetBoolean());
+        var workId = GetRequiredProperty(
+            GetRequiredProperty(createRoot, "result"),
+            "workId").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(workId));
+
+        var initial = await client.CallToolAsync(
+            "work_plan_get",
+            new Dictionary<string, object?> { ["workId"] = workId });
+        Assert.Equal(
+            "Tool completed successfully. Structured result attached.",
+            GetSingleTextContent(initial));
+        var initialRoot = GetStructured(initial.StructuredContent);
+        Assert.True(GetRequiredProperty(initialRoot, "ok").GetBoolean());
+        var initialResult = GetRequiredProperty(initialRoot, "result");
+        Assert.Equal(0, GetRequiredProperty(initialResult, "revision").GetInt64());
+        Assert.Empty(GetRequiredProperty(initialResult, "steps").EnumerateArray());
+
+        var firstUpdate = await client.CallToolAsync(
+            "work_plan_update",
+            new Dictionary<string, object?>
+            {
+                ["workId"] = workId,
+                ["expectedRevision"] = 0L,
+                ["steps"] = new object[]
+                {
+                    new Dictionary<string, object?>
+                    {
+                        ["text"] = "Compile project",
+                        ["status"] = "waiting"
+                    },
+                    new Dictionary<string, object?>
+                    {
+                        ["text"] = "Update documentation",
+                        ["status"] = "active"
+                    }
+                }
+            });
+        var firstRoot = GetStructured(firstUpdate.StructuredContent);
+        Assert.True(GetRequiredProperty(firstRoot, "ok").GetBoolean());
+        var firstResult = GetRequiredProperty(firstRoot, "result");
+        Assert.Equal(1, GetRequiredProperty(firstResult, "revision").GetInt64());
+        var firstSteps = GetRequiredProperty(firstResult, "steps")
+            .EnumerateArray()
+            .ToArray();
+        Assert.Equal(2, firstSteps.Length);
+
+        var compileId = GetRequiredProperty(firstSteps[0], "id").GetString();
+        var docsId = GetRequiredProperty(firstSteps[1], "id").GetString();
+        Assert.StartsWith("step_", compileId, StringComparison.Ordinal);
+        Assert.StartsWith("step_", docsId, StringComparison.Ordinal);
+        Assert.Equal("waiting", GetRequiredProperty(firstSteps[0], "status").GetString());
+        Assert.Equal("active", GetRequiredProperty(firstSteps[1], "status").GetString());
+
+        var observed = await client.CallToolAsync(
+            "work_plan_get",
+            new Dictionary<string, object?> { ["workId"] = workId });
+        var observedResult = GetRequiredProperty(
+            GetStructured(observed.StructuredContent),
+            "result");
+        Assert.Equal(1, GetRequiredProperty(observedResult, "revision").GetInt64());
+        Assert.Equal(
+            new[] { compileId, docsId },
+            GetRequiredProperty(observedResult, "steps")
+                .EnumerateArray()
+                .Select(step => GetRequiredProperty(step, "id").GetString())
+                .ToArray());
+
+        var stale = await client.CallToolAsync(
+            "work_plan_update",
+            new Dictionary<string, object?>
+            {
+                ["workId"] = workId,
+                ["expectedRevision"] = 0L,
+                ["steps"] = Array.Empty<object>()
+            });
+        Assert.True(stale.IsError is true);
+        var staleRoot = GetStructured(stale.StructuredContent);
+        Assert.False(GetRequiredProperty(staleRoot, "ok").GetBoolean());
+        var staleError = GetRequiredProperty(staleRoot, "error");
+        Assert.Equal("conflict", GetRequiredProperty(staleError, "code").GetString());
+        Assert.Equal(
+            1,
+            GetRequiredProperty(
+                GetRequiredProperty(staleError, "details"),
+                "currentRevision").GetInt64());
+
+        var reconciled = await client.CallToolAsync(
+            "work_plan_update",
+            new Dictionary<string, object?>
+            {
+                ["workId"] = workId,
+                ["expectedRevision"] = 1L,
+                ["steps"] = new object[]
+                {
+                    new Dictionary<string, object?>
+                    {
+                        ["id"] = docsId,
+                        ["text"] = "Update documentation",
+                        ["status"] = "completed"
+                    },
+                    new Dictionary<string, object?>
+                    {
+                        ["id"] = compileId,
+                        ["text"] = "Compile project",
+                        ["status"] = "active"
+                    }
+                }
+            });
+        var reconciledResult = GetRequiredProperty(
+            GetStructured(reconciled.StructuredContent),
+            "result");
+        Assert.Equal(2, GetRequiredProperty(reconciledResult, "revision").GetInt64());
+        var reconciledSteps = GetRequiredProperty(reconciledResult, "steps")
+            .EnumerateArray()
+            .ToArray();
+        Assert.Equal(docsId, GetRequiredProperty(reconciledSteps[0], "id").GetString());
+        Assert.Equal("completed", GetRequiredProperty(reconciledSteps[0], "status").GetString());
+        Assert.Equal(compileId, GetRequiredProperty(reconciledSteps[1], "id").GetString());
+        Assert.Equal("active", GetRequiredProperty(reconciledSteps[1], "status").GetString());
+
+        var invalidStatus = await client.CallToolAsync(
+            "work_plan_update",
+            new Dictionary<string, object?>
+            {
+                ["workId"] = workId,
+                ["expectedRevision"] = 2L,
+                ["steps"] = new object[]
+                {
+                    new Dictionary<string, object?>
+                    {
+                        ["id"] = compileId,
+                        ["text"] = "Compile project",
+                        ["status"] = "not-a-status"
+                    }
+                }
+            });
+        Assert.True(invalidStatus.IsError is true);
+        Assert.Equal(
+            "invalid_argument",
+            GetRequiredProperty(
+                GetRequiredProperty(
+                    GetStructured(invalidStatus.StructuredContent),
+                    "error"),
+                "code").GetString());
+
+        var cleared = await client.CallToolAsync(
+            "work_plan_update",
+            new Dictionary<string, object?>
+            {
+                ["workId"] = workId,
+                ["expectedRevision"] = 2L,
+                ["steps"] = Array.Empty<object>()
+            });
+        var clearedResult = GetRequiredProperty(
+            GetStructured(cleared.StructuredContent),
+            "result");
+        Assert.Equal(3, GetRequiredProperty(clearedResult, "revision").GetInt64());
+        Assert.Empty(GetRequiredProperty(clearedResult, "steps").EnumerateArray());
+
+        var close = await client.CallToolAsync(
+            "work_close",
+            new Dictionary<string, object?> { ["workId"] = workId });
+        Assert.True(
+            GetRequiredProperty(
+                GetStructured(close.StructuredContent),
+                "ok").GetBoolean());
+
+        var afterClose = await client.CallToolAsync(
+            "work_plan_get",
+            new Dictionary<string, object?> { ["workId"] = workId });
+        Assert.True(afterClose.IsError is true);
+        Assert.Equal(
+            "resource_closed",
+            GetRequiredProperty(
+                GetRequiredProperty(
+                    GetStructured(afterClose.StructuredContent),
+                    "error"),
+                "code").GetString());
     }
 
     [Fact]
