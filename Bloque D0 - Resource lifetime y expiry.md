@@ -2,7 +2,7 @@
 
 ## Estado
 
-**D0.1 y D0.2 implementados y validados. D0.3–D0.4 pendientes.**
+**D0.1–D0.3 implementados y validados. D0.4 pendiente.**
 
 Objetivo: evitar crecimiento indefinido de registries y dar semantics explícitas a cierre, expiración y cleanup antes de incorporar nuevos recursos duraderos como Python Runtime.
 
@@ -15,6 +15,7 @@ Implementado:
   - WorkSession idle timeout: **60 min**;
   - tombstone retention: **60 min**;
   - sweep interval: **30 s**;
+  - ProcessHandle post-exit retention: **15 min**;
 - `ResourceRegistry` con estados:
   - `active`
   - `closing`
@@ -72,17 +73,50 @@ Resultado final:
 - runtime administrado `loomlci`: actualizado y `ready`;
 - smoke público por Secure MCP Tunnel: `work_create` devolvió `idleTimeoutSeconds: 3600`.
 
+## D0.3 - ProcessHandle post-exit retention ✓
+
+Implementado:
+
+- un proceso `running`/`starting` no expira por falta de polling;
+- el TTL empieza sólo cuando el root entra en `exited` o `terminated`;
+- la ventana efectiva usa el más reciente entre `exitedAt` y el último acceso válido;
+- `process_status` y `process_read` exitosos refrescan la ventana sliding;
+- `process_terminate` exitoso también la refresca, útil cuando el root ya salió pero aún quedan descendientes;
+- operaciones fallidas no refrescan el TTL;
+- `postExitRetentionSeconds: 900` se publica en `process_start`;
+- `retentionExpiresAt` se publica en `process_status` y dentro de `process_read.process` cuando el proceso ya es terminal;
+- `ResourceOperationLease` impide que close/expiry disponga el recurso debajo de una operación ya iniciada;
+- el sweep de Process comparte el `LifetimeSweeperService` existente, sin timers por proceso;
+- `TimeProvider` llega hasta `WindowsProcessResource`, por lo que `StartedAt`/`ExitedAt` y TTL usan el mismo reloj inyectable;
+- al expirar se liberan process handle, Job, pipes/ConPTY y spools; queda tombstone `resource_expired` hasta el pruning normal;
+- un proceso `independent` sigue significando “sobrevive a `work_close`”, no “se desacopla de Loom”: después del exit del root también aplica el TTL;
+- si en modo pipes quedan descendientes vivos cuando vence la retención, el disposal del Job los termina y elimina el spool;
+- metadata MCP ajustada: `process_status`, `process_read` y `process_terminate` no se anuncian como estrictamente idempotentes porque las llamadas exitosas pueden extender la retención.
+
+Validación específica:
+
+- proceso vivo durante horas virtuales no expira;
+- proceso de larga duración inicia su ventana recién en `ExitedAt`;
+- expiry sin actividad;
+- sliding refresh por status/read;
+- write inválido post-exit no refresca;
+- terminate post-exit refresca;
+- read concurrente bloquea expiry hasta terminar;
+- close explícito espera leases activos;
+- backend Windows real: root de proceso `independent` sale, child queda vivo, vence TTL, child muere y spool se elimina;
+- smoke público por Secure MCP Tunnel: `postExitRetentionSeconds=900`, exit code preservado y `retentionExpiresAt` avanzó entre `process_status` y `process_read`.
+
+Resultado final acumulado:
+
+- Core: **29/29**;
+- Windows: **77/77**;
+- Integration MCP: **5/5**;
+- total Debug: **111/111**;
+- total Release: **111/111**;
+- Debug/Release: **0 warnings, 0 errores**;
+- runtime administrado `loomlci`: actualizado y `ready`.
+
 ## Pendiente
-
-### D0.3 - ProcessHandle post-exit retention
-
-Definir e implementar:
-
-- inicio del TTL sólo al entrar en estado terminal;
-- sliding retention por `process_status` / `process_read`;
-- liberación de spool/handles al vencer;
-- `resource_expired` después del TTL;
-- proceso vivo no expira por falta de polling.
 
 ### D0.4 - Explicit release
 

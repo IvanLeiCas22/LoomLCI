@@ -21,6 +21,7 @@ internal sealed class WindowsProcessResource : IProcessResource
     private readonly Task _exitObserver;
     private readonly object _stateGate = new();
     private readonly object _jobGate = new();
+    private readonly TimeProvider _timeProvider;
 
     private ManagedProcessState _state = ManagedProcessState.Running;
     private int? _exitCode;
@@ -33,10 +34,12 @@ internal sealed class WindowsProcessResource : IProcessResource
         int processId,
         SafeFileHandle processHandle,
         WindowsJobObject job,
-        IWindowsProcessIo io)
+        IWindowsProcessIo io,
+        TimeProvider? timeProvider = null)
     {
         ProcessId = processId;
-        StartedAt = DateTimeOffset.UtcNow;
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        StartedAt = _timeProvider.GetUtcNow();
 
         _processHandle = processHandle;
         _job = job;
@@ -75,7 +78,8 @@ internal sealed class WindowsProcessResource : IProcessResource
                 _exitCode,
                 StartedAt,
                 _exitedAt,
-                IoMode);
+                IoMode,
+                null);
         }
     }
 
@@ -162,7 +166,7 @@ internal sealed class WindowsProcessResource : IProcessResource
                 {
                     _state = ManagedProcessState.Terminated;
                     _exitCode ??= SafeExitCode();
-                    _exitedAt ??= DateTimeOffset.UtcNow;
+                    _exitedAt ??= _timeProvider.GetUtcNow();
                 }
             }
 
@@ -241,7 +245,7 @@ internal sealed class WindowsProcessResource : IProcessResource
                 }
 
                 _exitCode = SafeExitCode();
-                _exitedAt = DateTimeOffset.UtcNow;
+                _exitedAt = _timeProvider.GetUtcNow();
             }
 
             if (IoMode == ProcessIoMode.Terminal)

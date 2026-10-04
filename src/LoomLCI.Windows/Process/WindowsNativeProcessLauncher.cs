@@ -21,8 +21,10 @@ internal static class WindowsNativeProcessLauncher
 
     public static WindowsProcessResource Launch(
         ProcessLaunchSpec spec,
-        bool disableReleasePseudoConsole = false)
+        bool disableReleasePseudoConsole = false,
+        TimeProvider? timeProvider = null)
     {
+        timeProvider ??= TimeProvider.System;
         var commandLine = WindowsCommandLine.Build(
             spec.Executable,
             spec.Arguments);
@@ -40,12 +42,14 @@ internal static class WindowsNativeProcessLauncher
             ProcessIoMode.Pipes => LaunchPipes(
                 spec,
                 commandLineBuffer,
-                environment),
+                environment,
+                timeProvider),
             ProcessIoMode.Terminal => LaunchTerminal(
                 spec,
                 commandLineBuffer,
                 environment,
-                disableReleasePseudoConsole),
+                disableReleasePseudoConsole,
+                timeProvider),
             _ => throw new NotSupportedException(
                 $"Unsupported process I/O mode '{spec.IoMode}'.")
         };
@@ -54,7 +58,8 @@ internal static class WindowsNativeProcessLauncher
     private static WindowsProcessResource LaunchPipes(
         ProcessLaunchSpec spec,
         char[] commandLineBuffer,
-        WindowsEnvironmentBlock environment)
+        WindowsEnvironmentBlock environment,
+        TimeProvider timeProvider)
     {
         WindowsJobObject? job = null;
         AnonymousPipeServerStream? stdin = null;
@@ -114,7 +119,8 @@ internal static class WindowsNativeProcessLauncher
                 checked((int)processInformation.dwProcessId),
                 processHandle,
                 job,
-                io);
+                io,
+                timeProvider);
 
             processHandle = null;
             job = null;
@@ -138,7 +144,8 @@ internal static class WindowsNativeProcessLauncher
         ProcessLaunchSpec spec,
         char[] commandLineBuffer,
         WindowsEnvironmentBlock environment,
-        bool disableReleasePseudoConsole)
+        bool disableReleasePseudoConsole,
+        TimeProvider timeProvider)
     {
         if (spec.TerminalColumns is not { } columns ||
             spec.TerminalRows is not { } rows)
@@ -208,7 +215,8 @@ internal static class WindowsNativeProcessLauncher
                 checked((int)processInformation.dwProcessId),
                 processHandle,
                 job,
-                io);
+                io,
+                timeProvider);
 
             processHandle = null;
             job = null;

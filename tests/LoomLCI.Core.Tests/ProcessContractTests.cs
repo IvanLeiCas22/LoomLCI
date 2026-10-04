@@ -245,7 +245,8 @@ public sealed class ProcessContractTests
                 null,
                 StartedAt,
                 null,
-                IoMode);
+                IoMode,
+                null);
 
         public ProcessOutputReadResult Read(
             ProcessHandle handle,

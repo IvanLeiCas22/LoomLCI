@@ -7,14 +7,19 @@ namespace LoomLCI.Windows.Processes;
 public sealed class WindowsProcessProvider : IProcessProvider
 {
     private readonly bool _disableReleasePseudoConsole;
+    private readonly TimeProvider _timeProvider;
 
-    public WindowsProcessProvider()
+    public WindowsProcessProvider(TimeProvider? timeProvider = null)
     {
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
-    internal WindowsProcessProvider(bool disableReleasePseudoConsole)
+    internal WindowsProcessProvider(
+        bool disableReleasePseudoConsole,
+        TimeProvider? timeProvider = null)
     {
         _disableReleasePseudoConsole = disableReleasePseudoConsole;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     public Task<LoomResult<IProcessResource>> StartAsync(
@@ -28,7 +33,8 @@ public sealed class WindowsProcessProvider : IProcessProvider
             IProcessResource resource =
                 WindowsNativeProcessLauncher.Launch(
                     spec,
-                    _disableReleasePseudoConsole);
+                    _disableReleasePseudoConsole,
+                    _timeProvider);
 
             if (cancellationToken.IsCancellationRequested)
             {

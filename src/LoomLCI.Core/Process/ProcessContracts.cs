@@ -43,7 +43,8 @@ public sealed record ProcessStartResult(
     int ProcessId,
     DateTimeOffset StartedAt,
     ManagedProcessState State,
-    ProcessIoMode IoMode);
+    ProcessIoMode IoMode,
+    TimeSpan PostExitRetention);
 
 public sealed record ProcessStatusResult(
     ProcessHandle Handle,
@@ -52,7 +53,8 @@ public sealed record ProcessStatusResult(
     int? ExitCode,
     DateTimeOffset StartedAt,
     DateTimeOffset? ExitedAt,
-    ProcessIoMode IoMode);
+    ProcessIoMode IoMode,
+    DateTimeOffset? RetentionExpiresAt);
 
 public sealed record OutputChunk(long Cursor, string Text);
 

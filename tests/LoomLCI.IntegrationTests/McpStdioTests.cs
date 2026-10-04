@@ -157,8 +157,14 @@ public sealed class McpStdioTests
         Assert.Equal("Start process", startProcess.ProtocolTool.Title);
         Assert.Contains("cmd.exe", startProcess.Description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("ioMode=terminal", startProcess.Description, StringComparison.Ordinal);
+        Assert.Contains("postExitRetentionSeconds", startProcess.Description, StringComparison.Ordinal);
+        Assert.Contains("does not expire", startProcess.Description, StringComparison.OrdinalIgnoreCase);
         Assert.False(startProcess.ProtocolTool.Annotations?.OpenWorldHint ?? true);
         var processStartProperties = GetRequiredProperty(startProcess.JsonSchema, "properties");
+        var independentDescription = GetRequiredProperty(
+            GetRequiredProperty(processStartProperties, "independent"),
+            "description").GetString();
+        Assert.Contains("remains Loom-managed", independentDescription, StringComparison.OrdinalIgnoreCase);
         AssertSchemaEnum(GetRequiredProperty(processStartProperties, "ioMode"), "pipes", "terminal");
         AssertSchemaRange(GetRequiredProperty(processStartProperties, "terminalColumns"), 1, short.MaxValue);
         AssertSchemaRange(GetRequiredProperty(processStartProperties, "terminalRows"), 1, short.MaxValue);
@@ -173,13 +179,21 @@ public sealed class McpStdioTests
         Assert.Contains("Ctrl+C", writeTextDescription, StringComparison.Ordinal);
         Assert.Contains("\\u0003", writeTextDescription, StringComparison.Ordinal);
 
+        var statusProcess = Assert.Single(tools, tool => tool.Name == "process_status");
+        Assert.Contains("retentionExpiresAt", statusProcess.Description, StringComparison.Ordinal);
+        Assert.Contains("refreshes", statusProcess.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.False(statusProcess.ProtocolTool.Annotations?.IdempotentHint ?? true);
+
         var terminateProcess = Assert.Single(tools, tool => tool.Name == "process_terminate");
         Assert.Contains("idempotent", terminateProcess.Description, StringComparison.OrdinalIgnoreCase);
-        Assert.True(terminateProcess.ProtocolTool.Annotations?.IdempotentHint ?? false);
+        Assert.Contains("refreshes", terminateProcess.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.False(terminateProcess.ProtocolTool.Annotations?.IdempotentHint ?? true);
 
         var readProcess = Assert.Single(tools, tool => tool.Name == "process_read");
         Assert.Contains("absolute UTF-16 positions", readProcess.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("retentionExpiresAt", readProcess.Description, StringComparison.Ordinal);
         Assert.Contains("retentionLimitReached", readProcess.Description, StringComparison.Ordinal);
+        Assert.False(readProcess.ProtocolTool.Annotations?.IdempotentHint ?? true);
         Assert.Contains("64 MiB", readProcess.Description, StringComparison.OrdinalIgnoreCase);
         var processReadProperties = GetRequiredProperty(readProcess.JsonSchema, "properties");
         AssertSchemaRange(GetRequiredProperty(processReadProperties, "stdoutCursor"), 0, long.MaxValue);
@@ -282,6 +296,7 @@ public sealed class McpStdioTests
         Assert.True(GetRequiredProperty(startRoot, "ok").GetBoolean());
         var startResult = GetRequiredProperty(startRoot, "result");
         Assert.Equal("pipes", GetRequiredProperty(startResult, "ioMode").GetString());
+        Assert.Equal(900, GetRequiredProperty(startResult, "postExitRetentionSeconds").GetInt64());
         var processHandle = GetRequiredProperty(
             startResult,
             "processHandle").GetString();
@@ -303,6 +318,9 @@ public sealed class McpStdioTests
             if (state is "exited" or "terminated")
             {
                 Assert.Equal(3, GetRequiredProperty(result, "exitCode").GetInt32());
+                Assert.Equal(
+                    JsonValueKind.String,
+                    GetRequiredProperty(result, "retentionExpiresAt").ValueKind);
                 break;
             }
 
@@ -324,6 +342,10 @@ public sealed class McpStdioTests
         Assert.True(GetRequiredProperty(readRoot, "ok").GetBoolean());
         var readResult = GetRequiredProperty(readRoot, "result");
         Assert.Equal("pipes", GetRequiredProperty(readResult, "ioMode").GetString());
+        var readProcessState = GetRequiredProperty(readResult, "process");
+        Assert.Equal(
+            JsonValueKind.String,
+            GetRequiredProperty(readProcessState, "retentionExpiresAt").ValueKind);
         Assert.Equal(JsonValueKind.Null, GetRequiredProperty(readResult, "terminal").ValueKind);
         var stdout = GetRequiredProperty(readResult, "stdout");
         Assert.True(GetRequiredProperty(stdout, "retainedUntilCursor").GetInt64() >= 0);

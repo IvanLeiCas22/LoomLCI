@@ -1,9 +1,12 @@
 using LoomLCI.Core.Invocations;
+using LoomLCI.Core.Lifetime;
 using LoomLCI.Core.Observability;
 using LoomLCI.Core.Resources;
 using LoomLCI.Core.Work;
 
 namespace LoomLCI.Core.Processes;
+
+public sealed record ProcessLifetimeSweepResult(int ExpiredProcesses);
 
 public sealed class ProcessCapability
 {
@@ -13,18 +16,26 @@ public sealed class ProcessCapability
     private readonly ResourceRegistry _resources;
     private readonly InvocationRunner _invocations;
     private readonly LoomEventBus _events;
+    private readonly LifetimeOptions _lifetimeOptions;
+    private readonly TimeProvider _timeProvider;
 
     public ProcessCapability(
         IProcessProvider provider,
         ResourceRegistry resources,
         InvocationRunner invocations,
-        LoomEventBus events)
+        LoomEventBus events,
+        LifetimeOptions? lifetimeOptions = null,
+        TimeProvider? timeProvider = null)
     {
         _provider = provider;
         _resources = resources;
         _invocations = invocations;
         _events = events;
+        _lifetimeOptions = lifetimeOptions ?? new LifetimeOptions();
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
+
+    public TimeSpan PostExitRetention => _lifetimeOptions.ProcessPostExitRetention;
 
     public Task<LoomResult<ProcessStartResult>> StartAsync(
         ProcessStartRequest request,
@@ -36,7 +47,8 @@ public sealed class ProcessCapability
             {
                 if (string.IsNullOrWhiteSpace(request.Executable))
                 {
-                    return LoomResult<ProcessStartResult>.Failure(LoomErrors.InvalidArgument("Executable is required."));
+                    return LoomResult<ProcessStartResult>.Failure(
+                        LoomErrors.InvalidArgument("Executable is required."));
                 }
 
                 var session = context.WorkSession;
@@ -44,7 +56,8 @@ public sealed class ProcessCapability
                 if (request.Ownership == ResourceOwnership.SessionOwned && session is null)
                 {
                     return LoomResult<ProcessStartResult>.Failure(
-                        LoomErrors.InvalidArgument("Session-owned processes require a work_id."));
+                        LoomErrors.InvalidArgument(
+                            "Session-owned processes require a work_id."));
                 }
 
                 if (request.IoMode is not (ProcessIoMode.Pipes or ProcessIoMode.Terminal))
@@ -58,7 +71,8 @@ public sealed class ProcessCapability
 
                 if (request.IoMode == ProcessIoMode.Pipes)
                 {
-                    if (request.TerminalColumns is not null || request.TerminalRows is not null)
+                    if (request.TerminalColumns is not null ||
+                        request.TerminalRows is not null)
                     {
                         return LoomResult<ProcessStartResult>.Failure(
                             LoomErrors.InvalidArgument(
@@ -79,10 +93,13 @@ public sealed class ProcessCapability
                     }
                 }
 
-                var workingDirectoryResult = ResolveWorkingDirectory(request.WorkingDirectory, session?.BaseDirectory);
+                var workingDirectoryResult = ResolveWorkingDirectory(
+                    request.WorkingDirectory,
+                    session?.BaseDirectory);
                 if (!workingDirectoryResult.IsSuccess)
                 {
-                    return LoomResult<ProcessStartResult>.Failure(workingDirectoryResult.Error!);
+                    return LoomResult<ProcessStartResult>.Failure(
+                        workingDirectoryResult.Error!);
                 }
 
                 var spec = new ProcessLaunchSpec(
@@ -94,14 +111,17 @@ public sealed class ProcessCapability
                     terminalColumns,
                     terminalRows);
 
-                var started = await _provider.StartAsync(spec, token).ConfigureAwait(false);
+                var started = await _provider.StartAsync(spec, token)
+                    .ConfigureAwait(false);
                 if (!started.IsSuccess)
                 {
                     return LoomResult<ProcessStartResult>.Failure(started.Error!);
                 }
 
                 var resource = started.Value!;
-                WorkId? owner = request.Ownership == ResourceOwnership.SessionOwned ? session!.Id : null;
+                WorkId? owner = request.Ownership == ResourceOwnership.SessionOwned
+                    ? session!.Id
+                    : null;
                 var rawHandle = _resources.Register(
                     "proc",
                     ResourceKind,
@@ -118,7 +138,11 @@ public sealed class ProcessCapability
                     owner,
                     context.Id,
                     rawHandle,
-                    new Dictionary<string, object?> { ["kind"] = ResourceKind, ["pid"] = resource.ProcessId });
+                    new Dictionary<string, object?>
+                    {
+                        ["kind"] = ResourceKind,
+                        ["pid"] = resource.ProcessId
+                    });
 
                 return LoomResult<ProcessStartResult>.Success(
                     new ProcessStartResult(
@@ -126,7 +150,8 @@ public sealed class ProcessCapability
                         resource.ProcessId,
                         resource.StartedAt,
                         result.State,
-                        result.IoMode));
+                        result.IoMode,
+                        _lifetimeOptions.ProcessPostExitRetention));
             },
             cancellationToken);
 
@@ -136,8 +161,14 @@ public sealed class ProcessCapability
         => RunWithProcessAsync(
             "process.status",
             handle,
-            (resolved, _, _) => Task.FromResult(
-                LoomResult<ProcessStatusResult>.Success(resolved.Resource.Snapshot(handle))),
+            (resolved, _, _) =>
+            {
+                var status = resolved.Resource.Snapshot(handle);
+                var touchedAt = TouchOrPrevious(resolved);
+                return Task.FromResult(
+                    LoomResult<ProcessStatusResult>.Success(
+                        AddRetentionDeadline(status, touchedAt)));
+            },
             cancellationToken);
 
     public Task<LoomResult<ProcessOutputReadResult>> ReadAsync(
@@ -150,14 +181,18 @@ public sealed class ProcessCapability
     {
         if (stdoutCursor < 0 || stderrCursor < 0 || terminalCursor < 0)
         {
-            return Task.FromResult(LoomResult<ProcessOutputReadResult>.Failure(
-                LoomErrors.InvalidArgument("Output cursors must be non-negative.")));
+            return Task.FromResult(
+                LoomResult<ProcessOutputReadResult>.Failure(
+                    LoomErrors.InvalidArgument(
+                        "Output cursors must be non-negative.")));
         }
 
         if (maxChars is < 1 or > 1024 * 1024)
         {
-            return Task.FromResult(LoomResult<ProcessOutputReadResult>.Failure(
-                LoomErrors.InvalidArgument("max_chars must be between 1 and 1048576.")));
+            return Task.FromResult(
+                LoomResult<ProcessOutputReadResult>.Failure(
+                    LoomErrors.InvalidArgument(
+                        "max_chars must be between 1 and 1048576.")));
         }
 
         return RunWithProcessAsync(
@@ -165,29 +200,40 @@ public sealed class ProcessCapability
             handle,
             (resolved, _, _) =>
             {
-                if (resolved.Resource.IoMode == ProcessIoMode.Pipes && terminalCursor != 0)
+                if (resolved.Resource.IoMode == ProcessIoMode.Pipes &&
+                    terminalCursor != 0)
                 {
-                    return Task.FromResult(LoomResult<ProcessOutputReadResult>.Failure(
-                        LoomErrors.InvalidArgument(
-                            "terminal_cursor must be 0 for pipe-based processes.")));
+                    return Task.FromResult(
+                        LoomResult<ProcessOutputReadResult>.Failure(
+                            LoomErrors.InvalidArgument(
+                                "terminal_cursor must be 0 for pipe-based processes.")));
                 }
 
                 if (resolved.Resource.IoMode == ProcessIoMode.Terminal &&
                     (stdoutCursor != 0 || stderrCursor != 0))
                 {
-                    return Task.FromResult(LoomResult<ProcessOutputReadResult>.Failure(
-                        LoomErrors.InvalidArgument(
-                            "stdout_cursor and stderr_cursor must be 0 for terminal processes.")));
+                    return Task.FromResult(
+                        LoomResult<ProcessOutputReadResult>.Failure(
+                            LoomErrors.InvalidArgument(
+                                "stdout_cursor and stderr_cursor must be 0 for terminal processes.")));
                 }
+
+                var read = resolved.Resource.Read(
+                    handle,
+                    stdoutCursor,
+                    stderrCursor,
+                    terminalCursor,
+                    maxChars);
+                var touchedAt = TouchOrPrevious(resolved);
 
                 return Task.FromResult(
                     LoomResult<ProcessOutputReadResult>.Success(
-                        resolved.Resource.Read(
-                            handle,
-                            stdoutCursor,
-                            stderrCursor,
-                            terminalCursor,
-                            maxChars)));
+                        read with
+                        {
+                            Process = AddRetentionDeadline(
+                                read.Process,
+                                touchedAt)
+                        }));
             },
             cancellationToken);
     }
@@ -199,7 +245,8 @@ public sealed class ProcessCapability
         => RunWithProcessAsync(
             "process.write",
             handle,
-            (resolved, _, token) => resolved.Resource.WriteAsync(text, token),
+            (resolved, _, token) =>
+                resolved.Resource.WriteAsync(text, token),
             cancellationToken);
 
     public Task<LoomResult<Unit>> ResizeAsync(
@@ -211,9 +258,10 @@ public sealed class ProcessCapability
         if (columns is < 1 or > short.MaxValue ||
             rows is < 1 or > short.MaxValue)
         {
-            return Task.FromResult(LoomResult<Unit>.Failure(
-                LoomErrors.InvalidArgument(
-                    $"Terminal dimensions must be between 1 and {short.MaxValue}.")));
+            return Task.FromResult(
+                LoomResult<Unit>.Failure(
+                    LoomErrors.InvalidArgument(
+                        $"Terminal dimensions must be between 1 and {short.MaxValue}.")));
         }
 
         return RunWithProcessAsync(
@@ -232,7 +280,8 @@ public sealed class ProcessCapability
             handle,
             async (resolved, context, token) =>
             {
-                var result = await resolved.Resource.TerminateAsync(token).ConfigureAwait(false);
+                var result = await resolved.Resource.TerminateAsync(token)
+                    .ConfigureAwait(false);
                 if (result.IsSuccess)
                 {
                     _events.Publish(
@@ -245,13 +294,82 @@ public sealed class ProcessCapability
 
                 return result;
             },
-            cancellationToken);
+            cancellationToken,
+            touchOnSuccess: true);
+
+    public async Task<ProcessLifetimeSweepResult> SweepExpiredAsync()
+    {
+        var now = _timeProvider.GetUtcNow();
+        var cutoff = now - _lifetimeOptions.ProcessPostExitRetention;
+        var expiredProcesses = 0;
+
+        foreach (var rawHandle in _resources.GetActiveHandles(ResourceKind))
+        {
+            var acquired = _resources.Acquire<IProcessResource>(
+                rawHandle,
+                ResourceKind);
+            if (!acquired.IsSuccess)
+            {
+                continue;
+            }
+
+            var eligible = false;
+            WorkId? owner = null;
+
+            using (var lease = acquired.Value!)
+            {
+                var status = lease.Resource.Snapshot(
+                    new ProcessHandle(rawHandle.Value));
+                owner = lease.OwnerWorkId;
+
+                eligible =
+                    IsTerminal(status.State) &&
+                    status.ExitedAt is { } exitedAt &&
+                    exitedAt <= cutoff &&
+                    lease.LastAccessedAt <= cutoff;
+            }
+
+            if (!eligible)
+            {
+                continue;
+            }
+
+            var expired = await _resources.ExpireIfUnaccessedSinceAsync(
+                    rawHandle,
+                    ResourceKind,
+                    cutoff)
+                .ConfigureAwait(false);
+
+            if (!expired.IsSuccess || expired.Value != true)
+            {
+                continue;
+            }
+
+            expiredProcesses++;
+            _events.Publish(
+                "ResourceExpired",
+                "process",
+                owner,
+                resourceHandle: rawHandle,
+                payload: new Dictionary<string, object?>
+                {
+                    ["kind"] = ResourceKind
+                });
+        }
+
+        return new ProcessLifetimeSweepResult(expiredProcesses);
+    }
 
     private Task<LoomResult<T>> RunWithProcessAsync<T>(
         string operation,
         ProcessHandle handle,
-        Func<ResourceLease<IProcessResource>, InvocationContext, CancellationToken, Task<LoomResult<T>>> action,
-        CancellationToken cancellationToken)
+        Func<
+            ResourceOperationLease<IProcessResource>,
+            InvocationContext,
+            CancellationToken,
+            Task<LoomResult<T>>> action,
+        CancellationToken cancellationToken,
+        bool touchOnSuccess = false)
     {
         var initial = Resolve(handle);
         var owner = initial.IsSuccess ? initial.Value!.OwnerWorkId : null;
@@ -261,21 +379,67 @@ public sealed class ProcessCapability
             owner,
             async (context, token) =>
             {
-                var resolved = Resolve(handle);
-                if (!resolved.IsSuccess)
+                var acquired = _resources.Acquire<IProcessResource>(
+                    handle.AsResourceHandle(),
+                    ResourceKind);
+                if (!acquired.IsSuccess)
                 {
-                    return LoomResult<T>.Failure(resolved.Error!);
+                    return LoomResult<T>.Failure(acquired.Error!);
                 }
 
-                return await action(resolved.Value!, context, token).ConfigureAwait(false);
+                using var lease = acquired.Value!;
+                var result = await action(lease, context, token)
+                    .ConfigureAwait(false);
+
+                if (touchOnSuccess && result.IsSuccess)
+                {
+                    _resources.Touch(
+                        handle.AsResourceHandle(),
+                        ResourceKind);
+                }
+
+                return result;
             },
             cancellationToken);
     }
 
-    private LoomResult<ResourceLease<IProcessResource>> Resolve(ProcessHandle handle)
-        => _resources.Resolve<IProcessResource>(handle.AsResourceHandle(), ResourceKind);
+    private LoomResult<ResourceLease<IProcessResource>> Resolve(
+        ProcessHandle handle)
+        => _resources.Resolve<IProcessResource>(
+            handle.AsResourceHandle(),
+            ResourceKind);
 
-    private static LoomResult<string?> ResolveWorkingDirectory(string? requested, string? baseDirectory)
+    private DateTimeOffset TouchOrPrevious(
+        ResourceOperationLease<IProcessResource> resolved)
+        => _resources.Touch(resolved.Handle, ResourceKind)
+           ?? resolved.LastAccessedAt;
+
+    private ProcessStatusResult AddRetentionDeadline(
+        ProcessStatusResult status,
+        DateTimeOffset lastAccessedAt)
+    {
+        if (!IsTerminal(status.State) || status.ExitedAt is not { } exitedAt)
+        {
+            return status with { RetentionExpiresAt = null };
+        }
+
+        var anchor = exitedAt > lastAccessedAt
+            ? exitedAt
+            : lastAccessedAt;
+
+        return status with
+        {
+            RetentionExpiresAt =
+                anchor + _lifetimeOptions.ProcessPostExitRetention
+        };
+    }
+
+    private static bool IsTerminal(ManagedProcessState state)
+        => state is ManagedProcessState.Exited or ManagedProcessState.Terminated;
+
+    private static LoomResult<string?> ResolveWorkingDirectory(
+        string? requested,
+        string? baseDirectory)
     {
         if (string.IsNullOrWhiteSpace(requested))
         {
@@ -286,20 +450,29 @@ public sealed class ProcessCapability
         {
             if (Path.IsPathFullyQualified(requested))
             {
-                return LoomResult<string?>.Success(Path.GetFullPath(requested));
+                return LoomResult<string?>.Success(
+                    Path.GetFullPath(requested));
             }
 
             if (string.IsNullOrWhiteSpace(baseDirectory))
             {
                 return LoomResult<string?>.Failure(
-                    LoomErrors.InvalidArgument("A relative working directory requires a work session with base_directory."));
+                    LoomErrors.InvalidArgument(
+                        "A relative working directory requires a work session with base_directory."));
             }
 
-            return LoomResult<string?>.Success(Path.GetFullPath(Path.Combine(baseDirectory, requested)));
+            return LoomResult<string?>.Success(
+                Path.GetFullPath(
+                    Path.Combine(baseDirectory, requested)));
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        catch (Exception ex) when (
+            ex is ArgumentException or
+            NotSupportedException or
+            PathTooLongException)
         {
-            return LoomResult<string?>.Failure(LoomErrors.InvalidArgument($"Invalid working directory: {ex.Message}"));
+            return LoomResult<string?>.Failure(
+                LoomErrors.InvalidArgument(
+                    $"Invalid working directory: {ex.Message}"));
         }
     }
 }

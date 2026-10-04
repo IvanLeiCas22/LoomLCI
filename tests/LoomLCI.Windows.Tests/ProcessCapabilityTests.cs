@@ -1,10 +1,12 @@
 using LoomLCI.Core;
 using LoomLCI.Core.Invocations;
+using LoomLCI.Core.Lifetime;
 using LoomLCI.Core.Observability;
 using LoomLCI.Core.Processes;
 using LoomLCI.Core.Resources;
 using LoomLCI.Core.Work;
 using LoomLCI.Windows.Processes;
+using Microsoft.Extensions.Time.Testing;
 
 namespace LoomLCI.Windows.Tests;
 
@@ -656,6 +658,86 @@ public sealed class ProcessCapabilityTests
     }
 
     [Fact]
+    public async Task PostExitExpiryKillsIndependentDescendantsAndDeletesSpool()
+    {
+        var clock = new FakeTimeProvider(
+            new DateTimeOffset(2026, 10, 4, 3, 0, 0, TimeSpan.Zero));
+        var options = new LifetimeOptions(
+            workSessionIdleTimeout: TimeSpan.FromHours(1),
+            tombstoneRetention: TimeSpan.FromHours(1),
+            sweepInterval: TimeSpan.FromMinutes(1),
+            processPostExitRetention: TimeSpan.FromMinutes(10));
+
+        await using var fixture = new ProcessFixture(clock, options);
+        var work = fixture.Sessions.Create(Environment.CurrentDirectory);
+        Assert.True(work.IsSuccess);
+
+        var directory =
+            Directory.CreateTempSubdirectory("loom-post-exit-expiry-");
+        var childPidPath =
+            Path.Combine(directory.FullName, "child.pid");
+
+        try
+        {
+            var started = await fixture.Processes.StartAsync(
+                new ProcessStartRequest(
+                    "powershell.exe",
+                    [
+                        "-NoProfile",
+                        "-Command",
+                        "$child = Start-Process powershell.exe " +
+                        "-ArgumentList @('-NoProfile','-Command'," +
+                        "'Start-Sleep -Seconds 60') -NoNewWindow -PassThru; " +
+                        "[IO.File]::WriteAllText($env:LOOM_CHILD_PID, " +
+                        "[string]$child.Id); " +
+                        "Write-Output 'ROOT-EXIT-TTL'; exit 0"
+                    ],
+                    Environment: new Dictionary<string, string?>
+                    {
+                        ["LOOM_CHILD_PID"] = childPidPath
+                    },
+                    WorkId: work.Value!.Id,
+                    Ownership: ResourceOwnership.Independent));
+
+            Assert.True(started.IsSuccess, started.Error?.Message);
+            var childPid = await WaitForPidFileAsync(childPidPath);
+
+            var exited = await WaitForExitAsync(
+                fixture.Processes,
+                started.Value!.Handle);
+            Assert.Equal(ManagedProcessState.Exited, exited.State);
+            Assert.Equal(0, exited.ExitCode);
+            Assert.True(IsProcessAlive(childPid));
+
+            var resolved = fixture.Resources.Resolve<IProcessResource>(
+                started.Value.Handle.AsResourceHandle(),
+                ProcessCapability.ResourceKind);
+            Assert.True(resolved.IsSuccess, resolved.Error?.Message);
+
+            var resource = Assert.IsType<WindowsProcessResource>(
+                resolved.Value!.Resource);
+            var spoolPath = resource.StdoutSpoolPath;
+            Assert.True(File.Exists(spoolPath));
+
+            clock.Advance(TimeSpan.FromMinutes(10));
+            var sweep = await fixture.Processes.SweepExpiredAsync();
+
+            Assert.Equal(1, sweep.ExpiredProcesses);
+            await WaitForProcessGoneAsync(childPid);
+            Assert.False(File.Exists(spoolPath));
+
+            var status = await fixture.Processes.StatusAsync(
+                started.Value.Handle);
+            Assert.False(status.IsSuccess);
+            Assert.Equal("resource_expired", status.Error?.Code);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task FullExecutablePathWithSpacesStillLaunches()
     {
         await using var fixture = new ProcessFixture();
@@ -859,19 +941,34 @@ public sealed class ProcessCapabilityTests
 
     private sealed class ProcessFixture : IAsyncDisposable
     {
-        public ProcessFixture()
+        public ProcessFixture(
+            TimeProvider? timeProvider = null,
+            LifetimeOptions? lifetimeOptions = null)
         {
-            Events = new LoomEventBus();
-            Resources = new ResourceRegistry();
-            Sessions = new WorkSessionManager(Resources, Events);
-            Invocations = new InvocationRunner(Events, Sessions);
+            TimeProvider = timeProvider ?? TimeProvider.System;
+            LifetimeOptions = lifetimeOptions ?? new LifetimeOptions();
+            Events = new LoomEventBus(TimeProvider);
+            Resources = new ResourceRegistry(TimeProvider);
+            Sessions = new WorkSessionManager(
+                Resources,
+                Events,
+                LifetimeOptions,
+                TimeProvider);
+            Invocations = new InvocationRunner(
+                Events,
+                Sessions,
+                TimeProvider);
             Processes = new ProcessCapability(
-                new WindowsProcessProvider(),
+                new WindowsProcessProvider(TimeProvider),
                 Resources,
                 Invocations,
-                Events);
+                Events,
+                LifetimeOptions,
+                TimeProvider);
         }
 
+        public TimeProvider TimeProvider { get; }
+        public LifetimeOptions LifetimeOptions { get; }
         public LoomEventBus Events { get; }
         public ResourceRegistry Resources { get; }
         public WorkSessionManager Sessions { get; }
@@ -881,6 +978,7 @@ public sealed class ProcessCapabilityTests
         public async ValueTask DisposeAsync()
         {
             await Sessions.DisposeAsync();
+            await Resources.DisposeAsync();
         }
     }
 }

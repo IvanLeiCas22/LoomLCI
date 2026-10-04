@@ -308,6 +308,41 @@ public sealed class LifetimeTests
     }
 
     [Fact]
+    public async Task ResourceCloseWaitsForActiveOperationLease()
+    {
+        var clock = new FakeTimeProvider(Start);
+        await using var resources = new ResourceRegistry(clock);
+        var disposed = false;
+
+        var handle = resources.Register(
+            "fake",
+            "fake",
+            new object(),
+            ownerWorkId: null,
+            ResourceOwnership.Independent,
+            () =>
+            {
+                disposed = true;
+                return ValueTask.CompletedTask;
+            });
+
+        var acquired = resources.Acquire<object>(handle, "fake");
+        Assert.True(acquired.IsSuccess, acquired.Error?.Message);
+
+        var closeTask = resources.CloseAsync(handle).AsTask();
+        await Task.Yield();
+
+        Assert.False(closeTask.IsCompleted);
+        Assert.False(disposed);
+
+        acquired.Value!.Dispose();
+
+        var closed = await closeTask;
+        Assert.True(closed.IsSuccess, closed.Error?.Message);
+        Assert.True(disposed);
+    }
+
+    [Fact]
     public async Task ResourceRegistryShutdownClosesIndependentResources()
     {
         var clock = new FakeTimeProvider(Start);
