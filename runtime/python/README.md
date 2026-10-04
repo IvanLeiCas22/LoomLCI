@@ -2,7 +2,7 @@
 
 Fuente versionada del worker persistente de Python Runtime.
 
-E1.2 define el worker y su protocolo privado. E1.3 embebe estos assets en `LoomLCI.Windows`, auto-provisiona el CPython privado y conecta el worker con `IPythonRuntimeProvider`/Job Objects. E1.4 expone `python_execute`/`python_reset` por MCP; E1.5 valida el flujo real por Secure MCP Tunnel/fresh-agent.
+E1.2 define el worker y su protocolo privado. E1.3 embebe estos assets en `LoomLCI.Windows`, auto-provisiona el CPython privado y conecta el worker con `IPythonRuntimeProvider`/Job Objects. E1.4 expone `python_execute`/`python_reset` por MCP; E1.5 validó el flujo real por Secure MCP Tunnel/fresh-agent y cerró E1.
 
 Runtime fijado:
 

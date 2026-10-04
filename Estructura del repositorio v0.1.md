@@ -1,6 +1,6 @@
 # Estructura del repositorio v0.1
 
-> Estado: **baseline de repositorio adoptada y reconciliada con el árbol real al 2026-10-04**. La separación Core / Windows / MCP / Host y los tres proyectos de tests están implementados. Python Runtime E1.1–E1.4 ya cubre Core, worker/protocolo, provisioning, backend/provider Windows y adapter MCP; E1.5 de validación por túnel/fresh-agent, Agent Support y Computer siguen pendientes.
+> Estado: **baseline de repositorio adoptada y reconciliada con el árbol real al 2026-10-04**. La separación Core / Windows / MCP / Host y los tres proyectos de tests están implementados. Python Runtime E1 está cerrado y validado end-to-end; Agent Support y Computer siguen pendientes.
 
 ## Criterio
 
@@ -42,7 +42,7 @@ Regla principal:
     ├─ *.md
     └─ ...
 
-`LoomLCI.Core/Python` contiene contratos/capability E1.1. `LoomLCI.Windows/Python` contiene protocolo E1.2 y assets/provisioner/provider/resource E1.3. `LoomLCI.Mcp/PythonTools.cs` expone `python_execute`/`python_reset` desde E1.4. `runtime/python` conserva las fuentes versionadas del worker y manifiesto. E1.5 de validación por túnel/fresh-agent, Computer y AgentSupport siguen pendientes.
+`LoomLCI.Core/Python` contiene contratos/capability E1.1. `LoomLCI.Windows/Python` contiene protocolo E1.2 y assets/provisioner/provider/resource E1.3. `LoomLCI.Mcp/PythonTools.cs` expone `python_execute`/`python_reset` desde E1.4. `runtime/python` conserva las fuentes versionadas del worker y manifiesto. E1.5 validó el conjunto por túnel/fresh-agent; Computer y AgentSupport siguen pendientes.
 
 ## LoomLCI.Core
 
@@ -63,8 +63,7 @@ Diferido:
 
 - ExecutionContext/Policy explícitos;
 - Work Plan / Agent Support;
-- contratos de Computer;
-- validación E1.5 de Python Runtime por Secure MCP Tunnel + fresh-agent.
+- contratos de Computer.
 
 No contiene:
 

@@ -1,6 +1,6 @@
 # Python Runtime
 
-> Estado: **arquitectura confirmada; E1.1–E1.4 implementados y validados; E1.5 (smoke por Secure MCP Tunnel + fresh-agent) pendiente**. Ver [[Bloque E - Python Runtime]].
+> Estado: **E1 cerrado. Arquitectura, implementación y validación end-to-end completadas, incluido Secure MCP Tunnel + fresh-agent**. Ver [[Bloque E - Python Runtime]].
 
 ## Decisión
 

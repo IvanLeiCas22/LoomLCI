@@ -2,7 +2,7 @@
 
 ## Estado
 
-**E1.1–E1.4 implementados y validados; E1.5 (smoke por Secure MCP Tunnel + fresh-agent) pendiente.**
+**E1 cerrado. E1.1–E1.5 implementados y validados, incluido smoke real por Secure MCP Tunnel y fresh-agent específico de Python.**
 
 Este bloque define el primer vertical slice de Python Runtime después del cierre de la baseline v0.1. No modifica todavía Computer ni Agent Support.
 
@@ -618,16 +618,51 @@ Validación E1.4:
 - build Release: **0 warnings / 0 errors**;
 - ningún `python.exe` privado queda vivo tras la suite.
 
-La validación Debug del Host se ejecutó desde un output alternativo porque el Host Debug activo mantiene el Secure MCP Tunnel de esta sesión. E1.5 realizará el smoke sobre el túnel real y la prueba fresh-agent.
+La validación Debug del Host de E1.4 se ejecutó desde un output alternativo porque el Host Debug activo mantenía el Secure MCP Tunnel de esa sesión. E1.5 recompiló y reinició el runtime administrado antes del smoke público final.
 
-### E1.5 - Validación
+### E1.5 - Validación ✓
 
-- Core fake provider;
-- Windows real;
-- MCP STDIO real;
-- build Debug/Release;
-- smoke por Secure MCP Tunnel;
-- fresh-agent corto específico de Python.
+Validación automatizada final:
+
+- Core: **60/60**;
+- Windows: **104/104**;
+- Integration MCP: **7/7**;
+- total Debug: **171/171**;
+- total Release: **171/171**;
+- Host Debug y Release: **0 warnings / 0 errores**;
+- repo limpio antes y después de la validación.
+
+Smoke real por Secure MCP Tunnel con el Host Debug recién compilado:
+
+- runtime administrado `loomlci`: `live` / `ready`;
+- catálogo público: **17 tools**, incluidas `python_execute` y `python_reset`;
+- CPython privado observado: **3.14.8**;
+- persistencia demostrada con `x = 40` seguido de `print(x + 2)` => `42`;
+- excepción Python ordinaria (`ValueError`) devolvió `status=exception` y el namespace siguió utilizable;
+- `python_reset` cambió PID y eliminó el namespace anterior;
+- loop infinito con `timeoutSeconds=1` devolvió `deadline_exceeded` y la siguiente ejecución recreó el worker correctamente;
+- `work_close` completó el cleanup;
+- no quedó ningún `python.exe` privado de LoomLCI vivo al finalizar.
+
+Fresh-agent final desde un chat nuevo de ChatGPT normal, sin conocimiento previo del proyecto:
+
+- descubrió **17 capacidades públicas**;
+- usó naturalmente sólo `work_create`, `python_execute`, `python_reset` y `work_close`;
+- identificó **CPython 3.14.8 de 64 bits**;
+- verificó persistencia de `fresh_agent_value = 12345` entre ejecuciones;
+- provocó `RuntimeError`, recibió `status=exception` y confirmó que el estado previo seguía presente;
+- ejecutó `python_reset` y confirmó que la variable anterior dejó de existir;
+- provocó timeout con un loop infinito, recibió `deadline_exceeded` y comprobó que la ejecución posterior funcionaba con namespace nuevo;
+- cerró la WorkSession y confirmó `resource_closed` al intentar reutilizarla.
+
+Ergonomía observada:
+
+- el fresh-agent consideró claras y suficientes las descripciones públicas de persistencia, excepciones, reset y descarte/recreación del worker;
+- el comportamiento real coincidió con el contrato público;
+- única aspereza menor: los tool errors como `deadline_exceeded` llegan a ChatGPT envueltos exteriormente como error de invocación en lugar de como envelope de éxito uniforme. Esto coincide con la semántica MCP ya documentada y no se atribuye al Python Runtime;
+- una primera tentativa inmediatamente posterior al timeout fue bloqueada por la capa de orquestación de OpenAI por estado de seguridad indeterminado; el reintento funcionó y no hubo evidencia de fallo en LoomLCI.
+
+**Conclusión:** E1.5 pasa y el bloque E1 queda cerrado.
 
 ## Tests mínimos de aceptación
 
