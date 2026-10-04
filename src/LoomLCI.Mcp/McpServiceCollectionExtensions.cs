@@ -19,7 +19,10 @@ public static class McpServiceCollectionExtensions
         if (enableWorkPlan)
         {
             serverInstructions +=
-                " Use Work Plan tools only for non-trivial multi-step tasks. They track logical progress but do not execute or monitor real work. " +
+                " Use Work Plan to organize non-trivial work with multiple meaningful phases, dependent actions, or checkpoints; skip it for simple lookups and short single-step tasks. " +
+                "On a newly created WorkSession, the plan starts empty at revision 0, so you may create the initial plan directly with work_plan_update and expectedRevision=0. " +
+                "Keep a concise plan with a few outcome-oriented steps and update it at meaningful milestones, not after every tool call. " +
+                "Work Plan tracks logical progress only and does not execute or monitor real work. " +
                 "Preserve returned Work Plan step ids and revision; on conflict, reread the plan, reconcile, and retry.";
         }
 

@@ -2,7 +2,7 @@
 
 ## Estado
 
-**F1.1 Core y F1.2 MCP implementados/validados; F1.3 preflight + smoke por Secure MCP Tunnel aprobados; fresh-agent pendiente.**
+**F1.1 Core y F1.2 MCP implementados/validados; F1.3 preflight + smoke aprobados, primer fresh-agent dio 0/3 y el ajuste de ergonomía MCP ya está implementado/validado; retest fresh-agent pendiente.**
 
 Este bloque propone una primera capability opcional de Agent Support para mantener una checklist estructurada del trabajo lógico de un agente dentro de una WorkSession. No es un scheduler, no ejecuta pasos y no reemplaza Process, Python, MCP Tasks ni la planificación propia del host.
 
@@ -1099,6 +1099,32 @@ El ajuste mínimo con mejor relación beneficio/riesgo es:
 5. retestar antes de tocar la skill del plugin.
 
 No hay evidencia para rediseñar Work Plan ni agregar nuevas tools en F1.3.
+
+#### Implementación del ajuste de ergonomía ✓
+
+Se aplicó únicamente sobre la superficie MCP:
+
+- ServerInstructions ahora usan un trigger positivo para trabajo con múltiples fases, acciones dependientes o checkpoints;
+- también indican explícitamente omitir Work Plan en lookups simples/tareas single-step;
+- una WorkSession recién creada se documenta como plan vacío en revision 0 y permite inicializar directamente con `work_plan_update(expectedRevision=0)`;
+- se recomienda una checklist breve, outcome-oriented, actualizada por milestones y no después de cada tool call;
+- `work_plan_update` pasó a título visible **Create or update work plan** y su descripción prioriza intención/selección antes del contrato de full replacement;
+- `work_plan_get` aclara que sirve para resumir/reanudar o reconciliar conflict y que no hace falta como ritual de inicialización;
+- la descripción del parámetro `expectedRevision` explicita revision 0 para una WorkSession nueva;
+- Core, CAS, statuses, límites, annotations, tool names/count y skill del plugin permanecieron sin cambios.
+
+Validación:
+
+- Host Release: 0 warnings / 0 errors;
+- Release: Core 84/84, Windows 104/104, Integration 9/9 = **197/197**;
+- Host Debug: 0 warnings / 0 errors;
+- Debug: Core 84/84, Windows 104/104, Integration 9/9 = **197/197**;
+- `git diff --check` limpio;
+- runtime del túnel reconstruido sobre Host Debug actualizado y restaurado a `healthy/ready`.
+
+Nota del harness de tests: `McpStdioTests.GetHostDll` usa Host Debug por defecto incluso cuando la suite corre en Release. Para validar Release contra el binario correcto se apuntó `LOOMLCI_TEST_HOST_DLL` al Host Release explícitamente. No es un fallo de LoomLCI.
+
+El siguiente paso de F1.3 es refrescar nuevamente el catálogo de la app para incorporar las nuevas descriptions/instructions y ejecutar el golden set fresh-agent positivo/negativo.
 
 #### Fase 3 - Control trivial / anti-overplanning
 

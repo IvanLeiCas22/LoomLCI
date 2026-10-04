@@ -4,7 +4,7 @@ Segundo cerebro del proyecto LoomLCI.
 
 ## Estado
 
-Arquitectura v0.1 reconciliada y baseline cerrada. Milestone 1 (Process), Milestone 2 (Filesystem), C1 (Native Process + Job Objects), C2 (ConPTY), D0 (resource lifetime/expiry + `process_release`) y Python Runtime E1 están implementados y validados. Agent Support F1.1 Core + F1.2 MCP también están implementados y validados; próximo paso: F1.3 por Secure MCP Tunnel + fresh-agent.
+Arquitectura v0.1 reconciliada y baseline cerrada. Milestone 1 (Process), Milestone 2 (Filesystem), C1 (Native Process + Job Objects), C2 (ConPTY), D0 (resource lifetime/expiry + `process_release`) y Python Runtime E1 están implementados y validados. Agent Support F1.1 Core + F1.2 MCP también están implementados/validados. F1.3 pasó preflight/smoke; tras un fresh-agent 0/3 se implementó y validó un ajuste de ergonomía MCP. Próximo paso: refresh de app + retest fresh-agent.
 
 ## Notas
 

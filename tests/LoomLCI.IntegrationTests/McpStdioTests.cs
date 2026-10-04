@@ -69,7 +69,11 @@ public sealed class McpStdioTests
             Assert.Contains("Process capabilities", instructions, StringComparison.Ordinal);
             Assert.Contains("opaque values", instructions, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("Work Plan", instructions, StringComparison.Ordinal);
-            Assert.Contains("non-trivial multi-step tasks", instructions, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("multiple meaningful phases", instructions, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("simple lookups", instructions, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("revision 0", instructions, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("meaningful milestones", instructions, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("not after every tool call", instructions, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("on conflict", instructions, StringComparison.OrdinalIgnoreCase);
         }
         finally
@@ -270,7 +274,9 @@ public sealed class McpStdioTests
 
         var getWorkPlan = Assert.Single(tools, tool => tool.Name == "work_plan_get");
         Assert.Equal("Get work plan", getWorkPlan.ProtocolTool.Title);
-        Assert.Contains("logical Work Plan", getWorkPlan.Description, StringComparison.Ordinal);
+        Assert.Contains("resuming or inspecting", getWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("empty plan at revision 0", getWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("do not call this only to initialize", getWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("idle timeout", getWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
         Assert.True(getWorkPlan.ProtocolTool.Annotations?.ReadOnlyHint ?? false);
         Assert.False(getWorkPlan.ProtocolTool.Annotations?.DestructiveHint ?? true);
@@ -285,7 +291,11 @@ public sealed class McpStdioTests
         Assert.Contains("workId", getPlanRequired);
 
         var updateWorkPlan = Assert.Single(tools, tool => tool.Name == "work_plan_update");
-        Assert.Equal("Update work plan", updateWorkPlan.ProtocolTool.Title);
+        Assert.Equal("Create or update work plan", updateWorkPlan.ProtocolTool.Title);
+        Assert.Contains("multiple meaningful phases", updateWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("expectedRevision=0", updateWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("meaningful milestones", updateWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("rather than after every tool call", updateWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("replaces the complete", updateWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("reconcile", updateWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("empty steps array", updateWorkPlan.Description, StringComparison.OrdinalIgnoreCase);

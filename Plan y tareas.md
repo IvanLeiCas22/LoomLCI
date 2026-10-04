@@ -1,6 +1,6 @@
 # Plan y tareas
 
-> Estado: F1.1 Core + F1.2 MCP implementados/validados. Pendiente F1.3: Secure MCP Tunnel + fresh-agent para evaluar uso natural y fricción.
+> Estado: F1.1 Core + F1.2 MCP implementados/validados. F1.3 ya pasó preflight/smoke; el primer fresh-agent dio 0/3 y el ajuste de ergonomía MCP quedó implementado/validado. Pendiente refresh de app + retest fresh-agent positivo/negativo.
 
 ## Distinciones necesarias
 

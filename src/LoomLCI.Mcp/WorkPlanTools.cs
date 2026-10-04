@@ -48,9 +48,9 @@ public sealed class WorkPlanTools
         Idempotent = false,
         OpenWorld = false)]
     [Description(
-        "Returns the current logical Work Plan snapshot for a work session. " +
+        "Reads the current logical Work Plan when resuming or inspecting an existing non-trivial work session, or before reconciling a conflict from work_plan_update. " +
+        "A newly created WorkSession always starts with an empty plan at revision 0, so do not call this only to initialize a new plan; work_plan_update can start it directly with expectedRevision=0. " +
         "The plan tracks agent-visible progress only; it does not execute, observe, or synchronize Process, Python, Filesystem, or other real work. " +
-        "Use this when resuming non-trivial work or before reconciling a conflict from work_plan_update. " +
         "A successful read refreshes the work session idle timeout.")]
     public async Task<CallToolResult> Get(
         [Description("Work session handle returned by work_create.")] string workId,
@@ -65,7 +65,7 @@ public sealed class WorkPlanTools
 
     [McpServerTool(
         Name = "work_plan_update",
-        Title = "Update work plan",
+        Title = "Create or update work plan",
         UseStructuredContent = true,
         OutputSchemaType = typeof(ToolEnvelope<WorkPlanSnapshotDto>),
         ReadOnly = false,
@@ -73,17 +73,18 @@ public sealed class WorkPlanTools
         Idempotent = false,
         OpenWorld = false)]
     [Description(
-        "Atomically replaces the complete logical Work Plan snapshot for a work session. " +
-        "Use expectedRevision from the latest work_plan_get or successful update; on conflict, reread the plan, reconcile, and retry. " +
-        "For a new step omit id or pass null; for an existing step preserve its opaque id exactly. Omitting an existing id removes that step. " +
-        "An empty steps array clears the plan. Multiple active and waiting steps are allowed. " +
+        "Creates or maintains a concise logical Work Plan for non-trivial work with multiple meaningful phases, dependent actions, or checkpoints. " +
+        "On a newly created WorkSession, start the initial plan directly with expectedRevision=0; otherwise use the revision from the latest work_plan_get or successful update. " +
+        "Update the plan at meaningful milestones rather than after every tool call. Atomically replaces the complete Work Plan snapshot. " +
+        "On conflict, reread the plan, reconcile, and retry. For a new step omit id or pass null; for an existing step preserve its opaque id exactly. " +
+        "Omitting an existing id removes that step; an empty steps array clears the plan. Multiple active and waiting steps are allowed. " +
         "This tool only changes logical plan state; it does not execute steps or alter Process, Python, Filesystem, or other resources.")]
     public async Task<CallToolResult> Update(
         [Description("Work session handle returned by work_create.")] string workId,
-        [Description("Revision from the latest observed Work Plan snapshot.")]
+        [Description("Expected Work Plan revision. Use 0 immediately after creating a new WorkSession; otherwise use the latest observed revision.")]
         [Range(0, long.MaxValue)]
         long expectedRevision,
-        [Description("Complete replacement list of zero to 32 logical steps.")]
+        [Description("Complete replacement list of zero to 32 logical steps. Prefer a concise set of outcome-oriented steps.")]
         [MaxLength(32)]
         WorkPlanStepInputDto[] steps,
         CancellationToken cancellationToken = default)
