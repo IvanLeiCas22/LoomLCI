@@ -1,6 +1,6 @@
 # Python Runtime
 
-> Estado: **arquitectura confirmada; vertical slice E1 diseñado, implementación pendiente**. Ver [[Bloque E - Python Runtime]].
+> Estado: **arquitectura confirmada; E1.1 Core implementado y validado, E1.2 worker/IPC pendiente**. Ver [[Bloque E - Python Runtime]].
 
 ## Decisión
 

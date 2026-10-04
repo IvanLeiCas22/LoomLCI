@@ -207,6 +207,28 @@ public sealed class ResourceRegistry : IAsyncDisposable
         return handles;
     }
 
+    public IReadOnlyList<ResourceHandle> GetActiveOwnedHandles(
+        string kind,
+        WorkId ownerWorkId)
+    {
+        var handles = new List<ResourceHandle>();
+
+        foreach (var entry in _entries.Values)
+        {
+            lock (entry.Sync)
+            {
+                if (entry.State == ResourceState.Active &&
+                    entry.OwnerWorkId == ownerWorkId &&
+                    string.Equals(entry.Kind, kind, StringComparison.Ordinal))
+                {
+                    handles.Add(entry.Handle);
+                }
+            }
+        }
+
+        return handles;
+    }
+
     public ValueTask<LoomResult<Unit>> CloseAsync(ResourceHandle handle)
         => TransitionAsync(handle, ResourceState.Closed);
 

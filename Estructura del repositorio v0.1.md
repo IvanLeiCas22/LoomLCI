@@ -1,6 +1,6 @@
 # Estructura del repositorio v0.1
 
-> Estado: **baseline de repositorio adoptada y reconciliada con el árbol real al 2026-10-04**. La separación Core / Windows / MCP / Host y los tres proyectos de tests están implementados. Python Runtime ya tiene diseño E1 confirmado en [[Bloque E - Python Runtime]], pero todavía no existe en el árbol; Agent Support y Computer también siguen diferidos.
+> Estado: **baseline de repositorio adoptada y reconciliada con el árbol real al 2026-10-04**. La separación Core / Windows / MCP / Host y los tres proyectos de tests están implementados. Python Runtime E1.1 ya existe en Core; worker/IPC, Agent Support y Computer siguen pendientes.
 
 ## Criterio
 
@@ -20,6 +20,7 @@ Regla principal:
     │  │  ├─ Lifetime/
     │  │  ├─ Observability/
     │  │  ├─ Process/
+    │  │  ├─ Python/
     │  │  ├─ Resources/
     │  │  └─ Work/
     │  ├─ LoomLCI.Windows/
@@ -35,7 +36,7 @@ Regla principal:
     ├─ *.md
     └─ ...
 
-No existen todavía `runtime/python`, Computer ni AgentSupport. Cuando se implementen, deben respetar esta misma dirección de dependencias; no hace falta crear assemblies separados por capability salvo que aparezca una razón concreta.
+`LoomLCI.Core/Python` ya existe con contratos y capability E1.1. Todavía no existen `runtime/python`, backend Windows de Python, Computer ni AgentSupport. Cuando se implementen, deben respetar esta misma dirección de dependencias; no hace falta crear assemblies separados por capability salvo que aparezca una razón concreta.
 
 ## LoomLCI.Core
 
@@ -47,6 +48,7 @@ Contiene actualmente:
 - Handle/Resource registry;
 - Invocation lifecycle y cancellation composition;
 - capabilities/contratos de Filesystem y Process;
+- contratos y capability Core de Python Runtime E1.1;
 - lifetime/expiry;
 - result/error model;
 - event contracts/bus.
@@ -56,7 +58,7 @@ Diferido:
 - ExecutionContext/Policy explícitos;
 - Work Plan / Agent Support;
 - contratos de Computer;
-- Python Runtime.
+- worker/IPC y backend Windows/MCP de Python Runtime.
 
 No contiene:
 

@@ -2,7 +2,7 @@
 
 ## Estado
 
-**Diseño confirmado; implementación pendiente.**
+**E1.1 (Core) implementado y validado; E1.2 (worker + IPC) pendiente.**
 
 Este bloque define el primer vertical slice de Python Runtime después del cierre de la baseline v0.1. No modifica todavía Computer ni Agent Support.
 
@@ -450,19 +450,34 @@ No crear un assembly `LoomLCI.Python` en E1.
 
 ## Plan de implementación
 
-### E1.1 - Contratos Core
+### E1.1 - Contratos Core ✓
 
-- contratos Python;
+Implementado:
+
+- contratos `PythonExecuteRequest`, resultados/excepción y provider/resource;
 - `PythonCapability`;
-- lookup owned-resource en ResourceRegistry;
-- invariant 0/1 worker;
-- lazy start;
-- busy concurrente;
-- reset;
-- timeout/cancellation composition;
-- eventos básicos.
+- `ResourceRegistry.GetActiveOwnedHandles(kind, ownerWorkId)`;
+- invariant 0/1 worker por WorkSession;
+- lazy start/reuse;
+- exclusión de ejecución delegada al worker con error `busy`;
+- reset idempotente;
+- reset concurrente espera leases activas antes de dispose;
+- timeout/cancellation compuestos por `InvocationRunner`;
+- worker unhealthy/cancelled se descarta;
+- siguiente execute recrea worker;
+- eventos básicos `ResourceCreated/ResourceClosed`;
+- cleanup automático por close/expiry de WorkSession.
 
-Sin Python real.
+Validación E1.1:
+
+- 19 tests nuevos de Core;
+- Core: **58/58**;
+- Windows: **78/78**;
+- Integration MCP: **6/6**;
+- total Debug: **142/142**;
+- total Release: **142/142**.
+
+Todavía no hay Python real: E1.2 incorpora worker + IPC.
 
 ### E1.2 - Worker + IPC
 
