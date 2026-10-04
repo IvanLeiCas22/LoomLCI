@@ -22,6 +22,7 @@ Arquitectura v0.1 reconciliada y baseline cerrada. Milestone 1 (Process), Milest
 - [[Preguntas abiertas]]
 - [[Python Runtime]]
 - [[Bloque E - Python Runtime]]
+- [[Bloque F - Agent Support]]
 - [[Plan y tareas]]
 - [[Programmatic Tool Calling]]
 - [[Integracion con ChatGPT]]
