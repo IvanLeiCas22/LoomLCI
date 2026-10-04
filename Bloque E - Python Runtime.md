@@ -2,7 +2,7 @@
 
 ## Estado
 
-**E1.1 (Core) y E1.2 (worker + IPC) implementados y validados; E1.3 (backend Windows/provider) pendiente.**
+**E1.1 (Core), E1.2 (worker + IPC) y E1.3 (backend Windows/provider) implementados y validados; E1.4 (MCP) pendiente.**
 
 Este bloque define el primer vertical slice de Python Runtime después del cierre de la baseline v0.1. No modifica todavía Computer ni Agent Support.
 
@@ -530,17 +530,51 @@ Validación E1.2:
 - build Release: **0 warnings / 0 errors**;
 - ningún `python.exe` privado queda vivo al finalizar los tests.
 
-E1.2 no implementa todavía `IPythonRuntimeProvider`: la conexión durable Core ↔ Windows, health/cancellation y lifecycle vía Job pertenecen a E1.3.
+E1.2 quedó limitado deliberadamente a worker/protocolo; E1.3 ya conecta esa base con `IPythonRuntimeProvider`, provisioning y lifecycle real vía Job Objects.
 
-### E1.3 - Backend Windows
+### E1.3 - Backend Windows ✓
 
-- resolver runtime privado;
-- iniciar vía `IProcessProvider`;
-- esperar handshake;
-- Job cleanup;
-- worker health;
-- cancellation/timeout mata árbol;
-- cwd inicial.
+Implementado:
+
+- `PythonRuntimeAssets`: `worker.py` y `runtime.json` embebidos en `LoomLCI.Windows`, sin dependencia del repo/cwd del Host;
+- `PythonRuntimeProvisioner`: auto-provisioning on-demand de CPython privado;
+- descarga acotada a 64 MiB, SHA-256 fijado, staging + publicación por rename y cleanup ante error/cancelación;
+- marker de instalación y validación de layout embeddable (`python.exe` + `pythonXY._pth`);
+- worker materializado por hash bajo `%LOCALAPPDATA%\LoomLCI\assets\python`;
+- `WindowsPythonRuntimeProvider` reutilizando `IProcessProvider`;
+- startup deadline interno de 10 s;
+- pipe creado antes del process start, conexión + handshake versionado, PID y Python exactos;
+- cwd inicial desde `WorkSession.BaseDirectory` y perfil del usuario como fallback;
+- variables Python externas relevantes removidas del environment;
+- `WindowsPythonWorkerResource` dueño de process + pipe;
+- health basado en estado interno + root process + conexión del pipe;
+- `busy` inmediato para execute concurrente;
+- cancelación/fallo IPC invalidan el worker y disponen el `IProcessResource`;
+- Job Object mata root + descendientes en timeout, reset, crash, `work_close` y dispose;
+- disposer idempotente/no-throw;
+- provider/capability registrados en Host, todavía sin tools MCP públicas.
+
+Validación E1.3:
+
+- 12 tests Windows nuevos;
+- provisioning falso verificado, reuse y concurrencia con una sola descarga;
+- hash incorrecto y cancelación limpian staging;
+- ejecución real desde cwd ajeno al repo;
+- persistencia y CPython 3.14.8 exacto;
+- `os._exit` invalida y la siguiente llamada recrea con PID nuevo;
+- timeout de loop infinito mata worker + subprocess;
+- `work_close` mata worker + subprocess, incluso con ejecución activa;
+- reset cambia PID y limpia namespace;
+- `busy` real bajo ejecución concurrente;
+- Core: **58/58**;
+- Windows: **103/103**;
+- Integration MCP existente: **6/6**;
+- total Debug: **167/167**;
+- total Release: **167/167**;
+- build Release: **0 warnings / 0 errors**;
+- ningún `python.exe` privado queda vivo tras la suite.
+
+E1.3 no agrega todavía superficie MCP; eso pertenece a E1.4.
 
 ### E1.4 - MCP
 

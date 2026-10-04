@@ -2,7 +2,7 @@
 
 Fuente versionada del worker persistente de Python Runtime.
 
-E1.2 define únicamente el worker y su protocolo privado. El provisioning/resolver del runtime y la integración con `IPythonRuntimeProvider` pertenecen a E1.3.
+E1.2 define el worker y su protocolo privado. E1.3 embebe estos assets en `LoomLCI.Windows`, auto-provisiona el CPython privado y conecta el worker con `IPythonRuntimeProvider`/Job Objects. La superficie MCP pública pertenece a E1.4.
 
 Runtime fijado:
 

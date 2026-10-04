@@ -11,6 +11,13 @@
     </PackageReference>
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\runtime\python\worker.py"
+                      LogicalName="LoomLCI.Python.worker.py" />
+    <EmbeddedResource Include="..\..\runtime\python\runtime.json"
+                      LogicalName="LoomLCI.Python.runtime.json" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

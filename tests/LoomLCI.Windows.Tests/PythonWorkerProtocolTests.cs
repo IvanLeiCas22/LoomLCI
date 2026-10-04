@@ -345,10 +345,18 @@ public sealed class PythonWorkerProtocolTests
 
                 var connection = pipe.WaitForConnectionAsync(startup.Token);
 
+                var provisioned =
+                    await new PythonRuntimeProvisioner()
+                        .EnsureAsync(startup.Token);
+                Assert.True(
+                    provisioned.IsSuccess,
+                    provisioned.Error?.Message);
+                var installation = provisioned.Value!;
+
                 var provider = new WindowsProcessProvider();
                 var started = await provider.StartAsync(
                     new ProcessLaunchSpec(
-                        PythonPath(),
+                        installation.PythonExecutablePath,
                         [
                             "-I",
                             "-B",
@@ -359,11 +367,11 @@ public sealed class PythonWorkerProtocolTests
                             "faulthandler",
                             "-X",
                             "thread_inherit_context=1",
-                            WorkerScriptPath(),
+                            installation.WorkerScriptPath,
                             "--pipe-name",
                             pipeName
                         ],
-                        workingDirectory ?? RepositoryRoot(),
+                        workingDirectory ?? Environment.CurrentDirectory,
                         new Dictionary<string, string?>(),
                         ProcessIoMode.Pipes,
                         null,
@@ -451,52 +459,6 @@ public sealed class PythonWorkerProtocolTests
             await Process.DisposeAsync();
         }
 
-        private static string PythonPath()
-        {
-            var path = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "LoomLCI",
-                "runtimes",
-                "python",
-                "3.14.8-amd64",
-                "python.exe");
-
-            Assert.True(
-                File.Exists(path),
-                $"Private CPython 3.14.8 runtime was not found at '{path}'.");
-
-            return path;
-        }
-
-        private static string WorkerScriptPath()
-        {
-            var path = Path.Combine(
-                RepositoryRoot(),
-                "runtime",
-                "python",
-                "worker.py");
-
-            Assert.True(File.Exists(path));
-            return path;
-        }
-
-        private static string RepositoryRoot()
-        {
-            var current = new DirectoryInfo(AppContext.BaseDirectory);
-
-            while (current is not null)
-            {
-                if (File.Exists(Path.Combine(current.FullName, "LoomLCI.slnx")))
-                {
-                    return current.FullName;
-                }
-
-                current = current.Parent;
-            }
-
-            throw new InvalidOperationException(
-                "Could not locate the LoomLCI repository root.");
-        }
     }
 
     private sealed class FragmentedReadStream(

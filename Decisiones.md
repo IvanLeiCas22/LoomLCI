@@ -17,4 +17,6 @@
 - Python Runtime usará un CPython privado/versionado por LoomLCI, no el Python del PATH/usuario; E1 fija CPython 3.14.8 x64 embeddable.
 - Python Runtime tendrá un único worker lazy y session-owned por WorkSession; `workId` será suficiente como identidad pública y no se expondrá `PythonHandle` en E1.
 - El IPC Python ↔ Loom usará Named Pipe privado/versionado separado de stdout/stderr; el backend Windows reutilizará `IProcessProvider`/Job Objects para lifecycle y cleanup.
+- `worker.py` y `runtime.json` se embeben en `LoomLCI.Windows`; el Host no dependerá del repo ni de su cwd para localizar assets de Python.
+- El CPython privado se auto-provisionará on-demand bajo `%LOCALAPPDATA%\LoomLCI`, con descarga acotada, SHA-256 fijado, staging y publicación por rename; los tests del provisioner usarán HTTP/ZIP falsos en vez de Internet.
 - E1 de Python será stdlib-only y textual; PyAutoGUI, imágenes, paquetes de terceros y `loom.*` quedan diferidos.

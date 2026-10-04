@@ -1,6 +1,6 @@
 # Python Runtime
 
-> Estado: **arquitectura confirmada; E1.1 Core y E1.2 worker/IPC implementados y validados, E1.3 backend Windows/provider pendiente**. Ver [[Bloque E - Python Runtime]].
+> Estado: **arquitectura confirmada; E1.1 Core, E1.2 worker/IPC y E1.3 backend Windows/provider implementados y validados; E1.4 MCP pendiente**. Ver [[Bloque E - Python Runtime]].
 
 ## Decisión
 

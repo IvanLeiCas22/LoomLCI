@@ -1,6 +1,6 @@
 # Estructura del repositorio v0.1
 
-> Estado: **baseline de repositorio adoptada y reconciliada con el árbol real al 2026-10-04**. La separación Core / Windows / MCP / Host y los tres proyectos de tests están implementados. Python Runtime E1.1 existe en Core y E1.2 agrega worker/protocolo en Windows + `runtime/python`; backend/provider, Agent Support y Computer siguen pendientes.
+> Estado: **baseline de repositorio adoptada y reconciliada con el árbol real al 2026-10-04**. La separación Core / Windows / MCP / Host y los tres proyectos de tests están implementados. Python Runtime E1.1–E1.3 ya cubre Core, worker/protocolo, provisioning y backend/provider Windows; adapter MCP, Agent Support y Computer siguen pendientes.
 
 ## Criterio
 
@@ -42,7 +42,7 @@ Regla principal:
     ├─ *.md
     └─ ...
 
-`LoomLCI.Core/Python` contiene contratos/capability E1.1. E1.2 agrega `LoomLCI.Windows/Python/PythonWorkerProtocol.cs` y `runtime/python` con el worker y metadata del CPython fijado. Todavía no existen el provider Windows que conecte ambos, Computer ni AgentSupport. No hace falta crear assemblies separados por capability salvo que aparezca una razón concreta.
+`LoomLCI.Core/Python` contiene contratos/capability E1.1. `LoomLCI.Windows/Python` contiene protocolo E1.2 y, desde E1.3, assets/provisioner/provider/resource que conectan Core con el worker privado. `runtime/python` conserva las fuentes versionadas del worker y manifiesto. Todavía no existe el adapter MCP público de Python, Computer ni AgentSupport.
 
 ## LoomLCI.Core
 
@@ -64,7 +64,7 @@ Diferido:
 - ExecutionContext/Policy explícitos;
 - Work Plan / Agent Support;
 - contratos de Computer;
-- provider/backend Windows integrado y MCP público de Python Runtime.
+- adapter MCP público de Python Runtime.
 
 No contiene:
 
@@ -93,9 +93,10 @@ Incluye hoy:
 - Job Objects;
 - ConPTY;
 - filesystem Windows semantics;
-- protocolo/framing y Named Pipe privado de Python Runtime E1.2.
+- protocolo/framing y Named Pipe privado de Python Runtime E1.2;
+- assets embebidos, auto-provisioning privado, provider y worker resource de Python Runtime E1.3.
 
-El provider Windows que inicia/conecta el worker Python queda para E1.3.
+El Host registra `IPythonRuntimeProvider`/`PythonCapability`, pero la superficie MCP pública queda para E1.4.
 
 Computer, UI Automation, Windows.Graphics.Capture, SendInput y una abstracción formal HostFullTrustExecutionContext siguen diferidos.
 
