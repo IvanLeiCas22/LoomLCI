@@ -24,7 +24,8 @@ Preguntas deliberadamente diferidas:
 
 ## Agent Support
 
-- Nombre público y schema del Work Plan opcional.
+- F1.1 Core implementado/validado: estado Work Plan dentro de WorkSession, revision/CAS, límites y lifecycle.
+- Nombre público y schema MCP final del Work Plan opcional.
 - Evaluar más adelante si hacen falta dependencias explícitas/DAG; no incluirlas en v0.1 sin evidencia.
 - Política de exposición según host/adaptador.
 

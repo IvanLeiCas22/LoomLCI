@@ -1,6 +1,6 @@
 # Plan y tareas
 
-> Estado: modelo concurrente confirmado para v0.1; nombres públicos y schema final pendientes.
+> Estado: modelo concurrente confirmado; F1.1 Core implementado y validado. Exposición/nombres/schema MCP F1.2 pendientes.
 
 ## Distinciones necesarias
 
@@ -64,7 +64,7 @@ Debe poder activarse/desactivarse por adapter/perfil:
 - ChatGPT base: probablemente activado, porque aporta una capacidad que el host no ofrece de forma equivalente.
 - Codex / Claude Code u otros harnesses con planificación propia: desactivado para no duplicar herramientas.
 
-La implementación interna puede usar el Handle Registry de Loom. El formato exacto de la tool y la política de persistencia se decide al diseñar la interfaz MCP.
+La implementación F1.1 mantiene el Work Plan directamente dentro de WorkSession y no usa Resource Registry. El formato exacto de la tool y la política de exposición se cierran en F1.2.
 
 ## Fuentes
 

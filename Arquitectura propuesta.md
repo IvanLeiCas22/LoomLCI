@@ -1,6 +1,6 @@
 # Arquitectura base v0.1
 
-> Estado: **confirmada como baseline y reconciliada con la implementación al 2026-10-04**. Process, Filesystem, Job Objects/ConPTY, lifecycle D0 y Python Runtime E1 están implementados y validados end-to-end, incluido Secure MCP Tunnel + fresh-agent. Agent Support y Computer siguen pendientes.
+> Estado: **confirmada como baseline y reconciliada con la implementación al 2026-10-04**. Process, Filesystem, Job Objects/ConPTY, lifecycle D0 y Python Runtime E1 están implementados y validados end-to-end. Agent Support F1.1 Core está implementado y validado; F1.2/F1.3 y Computer siguen pendientes.
 
 ## Principios
 1. LoomLCI es un runtime local, no un agente.
@@ -23,6 +23,7 @@ Implementado:
 - WorkSession e Invocation lifecycle;
 - Cancellation;
 - Filesystem y Process contracts/capabilities;
+- Work Plan / Agent Support Core F1.1;
 - lifetime/expiry;
 - event bus/observability básica.
 
@@ -31,7 +32,7 @@ Diferido:
 - Capability registry explícito;
 - ExecutionContext/Policy;
 - Known Locations;
-- Work Plan / Agent Support.
+- exposición MCP/evaluación final de Agent Support F1.2/F1.3.
 
 No contiene planificación, prompts, memoria del agente ni lógica específica de un proveedor LLM.
 

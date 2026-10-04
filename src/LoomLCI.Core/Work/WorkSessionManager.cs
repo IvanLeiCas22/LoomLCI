@@ -13,7 +13,7 @@ public enum WorkSessionState
     Expired
 }
 
-public sealed class WorkSession
+public sealed partial class WorkSession
 {
     private readonly object _stateGate = new();
     private readonly CancellationTokenSource _lifetime = new();
@@ -164,6 +164,7 @@ public sealed class WorkSession
             _state = WorkSessionState.Closing;
             _closingTarget = terminalState;
             _stateChangedAt = now;
+            ClearWorkPlanUnsafe();
             return true;
         }
     }
@@ -182,6 +183,7 @@ public sealed class WorkSession
             _state = WorkSessionState.Closing;
             _closingTarget = WorkSessionState.Expired;
             _stateChangedAt = now;
+            ClearWorkPlanUnsafe();
             return true;
         }
     }

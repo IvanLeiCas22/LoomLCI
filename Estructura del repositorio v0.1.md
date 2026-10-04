@@ -1,6 +1,6 @@
 # Estructura del repositorio v0.1
 
-> Estado: **baseline de repositorio adoptada y reconciliada con el árbol real al 2026-10-04**. La separación Core / Windows / MCP / Host y los tres proyectos de tests están implementados. Python Runtime E1 está cerrado y validado end-to-end; Agent Support y Computer siguen pendientes.
+> Estado: **baseline de repositorio adoptada y reconciliada con el árbol real al 2026-10-04**. La separación Core / Windows / MCP / Host y los tres proyectos de tests están implementados. Python Runtime E1 está cerrado y Agent Support F1.1 Core está implementado/validado; F1.2/F1.3 y Computer siguen pendientes.
 
 ## Criterio
 
@@ -15,6 +15,7 @@ Regla principal:
     LoomLCI/
     ├─ src/
     │  ├─ LoomLCI.Core/
+    │  │  ├─ AgentSupport/
     │  │  ├─ Filesystem/
     │  │  ├─ Invocations/
     │  │  ├─ Lifetime/
@@ -42,7 +43,7 @@ Regla principal:
     ├─ *.md
     └─ ...
 
-`LoomLCI.Core/Python` contiene contratos/capability E1.1. `LoomLCI.Windows/Python` contiene protocolo E1.2 y assets/provisioner/provider/resource E1.3. `LoomLCI.Mcp/PythonTools.cs` expone `python_execute`/`python_reset` desde E1.4. `runtime/python` conserva las fuentes versionadas del worker y manifiesto. E1.5 validó el conjunto por túnel/fresh-agent; Computer y AgentSupport siguen pendientes.
+`LoomLCI.Core/Python` contiene contratos/capability E1.1. `LoomLCI.Windows/Python` contiene protocolo E1.2 y assets/provisioner/provider/resource E1.3. `LoomLCI.Mcp/PythonTools.cs` expone `python_execute`/`python_reset` desde E1.4. `runtime/python` conserva las fuentes versionadas del worker y manifiesto. `LoomLCI.Core/AgentSupport` contiene contratos/capability Work Plan F1.1 y `WorkSession.WorkPlan.cs` conserva su estado session-local; la exposición MCP F1.2 y Computer siguen pendientes.
 
 ## LoomLCI.Core
 
@@ -55,6 +56,7 @@ Contiene actualmente:
 - Invocation lifecycle y cancellation composition;
 - capabilities/contratos de Filesystem y Process;
 - contratos y capability Core de Python Runtime E1.1;
+- contratos/capability Work Plan de Agent Support F1.1;
 - lifetime/expiry;
 - result/error model;
 - event contracts/bus.
@@ -62,7 +64,7 @@ Contiene actualmente:
 Diferido:
 
 - ExecutionContext/Policy explícitos;
-- Work Plan / Agent Support;
+- exposición MCP/evaluación de Agent Support F1.2/F1.3;
 - contratos de Computer.
 
 No contiene:

@@ -31,7 +31,10 @@ public static class LoomErrors
 {
     public static LoomError InvalidArgument(string message) => new("invalid_argument", message, false);
     public static LoomError NotFound(string message) => new("not_found", message, false);
-    public static LoomError Conflict(string message) => new("conflict", message, false);
+    public static LoomError Conflict(
+        string message,
+        IReadOnlyDictionary<string, object?>? details = null)
+        => new("conflict", message, false, details);
     public static LoomError AccessDenied(string message) => new("access_denied", message, false);
     public static LoomError Unsupported(string message) => new("unsupported", message, false);
     public static LoomError ResourceClosed(string handle) => new("resource_closed", $"Resource '{handle}' is closed.", false);

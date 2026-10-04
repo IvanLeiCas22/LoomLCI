@@ -14,6 +14,8 @@
 - LoomLCI debe funcionar correctamente con direct tool calling; si el harness superior soporta PTC, debe poder componer las mismas tools sin cambios en el Core.
 - El Work Plan permitirá múltiples pasos activos o en espera al mismo tiempo; no se impondrá la restricción de un único `in_progress`.
 - El estado lógico del Work Plan estará separado del lifecycle real de procesos, invocaciones y otros recursos; en v0.1 no habrá acoplamiento automático entre steps y resource handles.
+- Agent Support F1.1 mantiene un único Work Plan efímero directamente dentro de cada WorkSession; no usa Resource Registry, se descarta al comenzar close/expiry y sus snapshots se actualizan atómicamente con `expectedRevision` para evitar lost updates.
+- Los pasos del Work Plan usan IDs opacos `step_*`, permiten múltiples estados `active`/`waiting`, y F1.1 limita el plan a 32 pasos de una sola línea y 512 Unicode scalar values por texto.
 - Python Runtime usará un CPython privado/versionado por LoomLCI, no el Python del PATH/usuario; E1 fija CPython 3.14.8 x64 embeddable.
 - Python Runtime tendrá un único worker lazy y session-owned por WorkSession; `workId` será suficiente como identidad pública y no se expondrá `PythonHandle` en E1.
 - El IPC Python ↔ Loom usará Named Pipe privado/versionado separado de stdout/stderr; el backend Windows reutilizará `IProcessProvider`/Job Objects para lifecycle y cleanup.

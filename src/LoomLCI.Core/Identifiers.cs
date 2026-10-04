@@ -31,3 +31,9 @@ public readonly record struct ProcessHandle(string Value)
     public ResourceHandle AsResourceHandle() => new(Value);
     public override string ToString() => Value;
 }
+
+public readonly record struct WorkPlanStepId(string Value)
+{
+    internal static WorkPlanStepId Create() => new(IdentifierFactory.Create("step"));
+    public override string ToString() => Value;
+}

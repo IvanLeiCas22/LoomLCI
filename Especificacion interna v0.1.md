@@ -11,12 +11,13 @@ Implementado actualmente:
 - Process con pipes, Job Objects, ConPTY, retención post-exit y explicit release;
 - Filesystem estructurado;
 - Python Runtime E1 cerrado: contratos Core, worker persistente, provisioning privado, backend Windows/provider, tools MCP públicas `python_execute`/`python_reset` y validación final por Secure MCP Tunnel + fresh-agent;
+- Agent Support F1.1 Core: Work Plan efímero por WorkSession, snapshots read-only, revision/CAS, lifecycle close/expiry, validaciones y eventos;
 - adapter MCP por STDIO y acceso de ChatGPT normal mediante Secure MCP Tunnel externo.
 
 Diferido; **no debe interpretarse como implementado hoy**:
 
 - abstracción explícita `ExecutionContext` / Policy;
-- Work Plan / Agent Support;
+- Agent Support F1.2/F1.3: exposición MCP opcional y validación end-to-end;
 - Computer/UI Automation/captura;
 - Known Locations;
 - Streamable HTTP y audit durable.
@@ -63,12 +64,12 @@ Implementado hoy:
 
 Estado asociado a WorkSession:
 
-- Python worker lazy/session-owned, implementado en E1 cuando la sesión lo necesita.
+- Python worker lazy/session-owned, implementado en E1 cuando la sesión lo necesita;
+- Work Plan efímero opcional, implementado en Agent Support F1.1 con revision/CAS y cleanup por close/expiry.
 
 Diseño diferido para futuras capabilities:
 
-- ExecutionContext asociado;
-- Work Plan opcional.
+- ExecutionContext asociado.
 
 No contiene conversación, prompts ni memoria semántica del agente.
 

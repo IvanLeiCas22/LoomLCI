@@ -2,7 +2,7 @@
 
 ## Estado
 
-**Diseño general y análisis específico F1.1 completados; implementación F1.1 pendiente de aprobación.**
+**F1.1 Core implementado y validado; F1.2 (MCP + exposición opcional) pendiente.**
 
 Este bloque propone una primera capability opcional de Agent Support para mantener una checklist estructurada del trabajo lógico de un agente dentro de una WorkSession. No es un scheduler, no ejecuta pasos y no reemplaza Process, Python, MCP Tasks ni la planificación propia del host.
 
@@ -479,6 +479,37 @@ Mínimo recomendado:
 20. usar Work Plan no aumenta `ResourceRegistry.Count`.
 
 No considero necesario un test probabilístico de race update-vs-close: la propiedad queda determinada por usar el mismo `_stateGate`; los tests de close, CAS concurrente y lifecycle cubren las fronteras observables.
+
+#### Implementación y validación F1.1 ✓
+
+Implementado:
+
+- contratos `WorkPlanStepStatus`, `WorkPlanStep`, `WorkPlanSnapshot`, `WorkPlanStepInput` y `WorkPlanUpdateRequest`;
+- `WorkPlanStepId` opaco `step_*` generado por Loom;
+- estado del plan dentro de `WorkSession` mediante `partial WorkSession` + `WorkSession.WorkPlan.cs`;
+- snapshots read-only sin filtrar arrays mutables;
+- CAS lógico por `expectedRevision` bajo `_stateGate`;
+- `conflict` con `currentRevision` en `details`;
+- cleanup al comenzar close/expiry;
+- límites de 32 pasos y 512 Unicode scalar values;
+- Unicode estricto, texto single-line y normalización por `Trim()`;
+- múltiples `active` / `waiting`;
+- `WorkPlanUpdated` acotado sin textos/IDs;
+- `WorkPlanCapability.GetAsync` / `UpdateAsync` sobre `InvocationRunner`;
+- sin entradas nuevas en `ResourceRegistry` y sin nuevas dependencias NuGet.
+
+Validación:
+
+- Core Debug: **84/84**;
+- Core Release: **84/84**;
+- solución completa Debug: **195/195**;
+- solución completa Release: **195/195**;
+- Windows permanece **104/104**;
+- Integration MCP permanece **7/7**;
+- **0 warnings** en la validación final;
+- `git diff --check` limpio antes de documentar/cerrar F1.1.
+
+Los nuevos casos cubren revisión/CAS concurrente, IDs, reorder, límites, emoji/surrogates, Unicode inválido, snapshots no mutables, close/expiry, activity refresh, eventos acotados y ausencia de recursos adicionales.
 
 ### F1.2 - MCP + exposición opcional
 
