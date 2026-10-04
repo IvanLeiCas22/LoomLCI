@@ -1,0 +1,15 @@
+CreateJobObject
+SetInformationJobObject
+TerminateJobObject
+CreateProcess
+InitializeProcThreadAttributeList
+UpdateProcThreadAttribute
+DeleteProcThreadAttributeList
+GetExitCodeProcess
+GetEnvironmentStringsW
+FreeEnvironmentStrings
+STARTUPINFOEXW
+JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+JOB_OBJECT_LIMIT
+PROCESS_CREATION_FLAGS
+STARTUPINFOW_FLAGS

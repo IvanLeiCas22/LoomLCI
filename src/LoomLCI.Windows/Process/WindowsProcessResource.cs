@@ -1,6 +1,12 @@
-using System.Diagnostics;
+#pragma warning disable CA1416 // LoomLCI.Windows is the Windows-specific platform backend.
+
+using System.ComponentModel;
+using System.IO.Pipes;
+using System.Text;
+using Microsoft.Win32.SafeHandles;
 using LoomLCI.Core;
 using LoomLCI.Core.Processes;
+using Windows.Win32;
 
 namespace LoomLCI.Windows.Processes;
 
@@ -8,8 +14,15 @@ internal sealed class WindowsProcessResource : IProcessResource
 {
     private const long StreamSpoolMaxBytes = 64L * 1024 * 1024;
     private const long StreamSpoolMaxChars = StreamSpoolMaxBytes / sizeof(char);
+    private const uint ForcedTerminationExitCode = 1;
+    private const uint StillActiveExitCode = 259;
 
-    private readonly global::System.Diagnostics.Process _process;
+    private readonly SafeFileHandle _processHandle;
+    private readonly WindowsJobObject _job;
+    private readonly StreamWriter _stdin;
+    private readonly StreamReader _stdoutReader;
+    private readonly StreamReader _stderrReader;
+    private readonly ProcessWaitHandle _processWaitHandle;
     private readonly ProcessOutputStore _stdout;
     private readonly ProcessOutputStore _stderr;
     private readonly CancellationTokenSource _lifetime = new();
@@ -24,11 +37,38 @@ internal sealed class WindowsProcessResource : IProcessResource
     private DateTimeOffset? _exitedAt;
     private bool _disposed;
 
-    public WindowsProcessResource(global::System.Diagnostics.Process process)
+    public WindowsProcessResource(
+        int processId,
+        SafeFileHandle processHandle,
+        WindowsJobObject job,
+        AnonymousPipeServerStream stdin,
+        AnonymousPipeServerStream stdout,
+        AnonymousPipeServerStream stderr)
     {
-        _process = process;
-        ProcessId = process.Id;
+        ProcessId = processId;
         StartedAt = DateTimeOffset.UtcNow;
+
+        _processHandle = processHandle;
+        _job = job;
+
+        _stdin = new StreamWriter(
+            stdin,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            bufferSize: 4096,
+            leaveOpen: false);
+        _stdoutReader = new StreamReader(
+            stdout,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            detectEncodingFromByteOrderMarks: true,
+            bufferSize: 4096,
+            leaveOpen: false);
+        _stderrReader = new StreamReader(
+            stderr,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            detectEncodingFromByteOrderMarks: true,
+            bufferSize: 4096,
+            leaveOpen: false);
+        _processWaitHandle = new ProcessWaitHandle(processHandle);
 
         _stdout = new ProcessOutputStore(StreamSpoolMaxChars);
         try
@@ -38,11 +78,15 @@ internal sealed class WindowsProcessResource : IProcessResource
         catch
         {
             _stdout.Dispose();
+            _stdin.Dispose();
+            _stdoutReader.Dispose();
+            _stderrReader.Dispose();
+            _processWaitHandle.Dispose();
             throw;
         }
 
-        _stdoutPump = PumpAsync(process.StandardOutput, _stdout, _lifetime.Token);
-        _stderrPump = PumpAsync(process.StandardError, _stderr, _lifetime.Token);
+        _stdoutPump = PumpAsync(_stdoutReader, _stdout, _lifetime.Token);
+        _stderrPump = PumpAsync(_stderrReader, _stderr, _lifetime.Token);
         _exitObserver = ObserveExitAsync();
     }
 
@@ -65,7 +109,11 @@ internal sealed class WindowsProcessResource : IProcessResource
         }
     }
 
-    public ProcessOutputReadResult Read(ProcessHandle handle, long stdoutCursor, long stderrCursor, int maxChars)
+    public ProcessOutputReadResult Read(
+        ProcessHandle handle,
+        long stdoutCursor,
+        long stderrCursor,
+        int maxChars)
     {
         var stdoutBudget = (maxChars + 1) / 2;
         var stderrBudget = maxChars / 2;
@@ -87,35 +135,47 @@ internal sealed class WindowsProcessResource : IProcessResource
             stderr = Merge(stderr, extra);
         }
 
-        return new ProcessOutputReadResult(Snapshot(handle), stdout, stderr);
+        return new ProcessOutputReadResult(
+            Snapshot(handle),
+            stdout,
+            stderr);
     }
 
-    public async Task<LoomResult<Unit>> WriteAsync(string text, CancellationToken cancellationToken)
+    public async Task<LoomResult<Unit>> WriteAsync(
+        string text,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrEmpty(text))
         {
             return LoomResult<Unit>.Success(Unit.Value);
         }
 
-        if (!IsRunning())
+        if (!IsRootRunning())
         {
-            return LoomResult<Unit>.Failure(LoomErrors.Conflict("Cannot write stdin because the process is not running."));
+            return LoomResult<Unit>.Failure(
+                LoomErrors.Conflict(
+                    "Cannot write stdin because the process is not running."));
         }
 
         await _stdinGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await _process.StandardInput.WriteAsync(text.AsMemory(), cancellationToken).ConfigureAwait(false);
-            await _process.StandardInput.FlushAsync(cancellationToken).ConfigureAwait(false);
+            await _stdin.WriteAsync(text.AsMemory(), cancellationToken)
+                .ConfigureAwait(false);
+            await _stdin.FlushAsync(cancellationToken).ConfigureAwait(false);
             return LoomResult<Unit>.Success(Unit.Value);
         }
         catch (IOException ex)
         {
-            return LoomResult<Unit>.Failure(LoomErrors.ExecutionFailed($"Could not write process stdin: {ex.Message}"));
+            return LoomResult<Unit>.Failure(
+                LoomErrors.ExecutionFailed(
+                    $"Could not write process stdin: {ex.Message}"));
         }
-        catch (InvalidOperationException ex)
+        catch (ObjectDisposedException ex)
         {
-            return LoomResult<Unit>.Failure(LoomErrors.ExecutionFailed($"Could not write process stdin: {ex.Message}"));
+            return LoomResult<Unit>.Failure(
+                LoomErrors.ExecutionFailed(
+                    $"Could not write process stdin: {ex.Message}"));
         }
         finally
         {
@@ -123,46 +183,59 @@ internal sealed class WindowsProcessResource : IProcessResource
         }
     }
 
-    public async Task<LoomResult<Unit>> TerminateAsync(CancellationToken cancellationToken)
+    public async Task<LoomResult<Unit>> TerminateAsync(
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        ManagedProcessState previousState;
+
         lock (_stateGate)
         {
-            if (_state is ManagedProcessState.Exited or ManagedProcessState.Terminated)
+            previousState = _state;
+
+            if (_state == ManagedProcessState.Terminated)
             {
                 return LoomResult<Unit>.Success(Unit.Value);
             }
 
-            _state = ManagedProcessState.Terminating;
+            if (_state != ManagedProcessState.Exited)
+            {
+                _state = ManagedProcessState.Terminating;
+            }
         }
 
         try
         {
-            _process.Kill(entireProcessTree: true);
-            await _process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+            _job.Terminate(ForcedTerminationExitCode);
 
-            lock (_stateGate)
+            if (previousState != ManagedProcessState.Exited)
             {
-                _state = ManagedProcessState.Terminated;
-                _exitCode = SafeExitCode();
-                _exitedAt ??= DateTimeOffset.UtcNow;
+                await _exitObserver.ConfigureAwait(false);
+
+                lock (_stateGate)
+                {
+                    _state = ManagedProcessState.Terminated;
+                    _exitCode ??= SafeExitCode();
+                    _exitedAt ??= DateTimeOffset.UtcNow;
+                }
             }
 
             return LoomResult<Unit>.Success(Unit.Value);
         }
-        catch (InvalidOperationException)
+        catch (Win32Exception ex)
         {
             lock (_stateGate)
             {
-                _state = ManagedProcessState.Exited;
-                _exitCode = SafeExitCode();
-                _exitedAt ??= DateTimeOffset.UtcNow;
+                if (_state == ManagedProcessState.Terminating)
+                {
+                    _state = previousState;
+                }
             }
 
-            return LoomResult<Unit>.Success(Unit.Value);
-        }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or NotSupportedException)
-        {
-            return LoomResult<Unit>.Failure(LoomErrors.ExecutionFailed($"Could not terminate process tree: {ex.Message}"));
+            return LoomResult<Unit>.Failure(
+                LoomErrors.ExecutionFailed(
+                    $"Could not terminate process tree: {ex.Message}"));
         }
     }
 
@@ -174,38 +247,59 @@ internal sealed class WindowsProcessResource : IProcessResource
             {
                 return;
             }
+
             _disposed = true;
         }
 
-        if (IsRunning())
+        try
         {
-            try
-            {
-                _process.Kill(entireProcessTree: true);
-                await _process.WaitForExitAsync().ConfigureAwait(false);
-            }
-            catch (InvalidOperationException)
-            {
-            }
-            catch (System.ComponentModel.Win32Exception)
-            {
-            }
+            _stdin.Dispose();
+        }
+        catch (IOException)
+        {
+        }
+
+        try
+        {
+            _job.Terminate(ForcedTerminationExitCode);
+        }
+        catch (Win32Exception)
+        {
+        }
+        finally
+        {
+            _job.Dispose();
+        }
+
+        try
+        {
+            await _exitObserver.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
         }
 
         _lifetime.Cancel();
 
         try
         {
-            await Task.WhenAll(_stdoutPump, _stderrPump, _exitObserver).ConfigureAwait(false);
+            await Task.WhenAll(_stdoutPump, _stderrPump)
+                .ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
         }
+        catch (ObjectDisposedException)
+        {
+        }
         finally
         {
+            _stdoutReader.Dispose();
+            _stderrReader.Dispose();
+            _processWaitHandle.Dispose();
+            _processHandle.Dispose();
             _stdout.Dispose();
             _stderr.Dispose();
-            _process.Dispose();
             _stdinGate.Dispose();
             _lifetime.Dispose();
         }
@@ -215,13 +309,16 @@ internal sealed class WindowsProcessResource : IProcessResource
     {
         try
         {
-            await _process.WaitForExitAsync(_lifetime.Token).ConfigureAwait(false);
+            await WaitAsync(_processWaitHandle, _lifetime.Token)
+                .ConfigureAwait(false);
+
             lock (_stateGate)
             {
                 if (_state != ManagedProcessState.Terminating)
                 {
                     _state = ManagedProcessState.Exited;
                 }
+
                 _exitCode = SafeExitCode();
                 _exitedAt = DateTimeOffset.UtcNow;
             }
@@ -231,23 +328,68 @@ internal sealed class WindowsProcessResource : IProcessResource
         }
     }
 
-    private bool IsRunning()
+    private bool IsRootRunning()
     {
         lock (_stateGate)
         {
-            return _state is ManagedProcessState.Running or ManagedProcessState.Starting;
+            return _state is
+                ManagedProcessState.Running or
+                ManagedProcessState.Starting;
         }
     }
 
     private int? SafeExitCode()
     {
-        try
-        {
-            return _process.HasExited ? _process.ExitCode : null;
-        }
-        catch (InvalidOperationException)
+        if (!PInvoke.GetExitCodeProcess(_processHandle, out var exitCode) ||
+            exitCode == StillActiveExitCode)
         {
             return null;
+        }
+
+        return unchecked((int)exitCode);
+    }
+
+    private static async Task WaitAsync(
+        WaitHandle waitHandle,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var completion = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        RegisteredWaitHandle? registeredWait = null;
+        CancellationTokenRegistration cancellationRegistration = default;
+
+        try
+        {
+            registeredWait = ThreadPool.RegisterWaitForSingleObject(
+                waitHandle,
+                static (state, _) =>
+                    ((TaskCompletionSource)state!).TrySetResult(),
+                completion,
+                Timeout.Infinite,
+                executeOnlyOnce: true);
+
+            if (cancellationToken.CanBeCanceled)
+            {
+                cancellationRegistration = cancellationToken.Register(
+                    static state =>
+                    {
+                        var tuple =
+                            ((TaskCompletionSource Completion,
+                              CancellationToken Token))state!;
+                        tuple.Completion.TrySetCanceled(tuple.Token);
+                    },
+                    (completion, cancellationToken));
+            }
+
+            await completion.Task.ConfigureAwait(false);
+        }
+        finally
+        {
+            cancellationRegistration.Dispose();
+            registeredWait?.Unregister(null);
         }
     }
 
@@ -279,7 +421,10 @@ internal sealed class WindowsProcessResource : IProcessResource
             int read;
             try
             {
-                read = await reader.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
+                read = await reader.ReadAsync(
+                        buffer.AsMemory(),
+                        cancellationToken)
+                    .ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -292,6 +437,16 @@ internal sealed class WindowsProcessResource : IProcessResource
             }
 
             destination.Append(new string(buffer, 0, read));
+        }
+    }
+
+    private sealed class ProcessWaitHandle : WaitHandle
+    {
+        public ProcessWaitHandle(SafeFileHandle processHandle)
+        {
+            SafeWaitHandle = new SafeWaitHandle(
+                processHandle.DangerousGetHandle(),
+                ownsHandle: false);
         }
     }
 }

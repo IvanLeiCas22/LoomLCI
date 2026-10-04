@@ -345,6 +345,470 @@ public sealed class ProcessCapabilityTests
         Assert.True(output.IsSuccess);
     }
 
+
+    [Fact]
+    public async Task EnvironmentOverridesAndWorkingDirectoryArePreserved()
+    {
+        await using var fixture = new ProcessFixture();
+        var work = fixture.Sessions.Create(Environment.CurrentDirectory);
+        Assert.True(work.IsSuccess);
+
+        var directory = Directory.CreateTempSubdirectory("loom-native-process-");
+        try
+        {
+            var started = await fixture.Processes.StartAsync(
+                new ProcessStartRequest(
+                    "powershell.exe",
+                    [
+                        "-NoProfile",
+                        "-Command",
+                        "[Console]::Out.Write($PWD.Path + '|' + $env:LOOMLCI_NATIVE_TEST + '|' + [string]::IsNullOrEmpty($env:PATH))"
+                    ],
+                    WorkingDirectory: directory.FullName,
+                    Environment: new Dictionary<string, string?>
+                    {
+                        ["LOOMLCI_NATIVE_TEST"] = "value",
+                        ["PATH"] = null
+                    },
+                    WorkId: work.Value!.Id));
+
+            Assert.True(started.IsSuccess, started.Error?.Message);
+            var status = await WaitForExitAsync(
+                fixture.Processes,
+                started.Value!.Handle);
+            Assert.Equal(0, status.ExitCode);
+
+            var read = await fixture.Processes.ReadAsync(
+                started.Value.Handle,
+                0,
+                0);
+            Assert.True(read.IsSuccess, read.Error?.Message);
+
+            var stdout = string.Concat(
+                read.Value!.Stdout.Chunks.Select(chunk => chunk.Text));
+            Assert.Equal(
+                $"{directory.FullName}|value|True",
+                stdout);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ExecutableLookupWithoutExeExtensionStillWorks()
+    {
+        await using var fixture = new ProcessFixture();
+        var work = fixture.Sessions.Create(Environment.CurrentDirectory);
+        Assert.True(work.IsSuccess);
+
+        var started = await fixture.Processes.StartAsync(
+            new ProcessStartRequest(
+                "cmd",
+                ["/d", "/s", "/c", "echo implicit-extension-ok"],
+                WorkId: work.Value!.Id));
+
+        Assert.True(started.IsSuccess, started.Error?.Message);
+        var status = await WaitForExitAsync(
+            fixture.Processes,
+            started.Value!.Handle);
+        Assert.Equal(0, status.ExitCode);
+
+        var read = await WaitForOutputAsync(
+            fixture.Processes,
+            started.Value.Handle,
+            "implicit-extension-ok");
+        Assert.True(read.IsSuccess, read.Error?.Message);
+    }
+
+    [Fact]
+    public async Task TerminateKillsRootChildAndGrandchildJobTree()
+    {
+        await using var fixture = new ProcessFixture();
+        var work = fixture.Sessions.Create(Environment.CurrentDirectory);
+        Assert.True(work.IsSuccess);
+
+        var directory = Directory.CreateTempSubdirectory("loom-job-tree-");
+        var childPidPath = Path.Combine(directory.FullName, "child.pid");
+        var grandchildPidPath =
+            Path.Combine(directory.FullName, "grandchild.pid");
+        var childScriptPath =
+            Path.Combine(directory.FullName, "child.ps1");
+
+        await File.WriteAllTextAsync(
+            childScriptPath,
+            "$psi = [Diagnostics.ProcessStartInfo]::new(); " +
+            "$psi.FileName = 'powershell.exe'; " +
+            "$psi.UseShellExecute = $false; " +
+            "[void]$psi.ArgumentList.Add('-NoProfile'); " +
+            "[void]$psi.ArgumentList.Add('-Command'); " +
+            "[void]$psi.ArgumentList.Add('Start-Sleep -Seconds 60'); " +
+            "$grandchild = [Diagnostics.Process]::Start($psi); " +
+            "[IO.File]::WriteAllText($env:LOOM_GRANDCHILD_PID, " +
+            "[string]$grandchild.Id); " +
+            "Start-Sleep -Seconds 60");
+
+        try
+        {
+            var started = await fixture.Processes.StartAsync(
+                new ProcessStartRequest(
+                    "powershell.exe",
+                    [
+                        "-NoProfile",
+                        "-Command",
+                        "$child = Start-Process powershell.exe " +
+                        "-ArgumentList @('-NoProfile','-ExecutionPolicy'," +
+                        "'Bypass','-File',$env:LOOM_CHILD_SCRIPT) " +
+                        "-PassThru; " +
+                        "[IO.File]::WriteAllText($env:LOOM_CHILD_PID, " +
+                        "[string]$child.Id); " +
+                        "Start-Sleep -Seconds 60"
+                    ],
+                    Environment: new Dictionary<string, string?>
+                    {
+                        ["LOOM_CHILD_SCRIPT"] = childScriptPath,
+                        ["LOOM_CHILD_PID"] = childPidPath,
+                        ["LOOM_GRANDCHILD_PID"] = grandchildPidPath
+                    },
+                    WorkId: work.Value!.Id));
+
+            Assert.True(started.IsSuccess, started.Error?.Message);
+
+            var childPid = await WaitForPidFileAsync(childPidPath);
+            var grandchildPid =
+                await WaitForPidFileAsync(grandchildPidPath);
+
+            Assert.True(IsProcessAlive(started.Value!.ProcessId));
+            Assert.True(IsProcessAlive(childPid));
+            Assert.True(IsProcessAlive(grandchildPid));
+
+            var terminated = await fixture.Processes.TerminateAsync(
+                started.Value.Handle);
+            Assert.True(terminated.IsSuccess, terminated.Error?.Message);
+
+            var status = await fixture.Processes.StatusAsync(
+                started.Value.Handle);
+            Assert.True(status.IsSuccess, status.Error?.Message);
+            Assert.Equal(
+                ManagedProcessState.Terminated,
+                status.Value!.State);
+
+            await WaitForProcessGoneAsync(started.Value.ProcessId);
+            await WaitForProcessGoneAsync(childPid);
+            await WaitForProcessGoneAsync(grandchildPid);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task TerminateAfterRootExitStillKillsRemainingChild()
+    {
+        await using var fixture = new ProcessFixture();
+        var work = fixture.Sessions.Create(Environment.CurrentDirectory);
+        Assert.True(work.IsSuccess);
+
+        var directory =
+            Directory.CreateTempSubdirectory("loom-job-root-exit-");
+        var childPidPath =
+            Path.Combine(directory.FullName, "child.pid");
+
+        try
+        {
+            var started = await fixture.Processes.StartAsync(
+                new ProcessStartRequest(
+                    "powershell.exe",
+                    [
+                        "-NoProfile",
+                        "-Command",
+                        "$child = Start-Process powershell.exe " +
+                        "-ArgumentList @('-NoProfile','-Command'," +
+                        "'Start-Sleep -Seconds 60') -PassThru; " +
+                        "[IO.File]::WriteAllText($env:LOOM_CHILD_PID, " +
+                        "[string]$child.Id)"
+                    ],
+                    Environment: new Dictionary<string, string?>
+                    {
+                        ["LOOM_CHILD_PID"] = childPidPath
+                    },
+                    WorkId: work.Value!.Id));
+
+            Assert.True(started.IsSuccess, started.Error?.Message);
+            var childPid = await WaitForPidFileAsync(childPidPath);
+
+            var exited = await WaitForExitAsync(
+                fixture.Processes,
+                started.Value!.Handle);
+            Assert.Equal(ManagedProcessState.Exited, exited.State);
+            Assert.Equal(0, exited.ExitCode);
+            Assert.True(IsProcessAlive(childPid));
+
+            var terminated = await fixture.Processes.TerminateAsync(
+                started.Value.Handle);
+            Assert.True(terminated.IsSuccess, terminated.Error?.Message);
+
+            var status = await fixture.Processes.StatusAsync(
+                started.Value.Handle);
+            Assert.True(status.IsSuccess, status.Error?.Message);
+            Assert.Equal(
+                ManagedProcessState.Exited,
+                status.Value!.State);
+            Assert.Equal(0, status.Value.ExitCode);
+
+            await WaitForProcessGoneAsync(childPid);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task WorkCloseKillsDescendantJobTree()
+    {
+        await using var fixture = new ProcessFixture();
+        var work = fixture.Sessions.Create(Environment.CurrentDirectory);
+        Assert.True(work.IsSuccess);
+
+        var directory =
+            Directory.CreateTempSubdirectory("loom-job-work-close-");
+        var childPidPath =
+            Path.Combine(directory.FullName, "child.pid");
+
+        try
+        {
+            var started = await fixture.Processes.StartAsync(
+                new ProcessStartRequest(
+                    "powershell.exe",
+                    [
+                        "-NoProfile",
+                        "-Command",
+                        "$child = Start-Process powershell.exe " +
+                        "-ArgumentList @('-NoProfile','-Command'," +
+                        "'Start-Sleep -Seconds 60') -PassThru; " +
+                        "[IO.File]::WriteAllText($env:LOOM_CHILD_PID, " +
+                        "[string]$child.Id); " +
+                        "Start-Sleep -Seconds 60"
+                    ],
+                    Environment: new Dictionary<string, string?>
+                    {
+                        ["LOOM_CHILD_PID"] = childPidPath
+                    },
+                    WorkId: work.Value!.Id));
+
+            Assert.True(started.IsSuccess, started.Error?.Message);
+            var childPid = await WaitForPidFileAsync(childPidPath);
+
+            var closed =
+                await fixture.Sessions.CloseAsync(work.Value.Id);
+            Assert.True(closed.IsSuccess, closed.Error?.Message);
+
+            await WaitForProcessGoneAsync(started.Value!.ProcessId);
+            await WaitForProcessGoneAsync(childPid);
+
+            var status = await fixture.Processes.StatusAsync(
+                started.Value.Handle);
+            Assert.False(status.IsSuccess);
+            Assert.Equal("resource_closed", status.Error?.Code);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task IndependentProcessSurvivesWorkClose()
+    {
+        await using var fixture = new ProcessFixture();
+        var work = fixture.Sessions.Create(Environment.CurrentDirectory);
+        Assert.True(work.IsSuccess);
+
+        var started = await fixture.Processes.StartAsync(
+            new ProcessStartRequest(
+                "powershell.exe",
+                ["-NoProfile", "-Command", "Start-Sleep -Seconds 60"],
+                WorkId: work.Value!.Id,
+                Ownership: ResourceOwnership.Independent));
+
+        Assert.True(started.IsSuccess, started.Error?.Message);
+
+        var closed =
+            await fixture.Sessions.CloseAsync(work.Value.Id);
+        Assert.True(closed.IsSuccess, closed.Error?.Message);
+
+        var status = await fixture.Processes.StatusAsync(
+            started.Value!.Handle);
+        Assert.True(status.IsSuccess, status.Error?.Message);
+        Assert.Equal(ManagedProcessState.Running, status.Value!.State);
+
+        var terminated = await fixture.Processes.TerminateAsync(
+            started.Value.Handle);
+        Assert.True(terminated.IsSuccess, terminated.Error?.Message);
+
+        var released = await fixture.Resources.CloseAsync(
+            started.Value.Handle.AsResourceHandle());
+        Assert.True(released.IsSuccess, released.Error?.Message);
+    }
+
+    [Fact]
+    public async Task FullExecutablePathWithSpacesStillLaunches()
+    {
+        await using var fixture = new ProcessFixture();
+        var work = fixture.Sessions.Create(Environment.CurrentDirectory);
+        Assert.True(work.IsSuccess);
+
+        var directory =
+            Directory.CreateTempSubdirectory("loom process path ");
+        var executable =
+            Path.Combine(directory.FullName, "copied cmd.exe");
+
+        try
+        {
+            File.Copy(
+                Environment.ExpandEnvironmentVariables(
+                    @"%SystemRoot%\System32\cmd.exe"),
+                executable);
+
+            var started = await fixture.Processes.StartAsync(
+                new ProcessStartRequest(
+                    executable,
+                    ["/d", "/s", "/c", "echo spaced-path-ok"],
+                    WorkId: work.Value!.Id));
+
+            Assert.True(started.IsSuccess, started.Error?.Message);
+            var status = await WaitForExitAsync(
+                fixture.Processes,
+                started.Value!.Handle);
+            Assert.Equal(0, status.ExitCode);
+
+            var read = await WaitForOutputAsync(
+                fixture.Processes,
+                started.Value.Handle,
+                "spaced-path-ok");
+            Assert.True(read.IsSuccess, read.Error?.Message);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task FailedNativeLaunchDoesNotRegisterResource()
+    {
+        await using var fixture = new ProcessFixture();
+        var work = fixture.Sessions.Create(Environment.CurrentDirectory);
+        Assert.True(work.IsSuccess);
+
+        var started = await fixture.Processes.StartAsync(
+            new ProcessStartRequest(
+                $"loom-missing-{Guid.NewGuid():N}.exe",
+                WorkId: work.Value!.Id));
+
+        Assert.False(started.IsSuccess);
+        Assert.Equal("execution_failed", started.Error?.Code);
+        Assert.Equal(0, fixture.Resources.ActiveCount);
+    }
+
+    [Fact]
+    public async Task TerminateKeepsCapturedOutputReadableUntilResourceClose()
+    {
+        await using var fixture = new ProcessFixture();
+        var work = fixture.Sessions.Create(Environment.CurrentDirectory);
+        Assert.True(work.IsSuccess);
+
+        var started = await fixture.Processes.StartAsync(
+            new ProcessStartRequest(
+                "powershell.exe",
+                [
+                    "-NoProfile",
+                    "-Command",
+                    "Write-Output retained-before-terminate; " +
+                    "Start-Sleep -Seconds 60"
+                ],
+                WorkId: work.Value!.Id));
+
+        Assert.True(started.IsSuccess, started.Error?.Message);
+
+        var before = await WaitForOutputAsync(
+            fixture.Processes,
+            started.Value!.Handle,
+            "retained-before-terminate");
+        Assert.True(before.IsSuccess, before.Error?.Message);
+
+        var terminated = await fixture.Processes.TerminateAsync(
+            started.Value.Handle);
+        Assert.True(terminated.IsSuccess, terminated.Error?.Message);
+
+        var after = await fixture.Processes.ReadAsync(
+            started.Value.Handle,
+            stdoutCursor: 0,
+            stderrCursor: 0);
+        Assert.True(after.IsSuccess, after.Error?.Message);
+        Assert.Contains(
+            "retained-before-terminate",
+            string.Concat(
+                after.Value!.Stdout.Chunks.Select(chunk => chunk.Text)),
+            StringComparison.Ordinal);
+        Assert.Equal(
+            ManagedProcessState.Terminated,
+            after.Value.Process.State);
+    }
+
+    private static async Task<int> WaitForPidFileAsync(string path)
+    {
+        for (var i = 0; i < 200; i++)
+        {
+            if (File.Exists(path))
+            {
+                var text = await File.ReadAllTextAsync(path);
+                if (int.TryParse(text, out var pid))
+                {
+                    return pid;
+                }
+            }
+
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException(
+            $"PID file '{path}' was not written in time.");
+    }
+
+    private static bool IsProcessAlive(int pid)
+    {
+        try
+        {
+            using var process =
+                global::System.Diagnostics.Process.GetProcessById(pid);
+            return !process.HasExited;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    private static async Task WaitForProcessGoneAsync(int pid)
+    {
+        for (var i = 0; i < 200; i++)
+        {
+            if (!IsProcessAlive(pid))
+            {
+                return;
+            }
+
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException(
+            $"Process {pid} remained alive.");
+    }
+
     private static async Task<ProcessStatusResult> WaitForExitAsync(
         ProcessCapability processes,
         ProcessHandle handle)
