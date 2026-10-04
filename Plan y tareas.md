@@ -1,6 +1,6 @@
 # Plan y tareas
 
-> Estado: **F1.1 Core + F1.2 MCP cerrados; F1.3 provisional**. Smoke por Secure MCP Tunnel y A/B de regresión pasaron (2/3 positivos, 2/2 negativos), pero falta un holdout independiente más representativo para validar selección/calibración de Work Plan antes de cerrar Bloque F definitivamente.
+> Estado: **F1.1 Core + F1.2 MCP cerrados; F1.3 provisional**. Smoke y A/B de regresión pasaron. Benchmark real-world final congelado en [[F1.3 - Benchmark real-world Work Plan]]: 4 positivos sobre aplicaciones reales, 3 controles y 1 escalada por follow-up; skill 0.2.1 queda congelada hasta terminar las corridas.
 
 ## Distinciones necesarias
 
