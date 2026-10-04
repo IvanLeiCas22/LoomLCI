@@ -45,19 +45,23 @@ Configuración validada:
 
 No se necesita un plugin local `loomlci@personal`, un plugin cloud adicional ni un registro manual `mcp_servers.loomlci`.
 
-## Smoke test
+## Validación desde ChatGPT normal
 
-Desde ChatGPT normal, usando “Probar ahora” sobre `LoomLCI MCP`, ChatGPT pudo invocar herramientas reales de LoomLCI a través del túnel.
+La integración fue validada primero con smoke tests y finalmente con una prueba fresh-agent integral en un chat nuevo.
 
-Tools observadas:
+La prueba final descubrió y ejercitó las **15 capabilities públicas actuales** de Work, Filesystem y Process, incluyendo pipes, ConPTY, resize, terminate, release, paginación, búsqueda, patch y cleanup.
 
-- `work_create`
-- `process_start`
-- `process_status`
-- `process_read`
-- `work_close`
+Ver [[Validacion final fresh-agent]].
 
-Esto valida la cadena completa entre ChatGPT normal y procesos reales de Windows.
+### Semántica de errores
+
+LoomLCI conserva los errores de negocio como `CallToolResult` con `IsError=true` y `structuredContent` del tipo:
+
+```text
+{ ok: false, error: { code, message, ... } }
+```
+
+ChatGPT/túnel puede mostrar exteriormente esos tool errors mediante un wrapper como `INVALID_ARGUMENT` / `RuntimeException`. El código/mensaje semántico de LoomLCI sigue estando presente y el agente puede recuperarse. Esto se considera una característica de presentación del consumidor, no un bug del runtime LoomLCI.
 
 ## Configuración descartada
 

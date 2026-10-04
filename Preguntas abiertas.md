@@ -27,7 +27,6 @@
 ## Operación
 
 - WorkSession idle TTL, tombstone retention, ProcessHandle post-exit TTL y explicit release definidos en [[Bloque D0 - Resource lifetime y expiry]]; quedan futuras policies por nuevos resource kinds.
-- Reasociar el proceso vivo del Secure MCP Tunnel con la metadata del supervisor `runtimes`: el perfil/túnel está `live/ready`, pero el alias local todavía registra el runtime como `stopped` después de que la reconexión administrada fuera bloqueada por la capa de seguridad del entorno.
 - tamaños de buffers.
 - formato y retención del audit durable.
 - autenticación remota si se habilita HTTP fuera de localhost/tunnel.
