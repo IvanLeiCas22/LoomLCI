@@ -1,6 +1,6 @@
 # Estructura del repositorio v0.1
 
-> Estado: propuesta para el inicio del código.
+> Estado: **baseline de repositorio adoptada y reconciliada con el árbol real al 2026-10-04**. La separación Core / Windows / MCP / Host y los tres proyectos de tests están implementados. Los módulos Python Runtime, Agent Support y Computer siguen diferidos y no existen todavía en el árbol.
 
 ## Criterio
 
@@ -10,45 +10,53 @@ Regla principal:
 
     Core no depende de Windows ni de MCP.
 
-## Estructura inicial
+## Estructura actual
 
     LoomLCI/
     ├─ src/
     │  ├─ LoomLCI.Core/
+    │  │  ├─ Filesystem/
+    │  │  ├─ Invocations/
+    │  │  ├─ Lifetime/
+    │  │  ├─ Observability/
+    │  │  ├─ Process/
+    │  │  ├─ Resources/
+    │  │  └─ Work/
     │  ├─ LoomLCI.Windows/
+    │  │  ├─ Filesystem/
+    │  │  └─ Process/
     │  ├─ LoomLCI.Mcp/
     │  └─ LoomLCI.Host/
-    │
-    ├─ runtime/
-    │  └─ python/
-    │
     ├─ tests/
     │  ├─ LoomLCI.Core.Tests/
     │  ├─ LoomLCI.Windows.Tests/
     │  └─ LoomLCI.IntegrationTests/
-    │
     ├─ .obsidian/
     ├─ *.md
     └─ ...
 
-No crear todavía proyectos separados para Filesystem, Process, Computer o AgentSupport. Primero mantenerlos como módulos/namespaces internos y dividir assemblies sólo si las dependencias o tamaño lo justifican.
+No existen todavía `runtime/python`, Computer ni AgentSupport. Cuando se implementen, deben respetar esta misma dirección de dependencias; no hace falta crear assemblies separados por capability salvo que aparezca una razón concreta.
 
 ## LoomLCI.Core
 
 Pure .NET.
 
-Contiene:
+Contiene actualmente:
 
-- WorkSession model/registry
-- Handle/Resource registry
-- Invocation lifecycle
-- Cancellation composition
-- Capability abstractions
-- ExecutionContext abstraction
-- result/error model
-- event contracts/bus abstraction
-- Work Plan model
-- metadata/annotations internas
+- WorkSession model/registry;
+- Handle/Resource registry;
+- Invocation lifecycle y cancellation composition;
+- capabilities/contratos de Filesystem y Process;
+- lifetime/expiry;
+- result/error model;
+- event contracts/bus.
+
+Diferido:
+
+- ExecutionContext/Policy explícitos;
+- Work Plan / Agent Support;
+- contratos de Computer;
+- Python Runtime.
 
 No contiene:
 
@@ -63,24 +71,21 @@ Debe poder probarse completamente con fake providers.
 
 ## LoomLCI.Windows
 
-Implementación del HostFullTrustExecutionContext y providers Windows.
+Implementación Windows concreta de las capabilities actuales.
 
-Módulos internos iniciales:
+Módulos implementados:
 
     Filesystem/
     Process/
-    Computer/
-    Interop/
 
-Incluye cuando corresponda:
+Incluye hoy:
 
-- Win32/CsWin32
-- Job Objects
-- ConPTY
-- UI Automation
-- Windows.Graphics.Capture
-- SendInput
-- filesystem Windows semantics
+- Win32/CsWin32;
+- Job Objects;
+- ConPTY;
+- filesystem Windows semantics.
+
+Computer, UI Automation, Windows.Graphics.Capture, SendInput y una abstracción formal HostFullTrustExecutionContext siguen diferidos.
 
 Depende de Core.
 
@@ -97,9 +102,11 @@ Responsabilidades:
 - DTO/schema mapping
 - structuredContent/outputSchema
 - error mapping
-- task/cancellation mapping
-- transport stdio/HTTP
-- compatibilidad de versión
+- cancellation mapping;
+- transporte STDIO;
+- compatibilidad de versión.
+
+Streamable HTTP sigue diferido. Secure MCP Tunnel es transporte externo al runtime y no agrega una segunda implementación MCP dentro de LoomLCI.
 
 Depende de Core.
 

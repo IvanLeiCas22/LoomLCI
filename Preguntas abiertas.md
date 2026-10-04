@@ -2,9 +2,8 @@
 
 ## Arquitectura general
 
-- Revisar/aceptar [[Especificacion interna v0.1]].
-- Revisar/aceptar [[Estructura del repositorio v0.1]].
-- Definir nombres públicos exactos sólo cuando se implemente el primer slice.
+- Baseline v0.1 reconciliada y aceptada en [[Arquitectura propuesta]], [[Especificacion interna v0.1]] y [[Estructura del repositorio v0.1]].
+- Mantener explícita la distinción entre arquitectura implementada y capabilities futuras.
 
 ## Python Runtime
 

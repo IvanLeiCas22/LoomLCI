@@ -1,6 +1,6 @@
-# Arquitectura propuesta
+# Arquitectura base v0.1
 
-> Estado: pendiente de confirmar.
+> Estado: **confirmada como baseline y reconciliada con la implementación al 2026-10-04**. Process, Filesystem, Job Objects/ConPTY y lifecycle D0 están implementados. Los elementos señalados como futuros siguen siendo diseño, no código existente.
 
 ## Principios
 1. LoomLCI es un runtime local, no un agente.
@@ -16,14 +16,22 @@
 Agent/Host → Adapter → Core → Capabilities → Windows providers → Windows
 
 ## Core
-- Capability registry
-- Handle registry
-- Invocation lifecycle
-- Cancellation
-- Execution context
-- Policy abstraction, con FullTrust como única implementación inicial
-- Event/trace abstraction
-- Known locations
+
+Implementado:
+
+- Handle/Resource registry;
+- WorkSession e Invocation lifecycle;
+- Cancellation;
+- Filesystem y Process contracts/capabilities;
+- lifetime/expiry;
+- event bus/observability básica.
+
+Diferido:
+
+- Capability registry explícito;
+- ExecutionContext/Policy;
+- Known Locations;
+- Work Plan / Agent Support.
 
 No contiene planificación, prompts, memoria del agente ni lógica específica de un proveedor LLM.
 
@@ -50,10 +58,15 @@ No se propone Application separada inicialmente: abrir procesos pertenece a Proc
 Filesystem y Process pueden trabajar en paralelo. El input global del escritorio se serializa. UIA corre sobre hilo MTA dedicado.
 
 ## Protocolos
-Primer adaptador: MCP 2026-07-28.
-- stdio cuando el host lo soporte
-- Streamable HTTP
-- Secure MCP Tunnel para productos OpenAI compatibles
+
+Implementado:
+
+- MCP por STDIO;
+- Secure MCP Tunnel como transporte externo para ChatGPT normal.
+
+Diferido:
+
+- Streamable HTTP propio.
 
 Los handles son de LoomLCI, no sesiones MCP.
 
@@ -74,4 +87,4 @@ Helper nativo sólo si una limitación medida lo exige.
 ## Primera versión
 Un único proceso de usuario en la sesión interactiva de Windows. Sin Windows Service, sandbox, daemon privilegiado ni UI propia obligatoria.
 
-Orden actual: Process vertical slice ✓ → Filesystem ✓ → ConPTY/Job Objects → Python Runtime → Agent Support → Computer → evaluaciones.
+Orden actual: Process vertical slice ✓ → Filesystem ✓ → Job Objects/ConPTY ✓ → lifecycle D0 ✓ → cierre de baseline/fresh-agent → Python Runtime → Agent Support → Computer → evaluaciones.

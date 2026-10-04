@@ -1,6 +1,25 @@
 # Especificación interna v0.1
 
-> Estado: propuesta lista para revisión. No es todavía una API pública congelada.
+> Estado: **baseline arquitectónica v0.1 reconciliada con la implementación al 2026-10-04**. Los principios centrales están adoptados; este documento mezcla contratos implementados y diseño deliberadamente diferido. El código actual y las notas de cada bloque cerrado son la fuente de verdad para el comportamiento ya implementado. No es una API pública congelada.
+
+## Estado de implementación
+
+Implementado actualmente:
+
+- WorkSession, Invocation y Resource Registry;
+- lifecycle explícito con close/expiry/tombstones;
+- Process con pipes, Job Objects, ConPTY, retención post-exit y explicit release;
+- Filesystem estructurado;
+- adapter MCP por STDIO y acceso de ChatGPT normal mediante Secure MCP Tunnel externo.
+
+Diferido; **no debe interpretarse como implementado hoy**:
+
+- abstracción explícita `ExecutionContext` / Policy;
+- Python Runtime/worker;
+- Work Plan / Agent Support;
+- Computer/UI Automation/captura;
+- Known Locations;
+- Streamable HTTP y audit durable.
 
 ## Objetivo
 
@@ -33,15 +52,20 @@ Estados:
 
 Puede existir además un cierre por expiración de inactividad.
 
-Una WorkSession mantiene únicamente estado que realmente necesita cruzar llamadas:
+Una WorkSession mantiene únicamente estado que realmente necesita cruzar llamadas.
 
-- ExecutionContext asociado
-- base directory opcional
-- recursos propiedad de la sesión
-- Python worker de la sesión, si fue creado
-- Work Plan opcional
-- timestamps de creación/última actividad
-- CancellationTokenSource raíz de la sesión
+Implementado hoy:
+
+- base directory opcional;
+- recursos propiedad de la sesión;
+- timestamps de creación/última actividad;
+- CancellationTokenSource raíz de la sesión.
+
+Diseño diferido para futuras capabilities:
+
+- ExecutionContext asociado;
+- Python worker de la sesión, si fue creado;
+- Work Plan opcional.
 
 No contiene conversación, prompts ni memoria semántica del agente.
 
@@ -71,7 +95,7 @@ Al cerrar:
 5. descarta Work Plan efímero
 6. marca la sesión closed
 
-La expiración automática debe existir como mecanismo de limpieza configurable, pero v0.1 no fija todavía su duración.
+La expiración automática está implementada. El default actual de inactividad de WorkSession es **60 minutos**, con tombstones retenidos **60 minutos**; ver [[Bloque D0 - Resource lifetime y expiry]].
 
 ### Uso opcional
 

@@ -430,6 +430,117 @@ public sealed class McpStdioTests
 
 
     [Fact]
+    public async Task StdioAdapterCanTerminateRunningProcess()
+    {
+        var repoRoot = FindRepoRoot();
+        var hostDll = GetHostDll(repoRoot);
+        Assert.True(File.Exists(hostDll), $"Host was not built: {hostDll}");
+
+        var transport = new StdioClientTransport(new StdioClientTransportOptions
+        {
+            Name = "LoomLCI terminate integration test",
+            Command = "dotnet",
+            Arguments = [hostDll],
+            WorkingDirectory = repoRoot,
+            ShutdownTimeout = TimeSpan.FromSeconds(5)
+        });
+
+        await using var client = await McpClient.CreateAsync(transport);
+
+        var create = await client.CallToolAsync(
+            "work_create",
+            new Dictionary<string, object?>
+            {
+                ["baseDirectory"] = repoRoot,
+                ["label"] = "terminate-integration-test"
+            });
+
+        var createRoot = GetStructured(create.StructuredContent);
+        Assert.True(GetRequiredProperty(createRoot, "ok").GetBoolean());
+        var workId = GetRequiredProperty(
+            GetRequiredProperty(createRoot, "result"),
+            "workId").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(workId));
+
+        var start = await client.CallToolAsync(
+            "process_start",
+            new Dictionary<string, object?>
+            {
+                ["executable"] = "powershell.exe",
+                ["arguments"] = new[]
+                {
+                    "-NoProfile",
+                    "-Command",
+                    "Write-Output 'TERMINATE-READY'; Start-Sleep -Seconds 60"
+                },
+                ["workId"] = workId
+            });
+
+        var startRoot = GetStructured(start.StructuredContent);
+        Assert.True(GetRequiredProperty(startRoot, "ok").GetBoolean());
+        var processHandle = GetRequiredProperty(
+            GetRequiredProperty(startRoot, "result"),
+            "processHandle").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(processHandle));
+
+        var terminate = await client.CallToolAsync(
+            "process_terminate",
+            new Dictionary<string, object?>
+            {
+                ["processHandle"] = processHandle
+            });
+        Assert.True(
+            GetRequiredProperty(
+                GetStructured(terminate.StructuredContent),
+                "ok").GetBoolean());
+
+        JsonElement statusResult = default;
+        for (var i = 0; i < 200; i++)
+        {
+            var status = await client.CallToolAsync(
+                "process_status",
+                new Dictionary<string, object?>
+                {
+                    ["processHandle"] = processHandle
+                });
+            var statusRoot = GetStructured(status.StructuredContent);
+            Assert.True(GetRequiredProperty(statusRoot, "ok").GetBoolean());
+            statusResult = GetRequiredProperty(statusRoot, "result");
+
+            if (GetRequiredProperty(statusResult, "state").GetString()
+                is "exited" or "terminated")
+            {
+                break;
+            }
+
+            await Task.Delay(25);
+        }
+
+        Assert.Equal(
+            "terminated",
+            GetRequiredProperty(statusResult, "state").GetString());
+
+        var release = await client.CallToolAsync(
+            "process_release",
+            new Dictionary<string, object?>
+            {
+                ["processHandle"] = processHandle
+            });
+        Assert.True(
+            GetRequiredProperty(
+                GetStructured(release.StructuredContent),
+                "ok").GetBoolean());
+
+        var close = await client.CallToolAsync(
+            "work_close",
+            new Dictionary<string, object?> { ["workId"] = workId });
+        Assert.True(
+            GetRequiredProperty(
+                GetStructured(close.StructuredContent),
+                "ok").GetBoolean());
+    }
+
+    [Fact]
     public async Task StdioAdapterCanRunInteractiveTerminalProcess()
     {
         var repoRoot = FindRepoRoot();
