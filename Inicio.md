@@ -4,7 +4,7 @@ Segundo cerebro del proyecto LoomLCI.
 
 ## Estado
 
-Arquitectura v0.1 definida. Milestone 1 (Process) y Milestone 2 (Filesystem) implementados y validados; siguiente foco: ConPTY + Job Objects.
+Arquitectura v0.1 definida. Milestone 1 (Process), Milestone 2 (Filesystem) y C1 (Native Process + Job Objects) implementados, validados y cerrados; siguiente foco: C2 / ConPTY.
 
 ## Notas
 

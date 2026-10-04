@@ -2,7 +2,7 @@
 
 ## Estado
 
-Implementación funcional completada y validada. Código: `4a9dec9 feat: launch processes in Windows job objects`. Tests automáticos y smoke live por Secure MCP Tunnel correctos. Queda únicamente una regresión fresh-agent final si se quiere cerrar C1 con el mismo criterio empírico usado en bloques anteriores.
+**Cerrado.** Implementación funcional completada y validada. Código: `4a9dec9 feat: launch processes in Windows job objects`. Tests automáticos, smoke live por Secure MCP Tunnel y regresión fresh-agent final correctos.
 
 ## Objetivo
 
@@ -338,9 +338,11 @@ Smoke end-to-end con las tools MCP públicas:
 
 Esto también valida C1 dentro del Job Object externo en el que ya corre `LoomLCI.Host` bajo el runtime/túnel.
 
-### Pendiente de cierre empírico
+### Cierre empírico final
 
-La implementación no cambió schemas ni descripciones MCP públicas, por lo que no requiere refresh de acciones. Si se quiere mantener exactamente el mismo estándar de cierre usado en bloques anteriores, queda una prueba fresh-agent de regresión de las tools Process; no hay pendiente funcional conocido.
+La regresión fresh-agent final se completó correctamente usando únicamente los contratos públicos de LoomLCI. Se verificaron proceso corto, cleanup de árbol root/child, ownership session-owned, supervivencia y cleanup explícito de procesos `independent`, retención de estado/output, argumentos, working directory y variables de entorno. No se detectaron errores funcionales ni regresiones relevantes de ergonomía.
+
+Única aspereza observada: consultar un handle session-owned después de `work_close` produjo `resource_closed` como tool error/`INVALID_ARGUMENT` en lugar de retornar el wrapper estructurado `{ok:false, error:...}` sugerido por la firma pública. Se considera polish posterior y no bloquea C1.
 
 ## Fuera de C1
 
@@ -353,6 +355,4 @@ La implementación no cambió schemas ni descripciones MCP públicas, por lo que
 
 ## Conclusión
 
-C1 está implementado y validado funcionalmente. No quedan problemas funcionales conocidos ni decisiones arquitectónicas bloqueantes. La base nativa de `Process` queda lista para C2/ConPTY.
-
-Antes de declarar C1 formalmente cerrado puede hacerse una última regresión fresh-agent, principalmente para confirmar que la ergonomía pública de Process no se degradó; el contrato MCP no cambió.
+C1 queda formalmente cerrado. No quedan problemas funcionales conocidos ni decisiones arquitectónicas bloqueantes. La base nativa de `Process` queda lista para C2/ConPTY.
