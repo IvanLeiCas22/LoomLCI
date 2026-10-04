@@ -2,7 +2,7 @@
 
 ## Estado
 
-Investigación y análisis completados. **Sin cambios funcionales aplicados.** Listo para implementación cuando sea aprobada.
+Implementación funcional completada y validada. Código: `4a9dec9 feat: launch processes in Windows job objects`. Tests automáticos y smoke live por Secure MCP Tunnel correctos. Queda únicamente una regresión fresh-agent final si se quiere cerrar C1 con el mismo criterio empírico usado en bloques anteriores.
 
 ## Objetivo
 
@@ -12,9 +12,9 @@ Reforzar la implementación Windows de `Process` sin cambiar la interfaz públic
 - base reutilizable para ConPTY;
 - mantener intactas las semánticas actuales de `process_start/read/write/status/terminate`.
 
-## Estado actual
+## Estado previo a C1
 
-`WindowsProcessProvider` usa `System.Diagnostics.Process` con:
+Antes de C1, `WindowsProcessProvider` usaba `System.Diagnostics.Process` con:
 - `UseShellExecute=false`;
 - stdin/stdout/stderr redirigidos;
 - `CreateNoWindow=true`;
@@ -271,6 +271,77 @@ Toda la suite actual debe seguir verde.
 - smoke mediante Secure MCP Tunnel;
 - fresh-agent regression de process tools.
 
+## Resultado de implementación
+
+### Backend Windows
+
+- `WindowsProcessProvider` delega el launch en `WindowsNativeProcessLauncher`.
+- Cada `ProcessHandle` posee un `WindowsJobObject` independiente.
+- El Job se configura con `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`.
+- El proceso nace asociado al Job mediante `PROC_THREAD_ATTRIBUTE_JOB_LIST` dentro de `CreateProcessW`.
+- La herencia queda limitada a los tres extremos child de stdin/stdout/stderr mediante `PROC_THREAD_ATTRIBUTE_HANDLE_LIST`.
+- El tramo crítico de creación está serializado para minimizar la ventana de handles heredables.
+- `WindowsProcessResource` conserva el process HANDLE real y observa su señal de exit sin reconstruir por PID.
+- `process_terminate` usa `TerminateJobObject`; si el root ya terminó, mata descendientes restantes sin modificar su estado `exited` ni su exit code natural.
+- `ProcessOutputStore`, cursores y retención de output permanecen sin cambios públicos; el output sigue legible después de terminate hasta cerrar el recurso.
+
+### Parity de launch
+
+- `executable + arguments[]` conserva el contrato público y usa quoting Windows equivalente al camino de `ProcessStartInfo.ArgumentList`.
+- lookup por PATH y extensión implícita siguen funcionando.
+- paths de executable con espacios funcionan.
+- cwd se conserva.
+- sin overrides de environment se usa herencia directa de Windows;
+- con overrides se reconstruye el bloque Unicode desde `GetEnvironmentStringsW`, preservando pseudo-vars de drive y permitiendo set/remove case-insensitive.
+- stdin/stdout/stderr siguen siendo pipes administrados UTF-8.
+
+### Interop
+
+- dependencia: `Microsoft.Windows.CsWin32` **0.3.346**, `PrivateAssets=all`.
+- `NativeMethods.txt` contiene sólo la superficie Win32 necesaria para C1.
+- la infraestructura `STARTUPINFOEX` queda preparada para sumar `PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE` en C2.
+
+### Validación automática
+
+Suite final Release: **70/70 tests**:
+- Core: 3/3;
+- Windows: 63/63;
+- Integration: 4/4.
+
+Batería focalizada Process/quoting: **26/26**.
+
+Casos nuevos cubiertos:
+- root -> child -> grandchild terminado como una sola unidad;
+- `work_close` elimina descendientes session-owned;
+- procesos `independent` sobreviven al `work_close`;
+- root termina naturalmente y child queda vivo: `process_terminate` elimina child y conserva root `exited` + exit code original;
+- output retenido sigue disponible después de terminate;
+- env add/remove, cwd, PATH, extensión implícita y executable con espacios;
+- argumentos vacíos/espacios/comillas/backslashes;
+- launch fallido no registra recursos parciales;
+- concurrencia y todos los tests previos de Process siguen verdes.
+
+Build Release final: **0 warnings, 0 errors**.
+Build Debug final: **0 warnings, 0 errors**.
+
+### Validación live final
+
+Runtime Debug actualizado y `ready` mediante Secure MCP Tunnel, ejecutando `LoomLCI.Host.exe` directamente.
+
+Smoke end-to-end con las tools MCP públicas:
+1. root PowerShell PID `13816` creó child PID `8228` y salió normalmente;
+2. `process_read/status` confirmó root `state=exited`, `exitCode=0`;
+3. `process_terminate` se llamó sobre ese mismo handle ya terminado;
+4. un segundo proceso Loom verificó que PID `8228` estaba `gone` y terminó con exit 0;
+5. el root continuó reportando `state=exited`, `exitCode=0`;
+6. la WorkSession se cerró correctamente.
+
+Esto también valida C1 dentro del Job Object externo en el que ya corre `LoomLCI.Host` bajo el runtime/túnel.
+
+### Pendiente de cierre empírico
+
+La implementación no cambió schemas ni descripciones MCP públicas, por lo que no requiere refresh de acciones. Si se quiere mantener exactamente el mismo estándar de cierre usado en bloques anteriores, queda una prueba fresh-agent de regresión de las tools Process; no hay pendiente funcional conocido.
+
 ## Fuera de C1
 
 - ConPTY / terminal stream;
@@ -282,6 +353,6 @@ Toda la suite actual debe seguir verde.
 
 ## Conclusión
 
-No quedan decisiones arquitectónicas bloqueantes identificadas para C1.
+C1 está implementado y validado funcionalmente. No quedan problemas funcionales conocidos ni decisiones arquitectónicas bloqueantes. La base nativa de `Process` queda lista para C2/ConPTY.
 
-El próximo paso, si se aprueba, es implementar primero el launcher/job backend conservando el contrato público actual y validar parity antes de iniciar C2/ConPTY.
+Antes de declarar C1 formalmente cerrado puede hacerse una última regresión fresh-agent, principalmente para confirmar que la ergonomía pública de Process no se degradó; el contrato MCP no cambió.
