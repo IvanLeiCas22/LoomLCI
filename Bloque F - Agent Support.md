@@ -2,7 +2,7 @@
 
 ## Estado
 
-**F1.1 Core implementado y validado; F1.2 (MCP + exposición opcional) pendiente.**
+**F1.1 Core implementado y validado; investigación específica F1.2 completada y su implementación pendiente de aprobación.**
 
 Este bloque propone una primera capability opcional de Agent Support para mantener una checklist estructurada del trabajo lógico de un agente dentro de una WorkSession. No es un scheduler, no ejecuta pasos y no reemplaza Process, Python, MCP Tasks ni la planificación propia del host.
 
@@ -106,8 +106,8 @@ Devuelve el snapshot actual:
 Propiedades:
 
 - nueva WorkSession comienza en revision `0`;
-- read-only;
-- idempotente;
+- read-only sobre el estado lógico del plan;
+- la lectura refresca la actividad/idle timeout de la WorkSession, por lo que no debe anunciarse como idempotente en la metadata de Loom;
 - closed-world;
 - una WorkSession cerrada/expirada conserva la semántica normal `resource_closed` / `resource_expired`.
 
@@ -218,20 +218,25 @@ Las ServerInstructions deben mencionar Work Plan sólo cuando esté expuesto.
 
 ## Annotations MCP
 
-Propuesta cerrada para `work_plan_get`:
+La investigación específica de F1.2 cierra las annotations así:
 
-- readOnly = true
-- idempotent = true
-- destructive = false
-- openWorld = false
+### `work_plan_get`
 
-Para `work_plan_update`:
+- `ReadOnly = true`
+- `Destructive = false`
+- `Idempotent = false`
+- `OpenWorld = false`
 
-- readOnly = false
-- idempotent = false
-- openWorld = false
+MCP define `idempotentHint` formalmente como significativo sólo para tools no-read-only. Aun así Loom ya explicita `false` en operaciones read-only que refrescan lifetime, como `process_status`/`process_read`. `work_plan_get` también renueva actividad/idle timeout mediante `InvocationRunner`, por lo que se conserva esa política consistente.
 
-`destructiveHint` conviene validarlo empíricamente antes de cerrar F1.2. Semánticamente un full replacement puede eliminar pasos, pero marcarlo destructive puede introducir prompts de confirmación indeseables para una mutation puramente interna/efímera. No conviene falsear la annotation sin observar primero el comportamiento del host objetivo.
+### `work_plan_update`
+
+- `ReadOnly = false`
+- `Destructive = true`
+- `Idempotent = false`
+- `OpenWorld = false`
+
+El full replacement puede modificar y eliminar steps al omitirlos. MCP define `destructiveHint=false` para mutations sólo aditivas, por lo que anunciar `false` aquí sería semánticamente incorrecto. Si un host introduce fricción de confirmación, F1.3 debe medir esa UX; no se debe falsear la annotation para evitar prompts.
 
 ## Concurrencia
 
@@ -513,12 +518,236 @@ Los nuevos casos cubren revisión/CAS concurrente, IDs, reorder, límites, emoji
 
 ### F1.2 - MCP + exposición opcional
 
-- `work_plan_get`;
-- `work_plan_update`;
-- schemas/descriptions/annotations;
-- toggle mínimo por adapter/Host;
-- ServerInstructions condicionales;
-- IntegrationTests STDIO.
+#### Resultado de la investigación específica
+
+F1.2 puede implementarse sobre el `ModelContextProtocol` **2.2.0** que ya usa LoomLCI; no hace falta actualizar paquetes. La versión 2.2.0 continúa siendo la release estable más reciente observada al 2026-10-04.
+
+El SDK actual confirma que:
+
+- `.WithTools<T>()` agrega `McpServerTool` al `IServiceCollection` y devuelve el mismo `IMcpServerBuilder`, por lo que el registro condicional es directo;
+- las tools attribute-based resuelven sus constructores mediante DI al invocarse;
+- `Description` y DataAnnotations alimentan JSON Schema 2020-12, pero el SDK no las ejecuta como validación runtime: el Core debe seguir siendo la autoridad;
+- ServerInstructions se configuran por servidor y viajan en el handshake;
+- no hace falta tool filtering dinámico ni `tools/list_changed` para un perfil estático.
+
+#### Superficie pública cerrada
+
+Agregar `LoomLCI.Mcp/WorkPlanTools.cs` con dos tools:
+
+```text
+work_plan_get(workId)
+work_plan_update(workId, expectedRevision, steps[])
+```
+
+DTOs MCP separados de Core:
+
+```text
+WorkPlanStepDto
+  id: string
+  text: string
+  status: pending | active | waiting | completed
+
+WorkPlanSnapshotDto
+  revision: integer
+  steps: WorkPlanStepDto[]
+
+WorkPlanStepInputDto
+  id: string?       // null/omitido => step nuevo
+  text: string
+  status: pending | active | waiting | completed
+```
+
+No exponer enums C# directamente en el contrato MCP. El adapter convierte strings lowercase ↔ `WorkPlanStepStatus`, siguiendo el patrón actual de Process/Filesystem y evitando depender de defaults de serialización de enums.
+
+Ambas tools usan `UseStructuredContent = true` y `OutputSchemaType = typeof(ToolEnvelope<WorkPlanSnapshotDto>)`. Los errores continúan por `McpToolResults.From`, así que un stale revision produce `IsError=true` y conserva en `structuredContent.error.details.currentRevision` la información necesaria para recuperación.
+
+#### Schema de `work_plan_get`
+
+Input obligatorio:
+
+- `workId: string`.
+
+Descripción debe explicar que:
+
+- devuelve el snapshot lógico actual;
+- no ejecuta, observa ni sincroniza procesos reales;
+- conviene usarlo al retomar una tarea o antes de reconciliar un `conflict`;
+- la lectura refresca el idle timeout de WorkSession.
+
+Título propuesto: **Get work plan**.
+
+#### Schema de `work_plan_update`
+
+Inputs obligatorios:
+
+- `workId: string`;
+- `expectedRevision: integer`, `minimum: 0`;
+- `steps: array`, `maxItems: 32`, permitiendo array vacío para limpiar el plan.
+
+Cada item:
+
+- `id`: opcional/nullable; cuando existe debe reutilizarse exactamente como fue devuelto;
+- `text`: requerido, `minLength: 1`, `maxLength: 512` y pattern compatible para excluir CR/LF;
+- `status`: requerido, enum `pending | active | waiting | completed`.
+
+JSON Schema 2020-12 define `maxLength` en Unicode code points, alineado con el límite de 512 Unicode scalar values de Core para strings Unicode válidos. La regla whitespace-only/`Trim()` sigue validándose en Core porque el schema no debe duplicar toda la semántica de negocio.
+
+El adapter debe validar defensivamente `steps == null`, items null y status desconocidos antes de mapear a Core, aun cuando el schema los desaconseje. El Core continúa validando todos los invariants reales porque MCP considera los argumentos no confiables y el SDK no aplica DataAnnotations en runtime.
+
+Descripción de `work_plan_update` debe dejar explícito:
+
+- reemplaza atómicamente el snapshot completo;
+- `id = null` crea step;
+- omitir un ID existente elimina ese step;
+- preserve IDs devueltos por Loom;
+- `expectedRevision` debe ser la última revision observada;
+- ante `conflict`, hacer `work_plan_get`, reconciliar y reintentar;
+- múltiples `active`/`waiting` son válidos;
+- no ejecuta steps ni altera Process/Python/Filesystem.
+
+Título propuesto: **Update work plan**.
+
+#### Annotations cerradas
+
+`work_plan_get`:
+
+```text
+ReadOnly    = true
+Destructive = false
+Idempotent  = false
+OpenWorld   = false
+```
+
+`work_plan_update`:
+
+```text
+ReadOnly    = false
+Destructive = true
+Idempotent  = false
+OpenWorld   = false
+```
+
+No habilitar MCP Tasks/task-augmented execution: ambas operaciones son cortas y síncronas; Work Plan no es MCP Tasks.
+
+#### Exposición opcional
+
+No introducir un capability registry ni tool filtering dinámico.
+
+Cambiar el registro a:
+
+```text
+AddLoomMcpStdio(enableWorkPlan: false)
+```
+
+Implementación conceptual:
+
+```text
+builder = AddMcpServer(...)
+  .WithStdioServerTransport()
+  .WithTools<WorkTools>()
+  .WithTools<ProcessTools>()
+  .WithTools<FilesystemTools>()
+  .WithTools<PythonTools>();
+
+if (enableWorkPlan)
+    builder.WithTools<WorkPlanTools>();
+```
+
+El default debe ser **false** porque Agent Support es deliberadamente opcional y un adapter/harness con planificación propia no debería recibirlo por accidente.
+
+El Host actual, cuyo camino objetivo es ChatGPT normal mediante Secure MCP Tunnel, hace opt-in explícito:
+
+```text
+AddSingleton<WorkPlanCapability>();
+AddLoomMcpStdio(enableWorkPlan: true);
+```
+
+No hace falta condicionar el registro Core: `WorkPlanCapability` puede estar disponible internamente aunque el adapter no la exponga.
+
+Resultado esperado:
+
+- Host ChatGPT actual: **19 tools** (17 existentes + 2 Work Plan);
+- adapter con `enableWorkPlan=false`: **17 tools**.
+
+La selección es estática al construir el servidor. No usar `ToolCollection` mutable ni `tools/list_changed`; además de ser innecesario, la adopción de cambios dinámicos de catálogo sigue siendo desigual entre clientes.
+
+#### ServerInstructions
+
+Construir la string base actual y agregar sólo cuando `enableWorkPlan=true` una instrucción breve equivalente a:
+
+> When Work Plan tools are available, use them only for non-trivial multi-step tasks. They track logical progress but do not execute or monitor work. Preserve returned step IDs and revision; on conflict, reread and reconcile the plan.
+
+Objetivos:
+
+- evitar plan mecánico para tareas triviales;
+- no confundir `waiting` con estado real de Process;
+- enseñar el protocolo revision/IDs sin inflar cada prompt;
+- no mencionar Work Plan cuando las tools no están registradas.
+
+La descripción de cada tool sigue siendo autosuficiente; ServerInstructions sólo establece la política general de uso.
+
+#### Wiring / archivos propuestos
+
+```text
+src/LoomLCI.Mcp/WorkPlanTools.cs
+src/LoomLCI.Mcp/McpServiceCollectionExtensions.cs
+src/LoomLCI.Host/Program.cs
+tests/LoomLCI.IntegrationTests/McpStdioTests.cs
+```
+
+No tocar `LoomLCI.Windows` ni `ResourceRegistry`.
+
+#### Estrategia de tests F1.2
+
+1. **Contrato/self-description con Host habilitado**
+   - catálogo contiene `work_plan_get` y `work_plan_update`;
+   - títulos/descripciones correctos;
+   - annotations exactas;
+   - `work_plan_get` requiere `workId`;
+   - `work_plan_update` requiere `workId`, `expectedRevision`, `steps`;
+   - `expectedRevision.minimum = 0`;
+   - `steps.maxItems = 32` y no exige `minItems > 0`;
+   - nested `status` expone enum lowercase;
+   - nested `text` expone `minLength/maxLength` y single-line pattern;
+   - output schema corresponde al envelope/snapshot esperado.
+
+2. **Opt-in/opt-out sin iniciar STDIO**
+   - construir `ServiceCollection` con `AddLoomMcpStdio(false)` y resolver los `McpServerTool` registrados: Work Plan ausente;
+   - repetir con `true`: Work Plan presente;
+   - resolver `McpServerOptions` y comprobar que ServerInstructions sólo mencionan Work Plan en el caso habilitado;
+   - disponer el ServiceProvider de forma async; no arrancar el hosted STDIO transport.
+
+3. **Roundtrip STDIO real con Host habilitado**
+   - `work_create`;
+   - `work_plan_get` => revision 0 / empty;
+   - update con un `active` y un `waiting`, ambos nuevos;
+   - comprobar revision 1 e IDs `step_*`;
+   - get preserva snapshot;
+   - stale update con revision 0 => `IsError=true`, code `conflict`, `details.currentRevision=1`;
+   - update válido con IDs existentes y reorder/status changes;
+   - `work_close`;
+   - get posterior => `resource_closed`.
+
+4. **Adapter robustness**
+   - status string inválido => `invalid_argument`, no excepción genérica;
+   - array vacío limpia el plan;
+   - no duplicar el resultado completo en `Content`: mantener el patrón textual corto + `structuredContent`.
+
+No hace falta repetir en F1.2 los 24 casos de invariants ya cubiertos por Core.Tests; Integration debe probar frontera MCP, wiring y serialización.
+
+#### Criterio de cierre F1.2
+
+F1.2 queda listo cuando:
+
+- el Host objetivo expone 19 tools y un adapter opt-out conserva 17;
+- contrato JSON/schema es autoexplicativo;
+- annotations representan el comportamiento real, sin optimizarlas artificialmente para approvals;
+- ServerInstructions son condicionales;
+- stale revision es recuperable desde structuredContent;
+- el roundtrip STDIO demuestra get/update/conflict/close;
+- suites Debug/Release completas quedan verdes y sin warnings.
+
+El smoke por Secure MCP Tunnel y el comportamiento natural de un fresh-agent pertenecen a F1.3, no deben mezclarse con el criterio de implementación F1.2.
 
 ### F1.3 - Validación
 
@@ -558,3 +787,8 @@ Si la evaluación fresh-agent muestra que ChatGPT no usa Work Plan de forma úti
 - Microsoft Learn - synchronization: https://learn.microsoft.com/dotnet/standard/threading/synchronizing-data-for-multithreading
 - Microsoft Learn - records / shallow immutability: https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/record
 - Microsoft Learn - `String.EnumerateRunes`: https://learn.microsoft.com/dotnet/api/system.string.enumeraterunes?view=net-10.0
+- MCP Tool Annotations: https://blog.modelcontextprotocol.io/posts/2026-03-16-tool-annotations/
+- MCP C# SDK 2.2 tools/schema/runtime validation: https://github.com/modelcontextprotocol/csharp-sdk/blob/main/docs/concepts/tools/tools.md
+- MCP C# SDK `WithTools<T>` contract (2.2.0 local XML docs / upstream SDK)
+- NuGet `ModelContextProtocol` 2.2.0: https://www.nuget.org/packages/ModelContextProtocol/2.2.0
+- JSON Schema 2020-12 `maxLength`: https://json-schema.org/draft/2020-12/json-schema-validation#section-6.3.1

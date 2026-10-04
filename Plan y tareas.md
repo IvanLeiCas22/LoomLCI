@@ -1,6 +1,6 @@
 # Plan y tareas
 
-> Estado: modelo concurrente confirmado; F1.1 Core implementado y validado. Exposición/nombres/schema MCP F1.2 pendientes.
+> Estado: modelo concurrente confirmado; F1.1 Core implementado/validado y diseño F1.2 de exposición MCP cerrado. Implementación F1.2 pendiente.
 
 ## Distinciones necesarias
 
