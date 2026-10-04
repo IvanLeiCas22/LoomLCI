@@ -44,6 +44,8 @@ public sealed class McpStdioTests
             Assert.NotNull(instructions);
             Assert.Contains("not a sandbox", instructions, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("Prefer structured LoomLCI filesystem capabilities", instructions, StringComparison.Ordinal);
+            Assert.Contains("python_execute", instructions, StringComparison.Ordinal);
+            Assert.Contains("Process capabilities", instructions, StringComparison.Ordinal);
             Assert.Contains("opaque values", instructions, StringComparison.OrdinalIgnoreCase);
         }
         finally
@@ -214,6 +216,33 @@ public sealed class McpStdioTests
         var resizeProperties = GetRequiredProperty(resizeProcess.JsonSchema, "properties");
         AssertSchemaRange(GetRequiredProperty(resizeProperties, "columns"), 1, short.MaxValue);
         AssertSchemaRange(GetRequiredProperty(resizeProperties, "rows"), 1, short.MaxValue);
+
+        var executePython = Assert.Single(tools, tool => tool.Name == "python_execute");
+        Assert.Equal("Execute Python", executePython.ProtocolTool.Title);
+        Assert.Contains("persistent", executePython.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("input()", executePython.Description, StringComparison.Ordinal);
+        Assert.Contains("256 KiB", executePython.Description, StringComparison.Ordinal);
+        Assert.True(executePython.ProtocolTool.Annotations?.DestructiveHint ?? false);
+        Assert.False(executePython.ProtocolTool.Annotations?.ReadOnlyHint ?? true);
+        Assert.False(executePython.ProtocolTool.Annotations?.IdempotentHint ?? true);
+        Assert.True(executePython.ProtocolTool.Annotations?.OpenWorldHint ?? false);
+
+        var pythonProperties = GetRequiredProperty(executePython.JsonSchema, "properties");
+        AssertSchemaRange(GetRequiredProperty(pythonProperties, "timeoutSeconds"), 1, 600);
+        AssertSchemaRange(GetRequiredProperty(pythonProperties, "maxOutputChars"), 1, 1048576);
+        var pythonRequired = GetRequiredProperty(executePython.JsonSchema, "required")
+            .EnumerateArray()
+            .Select(value => value.GetString())
+            .ToHashSet(StringComparer.Ordinal);
+        Assert.Contains("workId", pythonRequired);
+        Assert.Contains("code", pythonRequired);
+
+        var resetPython = Assert.Single(tools, tool => tool.Name == "python_reset");
+        Assert.Equal("Reset Python session", resetPython.ProtocolTool.Title);
+        Assert.Contains("not an interrupt", resetPython.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.True(resetPython.ProtocolTool.Annotations?.DestructiveHint ?? false);
+        Assert.True(resetPython.ProtocolTool.Annotations?.IdempotentHint ?? false);
+        Assert.False(resetPython.ProtocolTool.Annotations?.OpenWorldHint ?? true);
     }
 
     [Fact]
@@ -930,6 +959,250 @@ public sealed class McpStdioTests
             if (Directory.Exists(scratch))
             {
                 Directory.Delete(scratch, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task StdioAdapterCanExecutePersistentPythonAndResetIt()
+    {
+        var repoRoot = FindRepoRoot();
+        var hostDll = GetHostDll(repoRoot);
+        Assert.True(File.Exists(hostDll), $"Host was not built: {hostDll}");
+
+        var hostWorkingDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"loom-python-mcp-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(hostWorkingDirectory);
+
+        try
+        {
+            var transport = new StdioClientTransport(new StdioClientTransportOptions
+            {
+                Name = "LoomLCI Python integration test",
+                Command = "dotnet",
+                Arguments = [hostDll],
+                WorkingDirectory = hostWorkingDirectory,
+                ShutdownTimeout = TimeSpan.FromSeconds(5)
+            });
+
+            await using var client = await McpClient.CreateAsync(transport);
+
+            var create = await client.CallToolAsync(
+                "work_create",
+                new Dictionary<string, object?>
+                {
+                    ["baseDirectory"] = repoRoot,
+                    ["label"] = "python-integration-test"
+                });
+
+            var createRoot = GetStructured(create.StructuredContent);
+            Assert.True(GetRequiredProperty(createRoot, "ok").GetBoolean());
+            var workId = GetRequiredProperty(
+                GetRequiredProperty(createRoot, "result"),
+                "workId").GetString();
+            Assert.False(string.IsNullOrWhiteSpace(workId));
+
+            var assign = await client.CallToolAsync(
+                "python_execute",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workId,
+                    ["code"] = "x = 40"
+                });
+
+            var assignRoot = GetStructured(assign.StructuredContent);
+            Assert.True(GetRequiredProperty(assignRoot, "ok").GetBoolean());
+            Assert.Equal(
+                "completed",
+                GetRequiredProperty(
+                    GetRequiredProperty(assignRoot, "result"),
+                    "status").GetString());
+
+            var print = await client.CallToolAsync(
+                "python_execute",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workId,
+                    ["code"] = "print(x + 2)"
+                });
+
+            Assert.Equal(
+                "Tool completed successfully. Structured result attached.",
+                GetSingleTextContent(print));
+            Assert.DoesNotContain("42", GetSingleTextContent(print), StringComparison.Ordinal);
+
+            var printRoot = GetStructured(print.StructuredContent);
+            var printResult = GetRequiredProperty(printRoot, "result");
+            Assert.True(GetRequiredProperty(printRoot, "ok").GetBoolean());
+            Assert.Equal("42\n", GetRequiredProperty(printResult, "stdout").GetString());
+            Assert.Equal("", GetRequiredProperty(printResult, "stderr").GetString());
+            Assert.False(GetRequiredProperty(printResult, "stdoutTruncated").GetBoolean());
+
+            var exception = await client.CallToolAsync(
+                "python_execute",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workId,
+                    ["code"] = "raise ValueError('boom')"
+                });
+
+            Assert.False(exception.IsError ?? false);
+            Assert.DoesNotContain("boom", GetSingleTextContent(exception), StringComparison.Ordinal);
+            Assert.DoesNotContain("Traceback", GetSingleTextContent(exception), StringComparison.Ordinal);
+
+            var exceptionRoot = GetStructured(exception.StructuredContent);
+            Assert.True(GetRequiredProperty(exceptionRoot, "ok").GetBoolean());
+            var exceptionResult = GetRequiredProperty(exceptionRoot, "result");
+            Assert.Equal("exception", GetRequiredProperty(exceptionResult, "status").GetString());
+            var exceptionInfo = GetRequiredProperty(exceptionResult, "exception");
+            Assert.Equal("ValueError", GetRequiredProperty(exceptionInfo, "type").GetString());
+            Assert.Equal("boom", GetRequiredProperty(exceptionInfo, "message").GetString());
+            Assert.Contains(
+                "ValueError: boom",
+                GetRequiredProperty(exceptionInfo, "traceback").GetString(),
+                StringComparison.Ordinal);
+
+            var unicode = await client.CallToolAsync(
+                "python_execute",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workId,
+                    ["code"] = "print('😀😀😀')",
+                    ["maxOutputChars"] = 3
+                });
+
+            var unicodeResult = GetRequiredProperty(
+                GetStructured(unicode.StructuredContent),
+                "result");
+            Assert.Equal("😀😀😀", GetRequiredProperty(unicodeResult, "stdout").GetString());
+            Assert.True(GetRequiredProperty(unicodeResult, "stdoutTruncated").GetBoolean());
+
+            var oversizedCode = new string('x', 256 * 1024 + 1);
+            var oversized = await client.CallToolAsync(
+                "python_execute",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workId,
+                    ["code"] = oversizedCode
+                });
+
+            Assert.True(oversized.IsError is true);
+            var oversizedRoot = GetStructured(oversized.StructuredContent);
+            Assert.False(GetRequiredProperty(oversizedRoot, "ok").GetBoolean());
+            Assert.Equal(
+                "invalid_argument",
+                GetRequiredProperty(
+                    GetRequiredProperty(oversizedRoot, "error"),
+                    "code").GetString());
+
+            var afterOversized = await client.CallToolAsync(
+                "python_execute",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workId,
+                    ["code"] = "print(x)"
+                });
+            Assert.Equal(
+                "40\n",
+                GetRequiredProperty(
+                    GetRequiredProperty(
+                        GetStructured(afterOversized.StructuredContent),
+                        "result"),
+                    "stdout").GetString());
+
+            var reset = await client.CallToolAsync(
+                "python_reset",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workId
+                });
+            var resetRoot = GetStructured(reset.StructuredContent);
+            Assert.True(GetRequiredProperty(resetRoot, "ok").GetBoolean());
+            Assert.True(GetRequiredProperty(resetRoot, "result").GetBoolean());
+
+            var afterReset = await client.CallToolAsync(
+                "python_execute",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workId,
+                    ["code"] = "print('x' in globals())"
+                });
+            Assert.Equal(
+                "False\n",
+                GetRequiredProperty(
+                    GetRequiredProperty(
+                        GetStructured(afterReset.StructuredContent),
+                        "result"),
+                    "stdout").GetString());
+
+            var timeout = await client.CallToolAsync(
+                "python_execute",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workId,
+                    ["code"] = "while True:\n    pass",
+                    ["timeoutSeconds"] = 1
+                });
+            Assert.True(timeout.IsError is true);
+            Assert.Equal(
+                "deadline_exceeded",
+                GetRequiredProperty(
+                    GetRequiredProperty(
+                        GetStructured(timeout.StructuredContent),
+                        "error"),
+                    "code").GetString());
+
+            var recovered = await client.CallToolAsync(
+                "python_execute",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workId,
+                    ["code"] = "print('fresh')"
+                });
+            Assert.Equal(
+                "fresh\n",
+                GetRequiredProperty(
+                    GetRequiredProperty(
+                        GetStructured(recovered.StructuredContent),
+                        "result"),
+                    "stdout").GetString());
+
+            var close = await client.CallToolAsync(
+                "work_close",
+                new Dictionary<string, object?> { ["workId"] = workId });
+            Assert.True(
+                GetRequiredProperty(
+                    GetStructured(close.StructuredContent),
+                    "ok").GetBoolean());
+
+            var afterClose = await client.CallToolAsync(
+                "python_execute",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workId,
+                    ["code"] = "print('closed')"
+                });
+            Assert.True(afterClose.IsError is true);
+            Assert.Equal(
+                "resource_closed",
+                GetRequiredProperty(
+                    GetRequiredProperty(
+                        GetStructured(afterClose.StructuredContent),
+                        "error"),
+                    "code").GetString());
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(hostWorkingDirectory, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
             }
         }
     }

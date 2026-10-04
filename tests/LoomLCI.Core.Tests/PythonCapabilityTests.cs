@@ -450,6 +450,36 @@ public sealed class PythonCapabilityTests
     }
 
     [Fact]
+    public async Task ExecuteRejectsCodeBeyondUtf8LimitBeforeStartingWorker()
+    {
+        await using var fixture = new PythonFixture();
+        var work = fixture.CreateWork();
+        var code = new string('x', PythonCapability.MaxCodeUtf8Bytes + 1);
+
+        var result = await fixture.ExecuteAsync(work.Id, code);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("invalid_argument", result.Error?.Code);
+        Assert.Contains("UTF-8 bytes", result.Error?.Message);
+        Assert.Equal(0, fixture.Provider.StartCount);
+    }
+
+    [Fact]
+    public async Task ExecuteRejectsInvalidUnicodeBeforeStartingWorker()
+    {
+        await using var fixture = new PythonFixture();
+        var work = fixture.CreateWork();
+        var code = "print('" + "\uD800" + "')";
+
+        var result = await fixture.ExecuteAsync(work.Id, code);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("invalid_argument", result.Error?.Code);
+        Assert.Contains("valid Unicode", result.Error?.Message);
+        Assert.Equal(0, fixture.Provider.StartCount);
+    }
+
+    [Fact]
     public async Task ExecuteValidatesTimeoutAndOutputLimitBeforeStartingWorker()
     {
         await using var fixture = new PythonFixture();

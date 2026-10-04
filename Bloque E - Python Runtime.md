@@ -2,7 +2,7 @@
 
 ## Estado
 
-**E1.1 (Core), E1.2 (worker + IPC) y E1.3 (backend Windows/provider) implementados y validados; E1.4 (MCP) pendiente.**
+**E1.1–E1.4 implementados y validados; E1.5 (smoke por Secure MCP Tunnel + fresh-agent) pendiente.**
 
 Este bloque define el primer vertical slice de Python Runtime después del cierre de la baseline v0.1. No modifica todavía Computer ni Agent Support.
 
@@ -574,15 +574,51 @@ Validación E1.3:
 - build Release: **0 warnings / 0 errors**;
 - ningún `python.exe` privado queda vivo tras la suite.
 
-E1.3 no agrega todavía superficie MCP; eso pertenece a E1.4.
+E1.3 dejó preparado el backend; E1.4 ya expone esa capability mediante MCP.
 
-### E1.4 - MCP
+### E1.4 - MCP ✓
 
-- `python_execute`;
-- `python_reset`;
-- DTO/outputSchema;
-- descripciones;
-- ServerInstructions actualizadas mínimamente.
+Implementado:
+
+- `PythonTools` con `python_execute` y `python_reset`;
+- DTOs propios y `ToolEnvelope<...>`/structuredContent siguiendo el patrón MCP existente;
+- `python_execute(workId, code, timeoutSeconds=60, maxOutputChars=65536)`;
+- schema: `workId` y `code` requeridos, timeout 1..600 s y output 1..1.048.576 code points por stream;
+- annotations de `python_execute`: destructive, non-idempotent, open-world;
+- annotations de `python_reset`: destructive, idempotent, closed-world;
+- excepción Python ordinaria => tool success (`ok=true`, `status=exception`); sólo fallos de Loom/infraestructura usan `isError=true`;
+- stdout/stderr/traceback permanecen sólo en structuredContent; el text content no duplica payloads grandes;
+- ServerInstructions explican cuándo preferir Python, Filesystem o Process;
+- Host expone las dos tools por STDIO.
+
+Hardenings incorporados antes de publicar la capability:
+
+- límite de código de **256 KiB UTF-8** validado en Core antes de crear/tocar worker;
+- Unicode inválido devuelve `invalid_argument`;
+- límites de stdout/stderr y metadata se validan como **Unicode code points**, no unidades UTF-16.
+
+Validación E1.4:
+
+- 2 tests Core nuevos para límite UTF-8/Unicode inválido;
+- 1 test Windows nuevo para truncamiento correcto con emoji/surrogate pair;
+- 1 roundtrip MCP STDIO nuevo con Host lanzado desde cwd ajeno al repo;
+- catálogo/schema/annotations de ambas tools verificados;
+- persistencia `x=40 -> print(x+2)`;
+- excepción Python comprobada como resultado normal y traceback sólo estructurado;
+- Unicode/emoji respeta `maxOutputChars`;
+- código >256 KiB devuelve `invalid_argument` sin perder el worker existente;
+- reset limpia namespace;
+- timeout devuelve `deadline_exceeded` y la siguiente ejecución recrea;
+- WorkSession cerrada devuelve `resource_closed`;
+- Core: **60/60**;
+- Windows: **104/104**;
+- Integration MCP: **7/7**;
+- total Debug: **171/171**;
+- total Release: **171/171**;
+- build Release: **0 warnings / 0 errors**;
+- ningún `python.exe` privado queda vivo tras la suite.
+
+La validación Debug del Host se ejecutó desde un output alternativo porque el Host Debug activo mantiene el Secure MCP Tunnel de esta sesión. E1.5 realizará el smoke sobre el túnel real y la prueba fresh-agent.
 
 ### E1.5 - Validación
 

@@ -20,3 +20,6 @@
 - `worker.py` y `runtime.json` se embeben en `LoomLCI.Windows`; el Host no dependerá del repo ni de su cwd para localizar assets de Python.
 - El CPython privado se auto-provisionará on-demand bajo `%LOCALAPPDATA%\LoomLCI`, con descarga acotada, SHA-256 fijado, staging y publicación por rename; los tests del provisioner usarán HTTP/ZIP falsos en vez de Internet.
 - E1 de Python será stdlib-only y textual; PyAutoGUI, imágenes, paquetes de terceros y `loom.*` quedan diferidos.
+- `python_execute`/`python_reset` serán la superficie MCP pública inicial. Una excepción Python ordinaria será un resultado exitoso (`ok=true`, `status=exception`); sólo fallos de Loom/infraestructura serán tool errors.
+- El código enviado a Python se limita a 256 KiB en UTF-8 estricto y se valida en Core antes de crear/tocar worker.
+- `maxOutputChars` y los límites de metadata Python se interpretan como Unicode code points, no unidades UTF-16.

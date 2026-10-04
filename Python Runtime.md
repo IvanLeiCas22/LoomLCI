@@ -1,6 +1,6 @@
 # Python Runtime
 
-> Estado: **arquitectura confirmada; E1.1 Core, E1.2 worker/IPC y E1.3 backend Windows/provider implementados y validados; E1.4 MCP pendiente**. Ver [[Bloque E - Python Runtime]].
+> Estado: **arquitectura confirmada; E1.1–E1.4 implementados y validados; E1.5 (smoke por Secure MCP Tunnel + fresh-agent) pendiente**. Ver [[Bloque E - Python Runtime]].
 
 ## Decisión
 
@@ -65,6 +65,8 @@ La comunicación Named Pipe con CPython estándar fue validada experimentalmente
 - stderr;
 - flags de truncamiento;
 - excepción estructurada cuando corresponda.
+
+E1.4 fija además: código ≤256 KiB UTF-8 estricto; `maxOutputChars` cuenta Unicode code points por stream; una excepción Python ordinaria mantiene `ok=true`/`status=exception`, mientras timeout/crash/fallos de Loom son tool errors.
 
 ## Relación con Process
 

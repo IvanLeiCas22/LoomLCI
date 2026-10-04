@@ -24,7 +24,7 @@ internal static class PythonWorkerProtocol
     public const int MaxRequestFrameBytes = 2 * 1024 * 1024;
     public const int MaxResponseFrameBytes = 32 * 1024 * 1024;
     public const int MaxHelloFrameBytes = 16 * 1024;
-    public const int MaxCodeUtf8Bytes = 256 * 1024;
+    public const int MaxCodeUtf8Bytes = PythonCapability.MaxCodeUtf8Bytes;
     public const int MaxRequestIdChars = 128;
     public const int MaxExceptionMessageChars = 16 * 1024;
     public const int MaxTracebackChars = 64 * 1024;
@@ -211,7 +211,8 @@ internal static class PythonWorkerProtocol
 
         var stdout = ReadRequiredString(root, "stdout");
         var stderr = ReadRequiredString(root, "stderr");
-        if (stdout.Length > maxOutputChars || stderr.Length > maxOutputChars)
+        if (CountUnicodeCodePoints(stdout) > maxOutputChars ||
+            CountUnicodeCodePoints(stderr) > maxOutputChars)
         {
             throw new PythonWorkerProtocolException(
                 "Python worker returned output beyond the negotiated character limit.");
@@ -230,9 +231,9 @@ internal static class PythonWorkerProtocol
             var message = ReadRequiredString(exceptionElement, "message");
             var traceback = ReadRequiredString(exceptionElement, "traceback");
 
-            if (type.Length > 512 ||
-                message.Length > MaxExceptionMessageChars ||
-                traceback.Length > MaxTracebackChars)
+            if (CountUnicodeCodePoints(type) > 512 ||
+                CountUnicodeCodePoints(message) > MaxExceptionMessageChars ||
+                CountUnicodeCodePoints(traceback) > MaxTracebackChars)
             {
                 throw new PythonWorkerProtocolException(
                     "Python worker returned oversized exception metadata.");
@@ -394,6 +395,25 @@ internal static class PythonWorkerProtocol
             throw new PythonWorkerProtocolException(
                 "requestId must be a non-empty bounded string.");
         }
+    }
+
+    private static int CountUnicodeCodePoints(string value)
+    {
+        var count = 0;
+
+        for (var index = 0; index < value.Length; index++)
+        {
+            if (char.IsHighSurrogate(value[index]) &&
+                index + 1 < value.Length &&
+                char.IsLowSurrogate(value[index + 1]))
+            {
+                index++;
+            }
+
+            count++;
+        }
+
+        return count;
     }
 
     private static void RequireObject(JsonElement element)

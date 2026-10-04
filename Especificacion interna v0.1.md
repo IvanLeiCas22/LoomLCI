@@ -10,13 +10,13 @@ Implementado actualmente:
 - lifecycle explícito con close/expiry/tombstones;
 - Process con pipes, Job Objects, ConPTY, retención post-exit y explicit release;
 - Filesystem estructurado;
-- Python Runtime E1.1–E1.3: contratos Core, worker Python persistente, provisioning privado y backend Windows/provider con lifecycle vía Job Objects;
+- Python Runtime E1.1–E1.4: contratos Core, worker persistente, provisioning privado, backend Windows/provider y tools MCP públicas `python_execute`/`python_reset`;
 - adapter MCP por STDIO y acceso de ChatGPT normal mediante Secure MCP Tunnel externo.
 
 Diferido; **no debe interpretarse como implementado hoy**:
 
 - abstracción explícita `ExecutionContext` / Policy;
-- adapter MCP público de Python Runtime;
+- validación E1.5 de Python Runtime por Secure MCP Tunnel + fresh-agent;
 - Work Plan / Agent Support;
 - Computer/UI Automation/captura;
 - Known Locations;

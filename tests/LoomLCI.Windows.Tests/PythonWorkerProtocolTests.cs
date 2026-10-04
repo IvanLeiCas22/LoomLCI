@@ -189,6 +189,19 @@ public sealed class PythonWorkerProtocolTests
     }
 
     [Fact]
+    public async Task RealWorkerCountsUnicodeCodePointsInsteadOfUtf16Units()
+    {
+        await using var worker = await WorkerHarness.StartAsync();
+
+        var result = await worker.ExecuteAsync(
+            "print('😀😀😀')",
+            maxOutputChars: 3);
+
+        Assert.Equal("😀😀😀", result.Stdout);
+        Assert.True(result.StdoutTruncated);
+    }
+
+    [Fact]
     public async Task RealWorkerReturnsStructuredExceptionAndPreservesPartialState()
     {
         await using var worker = await WorkerHarness.StartAsync();

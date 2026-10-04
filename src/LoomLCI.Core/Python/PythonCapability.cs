@@ -1,3 +1,4 @@
+using System.Text;
 using LoomLCI.Core.Invocations;
 using LoomLCI.Core.Observability;
 using LoomLCI.Core.Resources;
@@ -12,6 +13,10 @@ public sealed class PythonCapability
     public static readonly TimeSpan MaxTimeout = TimeSpan.FromMinutes(10);
     public const int DefaultMaxOutputChars = 65_536;
     public const int MaxOutputChars = 1_048_576;
+    public const int MaxCodeUtf8Bytes = 256 * 1024;
+
+    private static readonly UTF8Encoding StrictUtf8 =
+        new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
     private readonly IPythonRuntimeProvider _provider;
     private readonly ResourceRegistry _resources;
@@ -47,6 +52,27 @@ public sealed class PythonCapability
             return Task.FromResult(
                 LoomResult<PythonExecutionResult>.Failure(
                     LoomErrors.InvalidArgument("Python code is required.")));
+        }
+
+        int codeBytes;
+        try
+        {
+            codeBytes = StrictUtf8.GetByteCount(request.Code);
+        }
+        catch (EncoderFallbackException)
+        {
+            return Task.FromResult(
+                LoomResult<PythonExecutionResult>.Failure(
+                    LoomErrors.InvalidArgument(
+                        "Python code must contain valid Unicode.")));
+        }
+
+        if (codeBytes > MaxCodeUtf8Bytes)
+        {
+            return Task.FromResult(
+                LoomResult<PythonExecutionResult>.Failure(
+                    LoomErrors.InvalidArgument(
+                        $"Python code must be no more than {MaxCodeUtf8Bytes} UTF-8 bytes.")));
         }
 
         if (request.Timeout <= TimeSpan.Zero || request.Timeout > MaxTimeout)

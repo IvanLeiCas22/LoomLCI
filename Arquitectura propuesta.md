@@ -1,6 +1,6 @@
 # Arquitectura base v0.1
 
-> Estado: **confirmada como baseline y reconciliada con la implementación al 2026-10-04**. Process, Filesystem, Job Objects/ConPTY y lifecycle D0 están implementados. Python Runtime E1.1–E1.3 (Core, worker/IPC y backend Windows/provider) también están implementados; adapter MCP, Agent Support y Computer siguen pendientes.
+> Estado: **confirmada como baseline y reconciliada con la implementación al 2026-10-04**. Process, Filesystem, Job Objects/ConPTY y lifecycle D0 están implementados. Python Runtime E1.1–E1.4 (Core, worker/IPC, backend Windows/provider y adapter MCP) también están implementados; queda E1.5 de validación por túnel/fresh-agent. Agent Support y Computer siguen pendientes.
 
 ## Principios
 1. LoomLCI es un runtime local, no un agente.
