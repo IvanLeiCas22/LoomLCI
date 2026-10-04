@@ -12,14 +12,6 @@ public sealed class WindowsProcessProvider : IProcessProvider
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (spec.IoMode != ProcessIoMode.Pipes)
-        {
-            return Task.FromResult(
-                LoomResult<IProcessResource>.Failure(
-                    LoomErrors.Unsupported(
-                        "Only pipe-based process I/O is implemented.")));
-        }
-
         try
         {
             IProcessResource resource =
@@ -53,7 +45,10 @@ public sealed class WindowsProcessProvider : IProcessProvider
                 LoomResult<IProcessResource>.Failure(
                     LoomErrors.InvalidArgument(ex.Message)));
         }
-        catch (NotSupportedException ex)
+        catch (Exception ex) when (
+            ex is NotSupportedException or
+            PlatformNotSupportedException or
+            EntryPointNotFoundException)
         {
             return Task.FromResult(
                 LoomResult<IProcessResource>.Failure(
@@ -62,7 +57,8 @@ public sealed class WindowsProcessProvider : IProcessProvider
         catch (Exception ex) when (
             ex is Win32Exception or
             InvalidOperationException or
-            IOException)
+            IOException or
+            System.Runtime.InteropServices.COMException)
         {
             return Task.FromResult(
                 LoomResult<IProcessResource>.Failure(

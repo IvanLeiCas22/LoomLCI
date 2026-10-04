@@ -8,6 +8,12 @@ DeleteProcThreadAttributeList
 GetExitCodeProcess
 GetEnvironmentStringsW
 FreeEnvironmentStrings
+CreatePseudoConsole
+ResizePseudoConsole
+ClosePseudoConsole
+ReleasePseudoConsole
+COORD
+HPCON
 STARTUPINFOEXW
 JOBOBJECT_EXTENDED_LIMIT_INFORMATION
 JOB_OBJECT_LIMIT

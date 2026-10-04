@@ -347,6 +347,158 @@ public sealed class McpStdioTests
         Assert.True(GetRequiredProperty(closeRoot, "ok").GetBoolean());
     }
 
+
+    [Fact]
+    public async Task StdioAdapterCanRunInteractiveTerminalProcess()
+    {
+        var repoRoot = FindRepoRoot();
+        var hostDll = GetHostDll(repoRoot);
+        Assert.True(File.Exists(hostDll), $"Host was not built: {hostDll}");
+
+        var transport = new StdioClientTransport(new StdioClientTransportOptions
+        {
+            Name = "LoomLCI terminal integration test",
+            Command = "dotnet",
+            Arguments = [hostDll],
+            WorkingDirectory = repoRoot,
+            ShutdownTimeout = TimeSpan.FromSeconds(5)
+        });
+
+        await using var client = await McpClient.CreateAsync(transport);
+
+        var create = await client.CallToolAsync(
+            "work_create",
+            new Dictionary<string, object?>
+            {
+                ["baseDirectory"] = repoRoot,
+                ["label"] = "terminal-integration-test"
+            });
+
+        var createRoot = GetStructured(create.StructuredContent);
+        Assert.True(GetRequiredProperty(createRoot, "ok").GetBoolean());
+        var workId = GetRequiredProperty(
+            GetRequiredProperty(createRoot, "result"),
+            "workId").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(workId));
+
+        var start = await client.CallToolAsync(
+            "process_start",
+            new Dictionary<string, object?>
+            {
+                ["executable"] = "powershell.exe",
+                ["arguments"] = new[]
+                {
+                    "-NoProfile",
+                    "-Command",
+                    "$line=[Console]::ReadLine(); " +
+                    "[Console]::WriteLine('MCP=' + $line); " +
+                    "[Console]::WriteLine('SIZE=' + [Console]::WindowWidth + 'x' + [Console]::WindowHeight)"
+                },
+                ["workId"] = workId,
+                ["ioMode"] = "terminal",
+                ["terminalColumns"] = 80,
+                ["terminalRows"] = 24
+            });
+
+        var startRoot = GetStructured(start.StructuredContent);
+        Assert.True(GetRequiredProperty(startRoot, "ok").GetBoolean());
+        var startResult = GetRequiredProperty(startRoot, "result");
+        Assert.Equal("terminal", GetRequiredProperty(startResult, "ioMode").GetString());
+        var processHandle = GetRequiredProperty(startResult, "processHandle").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(processHandle));
+
+        var resize = await client.CallToolAsync(
+            "process_resize",
+            new Dictionary<string, object?>
+            {
+                ["processHandle"] = processHandle,
+                ["columns"] = 100,
+                ["rows"] = 30
+            });
+        Assert.True(
+            GetRequiredProperty(
+                GetStructured(resize.StructuredContent),
+                "ok").GetBoolean());
+
+        var write = await client.CallToolAsync(
+            "process_write",
+            new Dictionary<string, object?>
+            {
+                ["processHandle"] = processHandle,
+                ["text"] = "mcp-terminal\r"
+            });
+        Assert.True(
+            GetRequiredProperty(
+                GetStructured(write.StructuredContent),
+                "ok").GetBoolean());
+
+        var terminalText = string.Empty;
+        for (var i = 0; i < 200; i++)
+        {
+            var read = await client.CallToolAsync(
+                "process_read",
+                new Dictionary<string, object?>
+                {
+                    ["processHandle"] = processHandle,
+                    ["terminalCursor"] = 0L
+                });
+
+            var readRoot = GetStructured(read.StructuredContent);
+            Assert.True(GetRequiredProperty(readRoot, "ok").GetBoolean());
+            var result = GetRequiredProperty(readRoot, "result");
+            Assert.Equal("terminal", GetRequiredProperty(result, "ioMode").GetString());
+            Assert.Equal(JsonValueKind.Null, GetRequiredProperty(result, "stdout").ValueKind);
+            Assert.Equal(JsonValueKind.Null, GetRequiredProperty(result, "stderr").ValueKind);
+
+            var terminal = GetRequiredProperty(result, "terminal");
+            var chunks = GetRequiredProperty(terminal, "chunks");
+            terminalText = string.Concat(
+                chunks.EnumerateArray()
+                    .Select(chunk => GetRequiredProperty(chunk, "text").GetString()));
+
+            if (terminalText.Contains("MCP=mcp-terminal", StringComparison.Ordinal) &&
+                terminalText.Contains("SIZE=100x30", StringComparison.Ordinal))
+            {
+                break;
+            }
+
+            await Task.Delay(25);
+        }
+
+        Assert.Contains("MCP=mcp-terminal", terminalText, StringComparison.Ordinal);
+        Assert.Contains("SIZE=100x30", terminalText, StringComparison.Ordinal);
+
+        JsonElement statusResult = default;
+        for (var i = 0; i < 200; i++)
+        {
+            var status = await client.CallToolAsync(
+                "process_status",
+                new Dictionary<string, object?> { ["processHandle"] = processHandle });
+            var statusRoot = GetStructured(status.StructuredContent);
+            Assert.True(GetRequiredProperty(statusRoot, "ok").GetBoolean());
+            statusResult = GetRequiredProperty(statusRoot, "result");
+
+            if (GetRequiredProperty(statusResult, "state").GetString()
+                is "exited" or "terminated")
+            {
+                break;
+            }
+
+            await Task.Delay(25);
+        }
+
+        Assert.Equal("exited", GetRequiredProperty(statusResult, "state").GetString());
+        Assert.Equal(0, GetRequiredProperty(statusResult, "exitCode").GetInt32());
+
+        var close = await client.CallToolAsync(
+            "work_close",
+            new Dictionary<string, object?> { ["workId"] = workId });
+        Assert.True(
+            GetRequiredProperty(
+                GetStructured(close.StructuredContent),
+                "ok").GetBoolean());
+    }
+
     [Fact]
     public async Task StdioAdapterCanRoundTripFilesystem()
     {

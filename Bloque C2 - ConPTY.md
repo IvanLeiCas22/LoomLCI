@@ -2,7 +2,7 @@
 
 ## Estado
 
-**Diseño aprobado. C2.1 (contrato Core/MCP) implementado y validado; siguiente etapa: C2.2 backend ConPTY.**
+**Diseño aprobado. C2.1 (contrato Core/MCP) y C2.2 (backend ConPTY) implementados y validados; siguiente etapa: C2.3 lifecycle y hardening.**
 
 C1 dejó resueltos el launch nativo con `CreateProcessW`, `STARTUPINFOEX`, Job Objects, quoting, environment, working directory, estado, output retenido y lifecycle de `ProcessHandle`. C2 agrega el segundo modo de I/O previsto desde la arquitectura inicial: **terminal mediante ConPTY**.
 
@@ -82,7 +82,7 @@ En modo terminal:
 
 - no heredar los handles de los pipes;
 - `bInheritHandles = FALSE`;
-- no usar `STARTF_USESTDHANDLES`;
+- usar `STARTF_USESTDHANDLES` con `hStdInput`, `hStdOutput` y `hStdError` en `NULL` para evitar que Windows duplique stdio redirigido del proceso padre y opaque ConPTY;
 - no usar `PROC_THREAD_ATTRIBUTE_HANDLE_LIST`;
 - mantener `PROC_THREAD_ATTRIBUTE_JOB_LIST`;
 - usar `EXTENDED_STARTUPINFO_PRESENT`;
@@ -436,6 +436,7 @@ Flujo propuesto:
    - `PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE`;
 9. `CreateProcessW` con:
    - `bInheritHandles = FALSE`;
+   - `STARTF_USESTDHANDLES` y `hStdInput`/`hStdOutput`/`hStdError = NULL`;
    - `EXTENDED_STARTUPINFO_PRESENT`;
    - `CREATE_UNICODE_ENVIRONMENT` cuando corresponda;
 10. cerrar thread handle;
@@ -806,24 +807,43 @@ Validación Release:
 
 El backend Windows todavía rechaza `ioMode=terminal` como `unsupported`, deliberadamente hasta C2.2.
 
-### C2.2 - Backend ConPTY
+### C2.2 - Backend ConPTY ✓
 
-- wrapper `WindowsPseudoConsole`;
-- pipes síncronos;
-- launcher con `PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE`;
-- `WindowsTerminalProcessIo`;
-- read/write;
-- VT/raw/Unicode tests;
-- detección de consola.
+Implementado:
 
-### C2.3 - Resize y lifecycle
+- wrapper `WindowsPseudoConsole` sobre CsWin32;
+- `IWindowsProcessIo` con backends separados para pipes y terminal;
+- pipes síncronos para ConPTY;
+- launcher con `PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE` + `PROC_THREAD_ATTRIBUTE_JOB_LIST`;
+- `bInheritHandles = FALSE` y `STARTF_USESTDHANDLES` con stdio nulo para evitar que el stdio redirigido del host opaque ConPTY;
+- cierre inmediato de los extremos ConPTY-side después de `CreatePseudoConsole`;
+- `WindowsTerminalProcessIo` con input UTF-8, un único stream terminal y retención por cursor;
+- read/write terminal;
+- resize básico funcional;
+- detección real de consola y tamaño;
+- VT raw y Unicode estable;
+- roundtrip MCP terminal end-to-end.
 
-- resize;
+Validación Release:
+
+- Core: **12/12**;
+- Windows: **67/67**;
+- Integration MCP: **5/5**;
+- total: **84/84**;
+- Host Release: **0 warnings, 0 errores**.
+
+Hallazgo de implementación: el canal ConPTY es UTF-8, pero la fidelidad de caracteres suplementarios depende también de cómo el cliente Windows escribe a su consola. C2.2 valida Unicode BMP estable sin confundir esa limitación del cliente con la decodificación del host.
+
+### C2.3 - Lifecycle y hardening
+
 - Ctrl+C smoke;
 - root-exit policy;
 - teardown 24H2+ con ReleasePseudoConsole;
 - fallback pre-24H2;
-- races/cleanup tests.
+- hardening de resize contra teardown;
+- races/cleanup tests;
+- tree cleanup terminal;
+- session-owned / independent terminal.
 
 ### C2.4 - Validación final
 
@@ -837,6 +857,6 @@ El backend Windows todavía rechaza `ioMode=terminal` como `unsupported`, delibe
 
 ## Estado de decisión
 
-Diseño aprobado. C2.1 quedó implementado y validado.
+Diseño aprobado. C2.1 y C2.2 quedaron implementados y validados.
 
-No hay una investigación arquitectónica pendiente conocida antes de C2.2. Los puntos de riesgo del backend ConPTY están identificados y tienen estrategia de prueba explícita.
+El backend ConPTY básico ya funciona end-to-end. El siguiente trabajo es C2.3: lifecycle, teardown compatible, cleanup de árboles y hardening de concurrencia.

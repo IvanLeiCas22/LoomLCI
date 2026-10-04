@@ -9,7 +9,7 @@
 ## Process
 
 - Contrato público exacto de run/start/read/write/status/terminate.
-- Semántica de ConPTY y cursores del stream terminal: diseño aprobado en [[Bloque C2 - ConPTY]]; implementación en curso.
+- Semántica de ConPTY y cursores del stream terminal: contrato y backend básico implementados en [[Bloque C2 - ConPTY]]; pendiente lifecycle/hardening de C2.3.
 - Política concreta de TTL/retención de ProcessHandle después del exit.
 
 ## Python Runtime

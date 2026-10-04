@@ -15,29 +15,50 @@ internal static class WindowsNativeProcessLauncher
 {
     private const nuint ProcThreadAttributeHandleList = 0x00020002;
     private const nuint ProcThreadAttributeJobList = 0x0002000D;
+    private const nuint ProcThreadAttributePseudoConsole = 0x00020016;
+    private const uint ForcedTerminationExitCode = 1;
     private static readonly Lock LaunchGate = new();
 
-    public static unsafe WindowsProcessResource Launch(ProcessLaunchSpec spec)
+    public static WindowsProcessResource Launch(ProcessLaunchSpec spec)
     {
-        if (spec.IoMode != ProcessIoMode.Pipes)
-        {
-            throw new NotSupportedException("Only pipe-based process I/O is implemented.");
-        }
-
-        var commandLine = WindowsCommandLine.Build(spec.Executable, spec.Arguments);
+        var commandLine = WindowsCommandLine.Build(
+            spec.Executable,
+            spec.Arguments);
         if (commandLine.IndexOf('\0') >= 0)
         {
-            throw new ArgumentException("Executable and arguments cannot contain NUL.");
+            throw new ArgumentException(
+                "Executable and arguments cannot contain NUL.");
         }
 
         var commandLineBuffer = (commandLine + '\0').ToCharArray();
         var environment = WindowsEnvironmentBlock.Create(spec.Environment);
 
+        return spec.IoMode switch
+        {
+            ProcessIoMode.Pipes => LaunchPipes(
+                spec,
+                commandLineBuffer,
+                environment),
+            ProcessIoMode.Terminal => LaunchTerminal(
+                spec,
+                commandLineBuffer,
+                environment),
+            _ => throw new NotSupportedException(
+                $"Unsupported process I/O mode '{spec.IoMode}'.")
+        };
+    }
+
+    private static WindowsProcessResource LaunchPipes(
+        ProcessLaunchSpec spec,
+        char[] commandLineBuffer,
+        WindowsEnvironmentBlock environment)
+    {
         WindowsJobObject? job = null;
         AnonymousPipeServerStream? stdin = null;
         AnonymousPipeServerStream? stdout = null;
         AnonymousPipeServerStream? stderr = null;
         SafeFileHandle? processHandle = null;
+        IWindowsProcessIo? io = null;
 
         try
         {
@@ -57,7 +78,7 @@ internal static class WindowsNativeProcessLauncher
 
             lock (LaunchGate)
             {
-                processInformation = CreateProcess(
+                processInformation = CreatePipeProcess(
                     spec,
                     commandLineBuffer,
                     environment,
@@ -78,24 +99,29 @@ internal static class WindowsNativeProcessLauncher
             stdout.DisposeLocalCopyOfClientHandle();
             stderr.DisposeLocalCopyOfClientHandle();
 
+            io = new WindowsPipeProcessIo(
+                stdin,
+                stdout,
+                stderr);
+            stdin = null;
+            stdout = null;
+            stderr = null;
+
             var resource = new WindowsProcessResource(
                 checked((int)processInformation.dwProcessId),
                 processHandle,
                 job,
-                stdin,
-                stdout,
-                stderr);
+                io);
 
             processHandle = null;
             job = null;
-            stdin = null;
-            stdout = null;
-            stderr = null;
+            io = null;
 
             return resource;
         }
         catch
         {
+            DisposeIoSynchronously(io);
             processHandle?.Dispose();
             stdin?.Dispose();
             stdout?.Dispose();
@@ -105,7 +131,102 @@ internal static class WindowsNativeProcessLauncher
         }
     }
 
-    private static unsafe PROCESS_INFORMATION CreateProcess(
+    private static WindowsProcessResource LaunchTerminal(
+        ProcessLaunchSpec spec,
+        char[] commandLineBuffer,
+        WindowsEnvironmentBlock environment)
+    {
+        if (spec.TerminalColumns is not { } columns ||
+            spec.TerminalRows is not { } rows)
+        {
+            throw new ArgumentException(
+                "Terminal dimensions are required for terminal I/O.");
+        }
+
+        WindowsJobObject? job = null;
+        AnonymousPipeServerStream? input = null;
+        AnonymousPipeServerStream? output = null;
+        WindowsPseudoConsole? pseudoConsole = null;
+        SafeFileHandle? processHandle = null;
+        IWindowsProcessIo? io = null;
+
+        try
+        {
+            job = WindowsJobObject.Create();
+
+            input = new AnonymousPipeServerStream(
+                PipeDirection.Out,
+                HandleInheritability.None);
+            output = new AnonymousPipeServerStream(
+                PipeDirection.In,
+                HandleInheritability.None);
+
+            pseudoConsole = WindowsPseudoConsole.Create(
+                input.ClientSafePipeHandle,
+                output.ClientSafePipeHandle,
+                columns,
+                rows);
+
+            // CreatePseudoConsole duplicates/owns the ConPTY-side handles.
+            // The host keeps only its write/read ends.
+            input.DisposeLocalCopyOfClientHandle();
+            output.DisposeLocalCopyOfClientHandle();
+
+            PROCESS_INFORMATION processInformation;
+
+            lock (LaunchGate)
+            {
+                processInformation = CreateTerminalProcess(
+                    spec,
+                    commandLineBuffer,
+                    environment,
+                    job,
+                    pseudoConsole);
+            }
+
+            processHandle = new SafeFileHandle(
+                (IntPtr)processInformation.hProcess,
+                ownsHandle: true);
+            using var threadHandle = new SafeFileHandle(
+                (IntPtr)processInformation.hThread,
+                ownsHandle: true);
+
+            io = new WindowsTerminalProcessIo(
+                pseudoConsole,
+                input,
+                output);
+            pseudoConsole = null;
+            input = null;
+            output = null;
+
+            var resource = new WindowsProcessResource(
+                checked((int)processInformation.dwProcessId),
+                processHandle,
+                job,
+                io);
+
+            processHandle = null;
+            job = null;
+            io = null;
+
+            return resource;
+        }
+        catch
+        {
+            TryTerminate(job);
+            processHandle?.Dispose();
+            job?.Dispose();
+
+            DisposeIoSynchronously(io);
+            pseudoConsole?.Dispose();
+            input?.Dispose();
+            output?.Dispose();
+
+            throw;
+        }
+    }
+
+    private static unsafe PROCESS_INFORMATION CreatePipeProcess(
         ProcessLaunchSpec spec,
         char[] commandLineBuffer,
         WindowsEnvironmentBlock environment,
@@ -163,7 +284,8 @@ internal static class WindowsNativeProcessLauncher
                         0,
                         ProcThreadAttributeHandleList,
                         inheritedHandlesPointer,
-                        checked((nuint)(inheritedHandles.Length * IntPtr.Size)),
+                        checked((nuint)(
+                            inheritedHandles.Length * IntPtr.Size)),
                         null,
                         null))
                 {
@@ -192,10 +314,14 @@ internal static class WindowsNativeProcessLauncher
                 lpAttributeList = attributeList
             };
             startup.StartupInfo.cb = (uint)sizeof(STARTUPINFOEXW);
-            startup.StartupInfo.dwFlags = STARTUPINFOW_FLAGS.STARTF_USESTDHANDLES;
-            startup.StartupInfo.hStdInput = (HANDLE)stdin.ClientSafePipeHandle.DangerousGetHandle();
-            startup.StartupInfo.hStdOutput = (HANDLE)stdout.ClientSafePipeHandle.DangerousGetHandle();
-            startup.StartupInfo.hStdError = (HANDLE)stderr.ClientSafePipeHandle.DangerousGetHandle();
+            startup.StartupInfo.dwFlags =
+                STARTUPINFOW_FLAGS.STARTF_USESTDHANDLES;
+            startup.StartupInfo.hStdInput =
+                (HANDLE)stdin.ClientSafePipeHandle.DangerousGetHandle();
+            startup.StartupInfo.hStdOutput =
+                (HANDLE)stdout.ClientSafePipeHandle.DangerousGetHandle();
+            startup.StartupInfo.hStdError =
+                (HANDLE)stderr.ClientSafePipeHandle.DangerousGetHandle();
 
             var creationFlags =
                 PROCESS_CREATION_FLAGS.EXTENDED_STARTUPINFO_PRESENT |
@@ -203,34 +329,17 @@ internal static class WindowsNativeProcessLauncher
 
             if (!environment.IsInherited)
             {
-                creationFlags |= PROCESS_CREATION_FLAGS.CREATE_UNICODE_ENVIRONMENT;
+                creationFlags |=
+                    PROCESS_CREATION_FLAGS.CREATE_UNICODE_ENVIRONMENT;
             }
 
-            PROCESS_INFORMATION processInformation = default;
-
-            fixed (char* commandLinePointer = commandLineBuffer)
-            fixed (char* environmentPointer = environment.Characters)
-            fixed (char* currentDirectoryPointer = spec.WorkingDirectory)
-            {
-                if (!PInvoke.CreateProcess(
-                        default(PCWSTR),
-                        commandLinePointer,
-                        null,
-                        null,
-                        true,
-                        creationFlags,
-                        environmentPointer,
-                        currentDirectoryPointer,
-                        (STARTUPINFOW*)&startup,
-                        &processInformation))
-                {
-                    throw new Win32Exception(
-                        Marshal.GetLastWin32Error(),
-                        $"Could not start process '{spec.Executable}'.");
-                }
-            }
-
-            return processInformation;
+            return CreateProcess(
+                spec,
+                commandLineBuffer,
+                environment,
+                startup,
+                creationFlags,
+                inheritHandles: true);
         }
         finally
         {
@@ -240,6 +349,185 @@ internal static class WindowsNativeProcessLauncher
             }
 
             Marshal.FreeHGlobal(attributeListMemory);
+        }
+    }
+
+    private static unsafe PROCESS_INFORMATION CreateTerminalProcess(
+        ProcessLaunchSpec spec,
+        char[] commandLineBuffer,
+        WindowsEnvironmentBlock environment,
+        WindowsJobObject job,
+        WindowsPseudoConsole pseudoConsole)
+    {
+        nuint attributeListSize = 0;
+        PInvoke.InitializeProcThreadAttributeList(
+            default,
+            2,
+            ref attributeListSize);
+
+        if (attributeListSize == 0)
+        {
+            throw new Win32Exception(
+                Marshal.GetLastWin32Error(),
+                "Windows did not provide a process attribute-list size.");
+        }
+
+        var attributeListMemory =
+            Marshal.AllocHGlobal(checked((nint)attributeListSize));
+        var attributeList =
+            (LPPROC_THREAD_ATTRIBUTE_LIST)attributeListMemory;
+        var attributeListInitialized = false;
+
+        try
+        {
+            if (!PInvoke.InitializeProcThreadAttributeList(
+                    attributeList,
+                    2,
+                    ref attributeListSize))
+            {
+                throw new Win32Exception(
+                    Marshal.GetLastWin32Error(),
+                    "Could not initialize process attribute list.");
+            }
+
+            attributeListInitialized = true;
+
+            var jobHandle = job.Handle.DangerousGetHandle();
+            if (!PInvoke.UpdateProcThreadAttribute(
+                    attributeList,
+                    0,
+                    ProcThreadAttributeJobList,
+                    &jobHandle,
+                    (nuint)IntPtr.Size,
+                    null,
+                    null))
+            {
+                throw new Win32Exception(
+                    Marshal.GetLastWin32Error(),
+                    "Could not associate process creation with its Job Object.");
+            }
+
+            var pseudoConsoleHandle =
+                pseudoConsole.DangerousGetHandle();
+            if (!PInvoke.UpdateProcThreadAttribute(
+                    attributeList,
+                    0,
+                    ProcThreadAttributePseudoConsole,
+                    (void*)pseudoConsoleHandle,
+                    (nuint)IntPtr.Size,
+                    null,
+                    null))
+            {
+                throw new Win32Exception(
+                    Marshal.GetLastWin32Error(),
+                    "Could not associate process creation with its pseudoconsole.");
+            }
+
+            var startup = new STARTUPINFOEXW
+            {
+                lpAttributeList = attributeList
+            };
+            startup.StartupInfo.cb = (uint)sizeof(STARTUPINFOEXW);
+
+            // Required when Loom itself has redirected stdio: explicitly
+            // null std handles prevent Windows from copying the parent's
+            // redirected handles over ConPTY.
+            startup.StartupInfo.dwFlags =
+                STARTUPINFOW_FLAGS.STARTF_USESTDHANDLES;
+            startup.StartupInfo.hStdInput = default;
+            startup.StartupInfo.hStdOutput = default;
+            startup.StartupInfo.hStdError = default;
+
+            var creationFlags =
+                PROCESS_CREATION_FLAGS.EXTENDED_STARTUPINFO_PRESENT;
+
+            if (!environment.IsInherited)
+            {
+                creationFlags |=
+                    PROCESS_CREATION_FLAGS.CREATE_UNICODE_ENVIRONMENT;
+            }
+
+            return CreateProcess(
+                spec,
+                commandLineBuffer,
+                environment,
+                startup,
+                creationFlags,
+                inheritHandles: false);
+        }
+        finally
+        {
+            if (attributeListInitialized)
+            {
+                PInvoke.DeleteProcThreadAttributeList(attributeList);
+            }
+
+            Marshal.FreeHGlobal(attributeListMemory);
+        }
+    }
+
+    private static unsafe PROCESS_INFORMATION CreateProcess(
+        ProcessLaunchSpec spec,
+        char[] commandLineBuffer,
+        WindowsEnvironmentBlock environment,
+        STARTUPINFOEXW startup,
+        PROCESS_CREATION_FLAGS creationFlags,
+        bool inheritHandles)
+    {
+        PROCESS_INFORMATION processInformation = default;
+
+        fixed (char* commandLinePointer = commandLineBuffer)
+        fixed (char* environmentPointer = environment.Characters)
+        fixed (char* currentDirectoryPointer = spec.WorkingDirectory)
+        {
+            if (!PInvoke.CreateProcess(
+                    default(PCWSTR),
+                    commandLinePointer,
+                    null,
+                    null,
+                    inheritHandles,
+                    creationFlags,
+                    environmentPointer,
+                    currentDirectoryPointer,
+                    (STARTUPINFOW*)&startup,
+                    &processInformation))
+            {
+                throw new Win32Exception(
+                    Marshal.GetLastWin32Error(),
+                    $"Could not start process '{spec.Executable}'.");
+            }
+        }
+
+        return processInformation;
+    }
+
+    private static void DisposeIoSynchronously(
+        IWindowsProcessIo? io)
+    {
+        if (io is null)
+        {
+            return;
+        }
+
+        io.DisposeAsync()
+            .AsTask()
+            .GetAwaiter()
+            .GetResult();
+    }
+
+    private static void TryTerminate(WindowsJobObject? job)
+    {
+        if (job is null)
+        {
+            return;
+        }
+
+        try
+        {
+            job.Terminate(ForcedTerminationExitCode);
+        }
+        catch (Win32Exception)
+        {
         }
     }
 }
