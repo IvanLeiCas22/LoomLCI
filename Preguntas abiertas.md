@@ -26,7 +26,7 @@ Preguntas deliberadamente diferidas:
 
 - F1.1 Core implementado/validado: estado Work Plan dentro de WorkSession, revision/CAS, límites y lifecycle.
 - F1.2 implementado/validado: `work_plan_get`/`work_plan_update`, schema/annotations y opt-in estático por adapter.
-- F1.3 preflight + smoke aprobados. Tras ajuste MCP: positivos 1/3, negativos 2/2. Investigación específica concluye: agregar un único paso de Work Plan al `Flujo general` de la skill (trigger positivo/negativo, inicio tras `work_create`, milestones) sin tocar MCP/Core; luego repetir el mismo golden set como A/B.
+- F1.3 preflight + smoke aprobados. Tras ajuste MCP: positivos 1/3, negativos 2/2. Skill del plugin actualizada a 0.2.1 con regla mínima de Work Plan; pendiente repetir exactamente el mismo golden set como A/B.
 - Evaluar más adelante si hacen falta dependencias explícitas/DAG; no incluirlas en v0.1 sin evidencia.
 
 ## Operación

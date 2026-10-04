@@ -1268,6 +1268,29 @@ No cambiar en esta iteración:
 
 Al publicar el plugin, sólo acompañar el cambio con el bump técnico de versión requerido por Plugin Creator.
 
+#### Implementación del ajuste de skill ✓
+
+Se actualizó el plugin privado LoomLCI de **0.2.0 a 0.2.1** con una única modificación conductual en `skills/loomlci/SKILL.md`:
+
+- nuevo paso 2 del `Flujo general` que pide usar Work Plan en tareas no triviales con varias fases significativas, acciones dependientes o checkpoints;
+- inicialización temprana tras `work_create` mediante `work_plan_update(expectedRevision=0)` en una WorkSession nueva;
+- pocos pasos orientados a resultados y updates sólo en hitos;
+- anti-trigger explícito para lookups simples o tareas cortas de un solo paso;
+- IDs, revisions, conflicts, límites y demás semántica siguen delegados al schema vivo.
+
+Para aislar el experimento no se modificaron:
+
+- ServerInstructions ni tool descriptions;
+- Core/API/annotations;
+- `defaultPrompt`, descriptions o metadata de activación;
+- README;
+- configuración MCP;
+- nombres ni cantidad de tools.
+
+El bump técnico `0.2.0 -> 0.2.1` se sincronizó en `plugin.json` y `.codex-plugin/plugin.json`. El read-back de la release publicada confirmó la preservación de README y configuraciones MCP sin cambios.
+
+Siguiente paso: refrescar/reabrir el plugin en ChatGPT si es necesario y repetir **exactamente el mismo golden set de 5 prompts** para obtener un A/B controlado.
+
 #### Fase 3 - Control trivial / anti-overplanning
 
 Usar otro chat nuevo, sin nombrar Work Plan.

@@ -1,6 +1,6 @@
 # Plan y tareas
 
-> Estado: F1.1 Core + F1.2 MCP implementados/validados. F1.3 pasó preflight/smoke. El ajuste de ergonomía MCP mejoró el golden set de 0/3 a 1/3 positivos, con 2/2 negativos sin sobreplanning. Pendiente investigar/aplicar un ajuste mínimo de la skill del plugin y repetir fresh-agent.
+> Estado: F1.1 Core + F1.2 MCP implementados/validados. F1.3 pasó preflight/smoke. Tras el ajuste MCP, el golden set quedó en 1/3 positivos y 2/2 negativos. La skill del plugin fue actualizada a 0.2.1 con una regla mínima de Work Plan; pendiente repetir el mismo golden set como A/B.
 
 ## Distinciones necesarias
 
