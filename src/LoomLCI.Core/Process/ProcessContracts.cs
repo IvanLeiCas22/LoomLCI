@@ -4,7 +4,8 @@ namespace LoomLCI.Core.Processes;
 
 public enum ProcessIoMode
 {
-    Pipes
+    Pipes,
+    Terminal
 }
 
 public enum ManagedProcessState
@@ -24,20 +25,25 @@ public sealed record ProcessStartRequest(
     IReadOnlyDictionary<string, string?>? Environment = null,
     WorkId? WorkId = null,
     ResourceOwnership Ownership = ResourceOwnership.SessionOwned,
-    ProcessIoMode IoMode = ProcessIoMode.Pipes);
+    ProcessIoMode IoMode = ProcessIoMode.Pipes,
+    int? TerminalColumns = null,
+    int? TerminalRows = null);
 
 public sealed record ProcessLaunchSpec(
     string Executable,
     IReadOnlyList<string> Arguments,
     string? WorkingDirectory,
     IReadOnlyDictionary<string, string?> Environment,
-    ProcessIoMode IoMode);
+    ProcessIoMode IoMode,
+    int? TerminalColumns,
+    int? TerminalRows);
 
 public sealed record ProcessStartResult(
     ProcessHandle Handle,
     int ProcessId,
     DateTimeOffset StartedAt,
-    ManagedProcessState State);
+    ManagedProcessState State,
+    ProcessIoMode IoMode);
 
 public sealed record ProcessStatusResult(
     ProcessHandle Handle,
@@ -45,7 +51,8 @@ public sealed record ProcessStatusResult(
     ManagedProcessState State,
     int? ExitCode,
     DateTimeOffset StartedAt,
-    DateTimeOffset? ExitedAt);
+    DateTimeOffset? ExitedAt,
+    ProcessIoMode IoMode);
 
 public sealed record OutputChunk(long Cursor, string Text);
 
@@ -61,16 +68,25 @@ public sealed record OutputStreamReadResult(
 
 public sealed record ProcessOutputReadResult(
     ProcessStatusResult Process,
-    OutputStreamReadResult Stdout,
-    OutputStreamReadResult Stderr);
+    ProcessIoMode IoMode,
+    OutputStreamReadResult? Stdout,
+    OutputStreamReadResult? Stderr,
+    OutputStreamReadResult? Terminal);
 
 public interface IProcessResource : IAsyncDisposable
 {
     int ProcessId { get; }
     DateTimeOffset StartedAt { get; }
+    ProcessIoMode IoMode { get; }
     ProcessStatusResult Snapshot(ProcessHandle handle);
-    ProcessOutputReadResult Read(ProcessHandle handle, long stdoutCursor, long stderrCursor, int maxChars);
+    ProcessOutputReadResult Read(
+        ProcessHandle handle,
+        long stdoutCursor,
+        long stderrCursor,
+        long terminalCursor,
+        int maxChars);
     Task<LoomResult<Unit>> WriteAsync(string text, CancellationToken cancellationToken);
+    Task<LoomResult<Unit>> ResizeAsync(int columns, int rows, CancellationToken cancellationToken);
     Task<LoomResult<Unit>> TerminateAsync(CancellationToken cancellationToken);
 }
 

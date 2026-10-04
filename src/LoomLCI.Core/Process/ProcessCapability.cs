@@ -47,6 +47,38 @@ public sealed class ProcessCapability
                         LoomErrors.InvalidArgument("Session-owned processes require a work_id."));
                 }
 
+                if (request.IoMode is not (ProcessIoMode.Pipes or ProcessIoMode.Terminal))
+                {
+                    return LoomResult<ProcessStartResult>.Failure(
+                        LoomErrors.InvalidArgument("Unsupported process I/O mode."));
+                }
+
+                int? terminalColumns = null;
+                int? terminalRows = null;
+
+                if (request.IoMode == ProcessIoMode.Pipes)
+                {
+                    if (request.TerminalColumns is not null || request.TerminalRows is not null)
+                    {
+                        return LoomResult<ProcessStartResult>.Failure(
+                            LoomErrors.InvalidArgument(
+                                "Terminal dimensions are only valid when io_mode is terminal."));
+                    }
+                }
+                else
+                {
+                    terminalColumns = request.TerminalColumns ?? 80;
+                    terminalRows = request.TerminalRows ?? 24;
+
+                    if (terminalColumns is < 1 or > short.MaxValue ||
+                        terminalRows is < 1 or > short.MaxValue)
+                    {
+                        return LoomResult<ProcessStartResult>.Failure(
+                            LoomErrors.InvalidArgument(
+                                $"Terminal dimensions must be between 1 and {short.MaxValue}."));
+                    }
+                }
+
                 var workingDirectoryResult = ResolveWorkingDirectory(request.WorkingDirectory, session?.BaseDirectory);
                 if (!workingDirectoryResult.IsSuccess)
                 {
@@ -58,7 +90,9 @@ public sealed class ProcessCapability
                     request.Arguments ?? Array.Empty<string>(),
                     workingDirectoryResult.Value,
                     request.Environment ?? new Dictionary<string, string?>(),
-                    request.IoMode);
+                    request.IoMode,
+                    terminalColumns,
+                    terminalRows);
 
                 var started = await _provider.StartAsync(spec, token).ConfigureAwait(false);
                 if (!started.IsSuccess)
@@ -87,7 +121,12 @@ public sealed class ProcessCapability
                     new Dictionary<string, object?> { ["kind"] = ResourceKind, ["pid"] = resource.ProcessId });
 
                 return LoomResult<ProcessStartResult>.Success(
-                    new ProcessStartResult(handle, resource.ProcessId, resource.StartedAt, result.State));
+                    new ProcessStartResult(
+                        handle,
+                        resource.ProcessId,
+                        resource.StartedAt,
+                        result.State,
+                        result.IoMode));
             },
             cancellationToken);
 
@@ -105,10 +144,11 @@ public sealed class ProcessCapability
         ProcessHandle handle,
         long stdoutCursor = 0,
         long stderrCursor = 0,
+        long terminalCursor = 0,
         int maxChars = 64 * 1024,
         CancellationToken cancellationToken = default)
     {
-        if (stdoutCursor < 0 || stderrCursor < 0)
+        if (stdoutCursor < 0 || stderrCursor < 0 || terminalCursor < 0)
         {
             return Task.FromResult(LoomResult<ProcessOutputReadResult>.Failure(
                 LoomErrors.InvalidArgument("Output cursors must be non-negative.")));
@@ -123,9 +163,32 @@ public sealed class ProcessCapability
         return RunWithProcessAsync(
             "process.read",
             handle,
-            (resolved, _, _) => Task.FromResult(
-                LoomResult<ProcessOutputReadResult>.Success(
-                    resolved.Resource.Read(handle, stdoutCursor, stderrCursor, maxChars))),
+            (resolved, _, _) =>
+            {
+                if (resolved.Resource.IoMode == ProcessIoMode.Pipes && terminalCursor != 0)
+                {
+                    return Task.FromResult(LoomResult<ProcessOutputReadResult>.Failure(
+                        LoomErrors.InvalidArgument(
+                            "terminal_cursor must be 0 for pipe-based processes.")));
+                }
+
+                if (resolved.Resource.IoMode == ProcessIoMode.Terminal &&
+                    (stdoutCursor != 0 || stderrCursor != 0))
+                {
+                    return Task.FromResult(LoomResult<ProcessOutputReadResult>.Failure(
+                        LoomErrors.InvalidArgument(
+                            "stdout_cursor and stderr_cursor must be 0 for terminal processes.")));
+                }
+
+                return Task.FromResult(
+                    LoomResult<ProcessOutputReadResult>.Success(
+                        resolved.Resource.Read(
+                            handle,
+                            stdoutCursor,
+                            stderrCursor,
+                            terminalCursor,
+                            maxChars)));
+            },
             cancellationToken);
     }
 
@@ -138,6 +201,28 @@ public sealed class ProcessCapability
             handle,
             (resolved, _, token) => resolved.Resource.WriteAsync(text, token),
             cancellationToken);
+
+    public Task<LoomResult<Unit>> ResizeAsync(
+        ProcessHandle handle,
+        int columns,
+        int rows,
+        CancellationToken cancellationToken = default)
+    {
+        if (columns is < 1 or > short.MaxValue ||
+            rows is < 1 or > short.MaxValue)
+        {
+            return Task.FromResult(LoomResult<Unit>.Failure(
+                LoomErrors.InvalidArgument(
+                    $"Terminal dimensions must be between 1 and {short.MaxValue}.")));
+        }
+
+        return RunWithProcessAsync(
+            "process.resize",
+            handle,
+            (resolved, _, token) =>
+                resolved.Resource.ResizeAsync(columns, rows, token),
+            cancellationToken);
+    }
 
     public Task<LoomResult<Unit>> TerminateAsync(
         ProcessHandle handle,

@@ -152,7 +152,12 @@ public sealed class McpStdioTests
         var startProcess = Assert.Single(tools, tool => tool.Name == "process_start");
         Assert.Equal("Start process", startProcess.ProtocolTool.Title);
         Assert.Contains("cmd.exe", startProcess.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ioMode=terminal", startProcess.Description, StringComparison.Ordinal);
         Assert.False(startProcess.ProtocolTool.Annotations?.OpenWorldHint ?? true);
+        var processStartProperties = GetRequiredProperty(startProcess.JsonSchema, "properties");
+        AssertSchemaEnum(GetRequiredProperty(processStartProperties, "ioMode"), "pipes", "terminal");
+        AssertSchemaRange(GetRequiredProperty(processStartProperties, "terminalColumns"), 1, short.MaxValue);
+        AssertSchemaRange(GetRequiredProperty(processStartProperties, "terminalRows"), 1, short.MaxValue);
 
         var terminateProcess = Assert.Single(tools, tool => tool.Name == "process_terminate");
         Assert.Contains("idempotent", terminateProcess.Description, StringComparison.OrdinalIgnoreCase);
@@ -165,7 +170,15 @@ public sealed class McpStdioTests
         var processReadProperties = GetRequiredProperty(readProcess.JsonSchema, "properties");
         AssertSchemaRange(GetRequiredProperty(processReadProperties, "stdoutCursor"), 0, long.MaxValue);
         AssertSchemaRange(GetRequiredProperty(processReadProperties, "stderrCursor"), 0, long.MaxValue);
+        AssertSchemaRange(GetRequiredProperty(processReadProperties, "terminalCursor"), 0, long.MaxValue);
         AssertSchemaRange(GetRequiredProperty(processReadProperties, "maxChars"), 1, 1048576);
+
+        var resizeProcess = Assert.Single(tools, tool => tool.Name == "process_resize");
+        Assert.Contains("terminal-mode", resizeProcess.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.True(resizeProcess.ProtocolTool.Annotations?.IdempotentHint ?? false);
+        var resizeProperties = GetRequiredProperty(resizeProcess.JsonSchema, "properties");
+        AssertSchemaRange(GetRequiredProperty(resizeProperties, "columns"), 1, short.MaxValue);
+        AssertSchemaRange(GetRequiredProperty(resizeProperties, "rows"), 1, short.MaxValue);
     }
 
     [Fact]
@@ -196,6 +209,7 @@ public sealed class McpStdioTests
         Assert.Contains("process_status", toolNames);
         Assert.Contains("process_read", toolNames);
         Assert.Contains("process_write", toolNames);
+        Assert.Contains("process_resize", toolNames);
         Assert.Contains("process_terminate", toolNames);
         Assert.True(
             toolNames.Contains("filesystem_list_tree"),
@@ -252,8 +266,10 @@ public sealed class McpStdioTests
 
         var startRoot = GetStructured(start.StructuredContent);
         Assert.True(GetRequiredProperty(startRoot, "ok").GetBoolean());
+        var startResult = GetRequiredProperty(startRoot, "result");
+        Assert.Equal("pipes", GetRequiredProperty(startResult, "ioMode").GetString());
         var processHandle = GetRequiredProperty(
-            GetRequiredProperty(startRoot, "result"),
+            startResult,
             "processHandle").GetString();
         Assert.False(string.IsNullOrWhiteSpace(processHandle));
 
@@ -267,6 +283,7 @@ public sealed class McpStdioTests
             statusRoot = GetStructured(status.StructuredContent);
             Assert.True(GetRequiredProperty(statusRoot, "ok").GetBoolean());
             var result = GetRequiredProperty(statusRoot, "result");
+            Assert.Equal("pipes", GetRequiredProperty(result, "ioMode").GetString());
             var state = GetRequiredProperty(result, "state").GetString();
 
             if (state is "exited" or "terminated")
@@ -292,6 +309,8 @@ public sealed class McpStdioTests
         var readRoot = GetStructured(read.StructuredContent);
         Assert.True(GetRequiredProperty(readRoot, "ok").GetBoolean());
         var readResult = GetRequiredProperty(readRoot, "result");
+        Assert.Equal("pipes", GetRequiredProperty(readResult, "ioMode").GetString());
+        Assert.Equal(JsonValueKind.Null, GetRequiredProperty(readResult, "terminal").ValueKind);
         var stdout = GetRequiredProperty(readResult, "stdout");
         Assert.True(GetRequiredProperty(stdout, "retainedUntilCursor").GetInt64() >= 0);
         Assert.True(GetRequiredProperty(stdout, "observedUntilCursor").GetInt64() >= 0);
@@ -302,6 +321,23 @@ public sealed class McpStdioTests
             chunks.EnumerateArray().Select(chunk => GetRequiredProperty(chunk, "text").GetString()));
 
         Assert.Contains("mcp-roundtrip", output, StringComparison.Ordinal);
+
+        var resize = await client.CallToolAsync(
+            "process_resize",
+            new Dictionary<string, object?>
+            {
+                ["processHandle"] = processHandle,
+                ["columns"] = 100,
+                ["rows"] = 30
+            });
+
+        var resizeRoot = GetStructured(resize.StructuredContent);
+        Assert.False(GetRequiredProperty(resizeRoot, "ok").GetBoolean());
+        Assert.Equal(
+            "unsupported",
+            GetRequiredProperty(
+                GetRequiredProperty(resizeRoot, "error"),
+                "code").GetString());
 
         var close = await client.CallToolAsync(
             "work_close",

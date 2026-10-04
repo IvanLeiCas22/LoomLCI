@@ -2,7 +2,7 @@
 
 ## Estado
 
-**Diseño propuesto; pendiente de aprobación para implementación.**
+**Diseño aprobado. C2.1 (contrato Core/MCP) implementado y validado; siguiente etapa: C2.2 backend ConPTY.**
 
 C1 dejó resueltos el launch nativo con `CreateProcessW`, `STARTUPINFOEX`, Job Objects, quoting, environment, working directory, estado, output retenido y lifecycle de `ProcessHandle`. C2 agrega el segundo modo de I/O previsto desde la arquitectura inicial: **terminal mediante ConPTY**.
 
@@ -137,13 +137,14 @@ Agregar:
 
 ```text
 ioMode: "pipes" | "terminal" = "pipes"
-terminalColumns: int = 80
-terminalRows: int = 24
+terminalColumns: int? = null
+terminalRows: int? = null
 ```
 
 Reglas:
 
-- `terminalColumns` y `terminalRows` sólo tienen efecto en `terminal`;
+- `terminalColumns` y `terminalRows` son opcionales para poder distinguir ausencia de un valor explícito;
+- en `terminal`, los valores omitidos se resuelven a 80×24;
 - si el caller pasa dimensiones explícitas con `pipes`, devolver `invalid_argument` en vez de ignorarlas silenciosamente;
 - rango propuesto: 1..32767 porque ConPTY recibe `COORD` con componentes `short`;
 - no agregar flags avanzados de ConPTY en C2;
@@ -781,18 +782,29 @@ C2 se considera cerrado cuando:
 
 ## Propuesta de implementación por etapas
 
-### C2.1 - Contrato Core/MCP
+### C2.1 - Contrato Core/MCP ✓
+
+Implementado:
 
 - `ProcessIoMode.Terminal`;
-- tamaño inicial;
+- tamaño inicial opcional, resuelto a 80×24 en modo terminal;
 - resultados mode-aware;
-- terminal cursor;
+- `terminalCursor`;
 - `process_resize`;
-- validaciones;
+- validaciones por modo y dimensiones;
 - fake/core tests;
-- integration schema tests.
+- integration schema/roundtrip tests;
+- pipes mantienen su comportamiento y `process_resize` devuelve `unsupported`.
 
-Sin backend ConPTY todavía.
+Validación Release:
+
+- Core: **12/12**;
+- Windows: **63/63**;
+- Integration MCP: **4/4**;
+- total: **79/79**;
+- Host Release: **0 warnings, 0 errores**.
+
+El backend Windows todavía rechaza `ioMode=terminal` como `unsupported`, deliberadamente hasta C2.2.
 
 ### C2.2 - Backend ConPTY
 
@@ -823,8 +835,8 @@ Sin backend ConPTY todavía.
 - fresh-agent;
 - documentación de cierre.
 
-## Decisión recomendada
+## Estado de decisión
 
-Aprobar este diseño antes de comenzar C2.1.
+Diseño aprobado. C2.1 quedó implementado y validado.
 
-No hay una investigación arquitectónica pendiente conocida. Los puntos de riesgo están identificados y tienen estrategia de prueba explícita.
+No hay una investigación arquitectónica pendiente conocida antes de C2.2. Los puntos de riesgo del backend ConPTY están identificados y tienen estrategia de prueba explícita.

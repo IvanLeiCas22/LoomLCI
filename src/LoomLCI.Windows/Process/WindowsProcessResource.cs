@@ -92,6 +92,7 @@ internal sealed class WindowsProcessResource : IProcessResource
 
     public int ProcessId { get; }
     public DateTimeOffset StartedAt { get; }
+    public ProcessIoMode IoMode => ProcessIoMode.Pipes;
     internal string StdoutSpoolPath => _stdout.SpoolPath;
     internal string StderrSpoolPath => _stderr.SpoolPath;
 
@@ -105,7 +106,8 @@ internal sealed class WindowsProcessResource : IProcessResource
                 _state,
                 _exitCode,
                 StartedAt,
-                _exitedAt);
+                _exitedAt,
+                IoMode);
         }
     }
 
@@ -113,6 +115,7 @@ internal sealed class WindowsProcessResource : IProcessResource
         ProcessHandle handle,
         long stdoutCursor,
         long stderrCursor,
+        long terminalCursor,
         int maxChars)
     {
         var stdoutBudget = (maxChars + 1) / 2;
@@ -137,8 +140,10 @@ internal sealed class WindowsProcessResource : IProcessResource
 
         return new ProcessOutputReadResult(
             Snapshot(handle),
+            IoMode,
             stdout,
-            stderr);
+            stderr,
+            null);
     }
 
     public async Task<LoomResult<Unit>> WriteAsync(
@@ -181,6 +186,17 @@ internal sealed class WindowsProcessResource : IProcessResource
         {
             _stdinGate.Release();
         }
+    }
+
+    public Task<LoomResult<Unit>> ResizeAsync(
+        int columns,
+        int rows,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(LoomResult<Unit>.Failure(
+            LoomErrors.Unsupported(
+                "Pipe-based processes do not support terminal resize.")));
     }
 
     public async Task<LoomResult<Unit>> TerminateAsync(

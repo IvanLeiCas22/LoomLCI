@@ -35,16 +35,16 @@ public sealed class ProcessCapabilityTests
         var again = await fixture.Processes.ReadAsync(handle, 0, 0);
         Assert.True(again.IsSuccess);
         Assert.Equal(
-            string.Concat(first.Value!.Stdout.Chunks.Select(c => c.Text)),
-            string.Concat(again.Value!.Stdout.Chunks.Select(c => c.Text)));
+            string.Concat(first.Value!.Stdout!.Chunks.Select(c => c.Text)),
+            string.Concat(again.Value!.Stdout!.Chunks.Select(c => c.Text)));
 
         var afterCursor = await fixture.Processes.ReadAsync(
             handle,
-            first.Value.Stdout.NextCursor,
-            first.Value.Stderr.NextCursor);
+            first.Value.Stdout!.NextCursor,
+            first.Value.Stderr!.NextCursor);
 
         Assert.True(afterCursor.IsSuccess);
-        Assert.Empty(afterCursor.Value!.Stdout.Chunks);
+        Assert.Empty(afterCursor.Value!.Stdout!.Chunks);
     }
 
     [Fact]
@@ -74,9 +74,9 @@ public sealed class ProcessCapabilityTests
                 maxChars: 1);
 
             Assert.True(read.IsSuccess, read.Error?.Message);
-            var chunk = Assert.Single(read.Value!.Stdout.Chunks);
+            var chunk = Assert.Single(read.Value!.Stdout!.Chunks);
             output.Add(chunk.Text);
-            cursor = read.Value.Stdout.NextCursor;
+            cursor = read.Value.Stdout!.NextCursor;
         }
 
         Assert.Equal("abcdef", string.Concat(output));
@@ -105,8 +105,8 @@ public sealed class ProcessCapabilityTests
             maxChars: 10);
 
         Assert.True(read.IsSuccess, read.Error?.Message);
-        Assert.Equal("abcdefghij", string.Concat(read.Value!.Stdout.Chunks.Select(chunk => chunk.Text)));
-        Assert.Empty(read.Value.Stderr.Chunks);
+        Assert.Equal("abcdefghij", string.Concat(read.Value!.Stdout!.Chunks.Select(chunk => chunk.Text)));
+        Assert.Empty(read.Value.Stderr!.Chunks);
     }
 
     [Fact]
@@ -136,7 +136,7 @@ public sealed class ProcessCapabilityTests
                 maxChars: 256 * 1024);
 
             Assert.True(read.IsSuccess, read.Error?.Message);
-            var stream = read.Value!.Stdout;
+            var stream = read.Value!.Stdout!;
             var text = string.Concat(stream.Chunks.Select(chunk => chunk.Text));
             Assert.NotEmpty(text);
             Assert.All(text, character => Assert.Equal('A', character));
@@ -385,7 +385,7 @@ public sealed class ProcessCapabilityTests
             Assert.True(read.IsSuccess, read.Error?.Message);
 
             var stdout = string.Concat(
-                read.Value!.Stdout.Chunks.Select(chunk => chunk.Text));
+                read.Value!.Stdout!.Chunks.Select(chunk => chunk.Text));
             Assert.Equal(
                 $"{directory.FullName}|value|True",
                 stdout);
@@ -752,7 +752,7 @@ public sealed class ProcessCapabilityTests
         Assert.Contains(
             "retained-before-terminate",
             string.Concat(
-                after.Value!.Stdout.Chunks.Select(chunk => chunk.Text)),
+                after.Value!.Stdout!.Chunks.Select(chunk => chunk.Text)),
             StringComparison.Ordinal);
         Assert.Equal(
             ManagedProcessState.Terminated,
@@ -844,7 +844,7 @@ public sealed class ProcessCapabilityTests
                 return latest;
             }
 
-            var text = string.Concat(latest.Value!.Stdout.Chunks.Select(c => c.Text));
+            var text = string.Concat(latest.Value!.Stdout!.Chunks.Select(c => c.Text));
             if (text.Contains(expected, StringComparison.Ordinal))
             {
                 return latest;
