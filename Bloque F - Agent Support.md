@@ -973,6 +973,133 @@ Antes de cambiar nada:
 - revisar si conviene reforzar cuándo crear/actualizar el plan y qué granularidad esperar, sin convertirlo en uso obligatorio ni contaminar tareas simples;
 - repetir fresh-agent después del ajuste con prompts equivalentes, no idénticos al punto de sobreentrenar la prueba.
 
+#### Investigación específica post 0/3 - adopción natural
+
+La evidencia 0/3 no apunta a un defecto del Core. El problema está en la selección/ergonomía del Work Plan como herramienta auxiliar del agente.
+
+##### Hallazgo 1 - la ServerInstruction actual es una restricción, no un trigger
+
+Texto actual:
+
+> Use Work Plan tools only for non-trivial multi-step tasks.
+
+La frase define cuándo **no** usar la feature, pero no recomienda positivamente usarla cuando la condición sí se cumple. Un agente puede resolver una tarea multi-step sin Work Plan y seguir cumpliendo literalmente la instrucción.
+
+Esto coincide con las tres corridas: los agentes entendieron Work Plan al encontrarlo en el código, pero no lo incorporaron a su propio workflow.
+
+La guía de OpenAI para function/tool calling recomienda describir explícitamente **cuándo y cómo** usar una función y usar instrucciones de sistema para indicar cuándo usarla y cuándo no. La guía de metadata para plugins también recomienda orientar la descripción a intención/selección, no comenzar por detalles internos de implementación.
+
+##### Hallazgo 2 - las descripciones actuales explican contrato, no selección
+
+`work_plan_get` empieza por `Returns the current logical Work Plan snapshot...` y sólo recomienda uso al resumir/reconciliar.
+
+`work_plan_update` empieza por `Atomically replaces the complete logical Work Plan snapshot...`.
+
+Ambas descripciones son precisas, pero están optimizadas para **cómo funciona la operación una vez elegida**, no para ayudar al modelo a decidir **por qué debería elegirla ahora**.
+
+OpenAI recomienda que la descripción de una tool explique explícitamente qué objetivo resuelve, cuándo usarla y cómo distinguirla de alternativas.
+
+##### Hallazgo 3 - crear el primer plan tiene fricción evitable
+
+En una WorkSession nueva, el Work Plan empieza determinísticamente vacío en revision 0. Sin embargo, la descripción pública de `work_plan_update` sólo dice que `expectedRevision` debe venir del último `work_plan_get` o update exitoso.
+
+Eso induce el flujo inicial `work_create -> work_plan_get -> work_plan_update`.
+
+Para una feature auxiliar, dos llamadas de bookkeeping antes del trabajo sustantivo son un costo apreciable. No hace falta cambiar Core ni relajar CAS: la semántica actual ya permite `work_create -> work_plan_update(expectedRevision=0)` cuando la WorkSession acaba de ser creada. Para una sesión reutilizada/resumida, `work_plan_get` sigue siendo correcto.
+
+##### Hallazgo 4 - Codex obtiene adopción con instrucciones mucho más operativas
+
+Las instrucciones públicas actuales de Codex para `update_plan` no se limitan a `úsalo para tareas complejas`. Explican para qué sirve, cuándo usarlo, cuándo no usarlo, granularidad y mantenimiento del plan durante el trabajo.
+
+En particular, enumeran triggers positivos como trabajo no trivial con múltiples acciones, fases/dependencias, ambigüedad, checkpoints y prompts con múltiples objetivos. La definición de la tool en sí es pequeña; gran parte de la adopción proviene de instrucciones de workflow.
+
+##### Hallazgo 5 - ServerInstructions es la capa correcta para el workflow cruzado
+
+La documentación oficial de MCP recomienda ServerInstructions precisamente para relaciones entre tools y workflows que no pertenecen a la descripción individual de una tool. El artículo oficial reporta además una evaluación del GitHub MCP Server donde una instrucción explícita de workflow mejoró la adherencia al patrón esperado.
+
+Por lo tanto, reforzar ServerInstructions no es un workaround específico de ChatGPT: es el mecanismo previsto por MCP.
+
+##### Hallazgo 6 - la skill del plugin también omite Work Plan, pero no conviene tocarla primero
+
+La skill privada actual enumera un `Flujo general` con WorkSession, Filesystem, Process y cleanup, pero no menciona Work Plan. Eso puede reforzar indirectamente un workflow sin checklist.
+
+Sin embargo, la propia skill declara que los schemas/descripciones vivos del MCP son la fuente de verdad. Duplicar reglas ahora haría más difícil saber qué capa corrigió la adopción y aumentaría riesgo de drift.
+
+Recomendación experimental:
+
+1. corregir primero sólo la superficie MCP: ServerInstructions + descriptions;
+2. dejar la skill sin cambios;
+3. refrescar catálogo y repetir fresh-agent;
+4. sólo si la adopción sigue insuficiente, agregar una regla mínima a la skill.
+
+##### Hallazgo 7 - no cambiar `destructiveHint` para mejorar adopción
+
+`work_plan_update` hace full replacement y puede eliminar steps existentes. Mantener `Destructive=true` sigue siendo defendible según la semántica MCP de overwrite/destructive updates.
+
+Aunque los hints pueden afectar UX, la instalación actual tiene `Allow all actions` y el smoke no mostró fricción. Cambiar la annotation sólo para aumentar tool selection mezclaría seguridad/semántica con ergonomía y no está justificado por la evidencia.
+
+#### Ajuste propuesto para F1.3
+
+No cambiar Core, schemas ni API.
+
+**1. ServerInstructions**
+
+Reemplazar la regla actual por una guía positiva y acotada, conceptualmente:
+
+> Use Work Plan for non-trivial work with multiple meaningful phases, dependent actions, or checkpoints. Skip it for simple lookups or short single-step tasks. On a newly created WorkSession, you may create the initial plan directly with expectedRevision=0. Keep a concise plan of a few outcome-oriented steps and update it at meaningful milestones, not after every tool call. Work Plan tracks logical progress only and does not execute or monitor real work. Preserve returned step ids and revision; on conflict, reread, reconcile, and retry.
+
+La redacción final debería mantenerse corta; no copiar el manual completo de Codex.
+
+**2. `work_plan_update` description**
+
+- empezar por intención de selección: crear/mantener una checklist breve para trabajo multi-step no trivial;
+- aclarar que en una WorkSession recién creada puede iniciarse directamente con `expectedRevision=0`;
+- indicar updates por milestones, no por cada tool call;
+- luego mantener full replacement, IDs, conflict y semántica de no-ejecución.
+
+Opcionalmente cambiar el Title visible de `Update work plan` a `Create or update work plan`; el nombre MCP `work_plan_update` no necesita romperse.
+
+**3. `work_plan_get` description**
+
+Aclarar que se usa al reanudar una WorkSession existente o reconciliar conflict, y que no hace falta llamarlo como ritual inmediatamente después de `work_create` porque una sesión nueva comienza en revision 0.
+
+**4. No tocar inicialmente**
+
+- Core;
+- CAS/revision;
+- statuses;
+- límites;
+- ResourceRegistry;
+- plugin skill;
+- annotations;
+- tool count.
+
+#### Evaluación propuesta después del ajuste
+
+Usar un pequeño golden set con positivos y negativos, siguiendo la recomendación de OpenAI de evaluar selección de tools con prompts etiquetados.
+
+**Positivos (3 chats):** investigación multiarchivo con varias preguntas; implementación acotada con inspección -> edición -> tests; debugging con localizar causa -> reproducir -> corregir -> verificar.
+
+Ningún prompt debe mencionar Work Plan. Éxito: al menos 2/3 usan Work Plan coherentemente, con pocos pasos útiles y updates por milestones.
+
+**Negativos (2 chats):** leer `global.json` y devolver SDK; leer un archivo conocido y responder una pregunta puntual.
+
+Éxito: 2/2 no usan Work Plan.
+
+Esto es mejor que repetir tres veces exactamente el mismo prompt: valida generalización y evita optimizar la instrucción para un caso único.
+
+#### Decisión recomendada
+
+El ajuste mínimo con mejor relación beneficio/riesgo es:
+
+1. reforzar ServerInstructions con trigger positivo + anti-overplanning + milestone cadence;
+2. hacer que las descriptions de `get/update` expliquen selección además de contrato;
+3. explicitar revision 0 inicial para evitar un `get` innecesario;
+4. mantener Core, CAS y annotations intactos;
+5. retestar antes de tocar la skill del plugin.
+
+No hay evidencia para rediseñar Work Plan ni agregar nuevas tools en F1.3.
+
 #### Fase 3 - Control trivial / anti-overplanning
 
 Usar otro chat nuevo, sin nombrar Work Plan.
@@ -1121,3 +1248,7 @@ Si la evaluación fresh-agent muestra que ChatGPT no usa Work Plan de forma úti
 - OpenAI - Developer mode and MCP apps in ChatGPT: https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt
 - OpenAI - Apps in ChatGPT / action permissions: https://help.openai.com/en/articles/11487775-apps-in-chatgpt
 - MCP Server Instructions: https://blog.modelcontextprotocol.io/posts/2025-11-03-using-server-instructions/
+- OpenAI Function calling - function descriptions and tool-selection guidance: https://developers.openai.com/api/docs/guides/function-calling
+- OpenAI Plugins - Define tools: https://developers.openai.com/plugins/plan/tools
+- OpenAI Plugins - Optimize metadata / golden prompt sets: https://developers.openai.com/plugins/guides/optimize-metadata
+- Codex default planning instructions: https://github.com/openai/codex/blob/main/codex-rs/protocol/src/prompts/base_instructions/default.md

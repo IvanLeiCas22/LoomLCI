@@ -26,7 +26,7 @@ Preguntas deliberadamente diferidas:
 
 - F1.1 Core implementado/validado: estado Work Plan dentro de WorkSession, revision/CAS, límites y lifecycle.
 - F1.2 implementado/validado: `work_plan_get`/`work_plan_update`, schema/annotations y opt-in estático por adapter.
-- F1.3 preflight + smoke aprobados; fresh-agent no trivial dio 0/3 en adopción natural de Work Plan. Pendiente investigar/ajustar ergonomía/instrucciones y luego repetir; control trivial aún pendiente.
+- F1.3 preflight + smoke aprobados; fresh-agent dio 0/3. Investigación de ergonomía concluye: reforzar trigger positivo en ServerInstructions, orientar descriptions a selección y explicitar revision 0 inicial; Core/annotations/skill sin cambios en primer ajuste. Implementación/retest pendientes; control trivial aún pendiente.
 - Evaluar más adelante si hacen falta dependencias explícitas/DAG; no incluirlas en v0.1 sin evidencia.
 
 ## Operación
