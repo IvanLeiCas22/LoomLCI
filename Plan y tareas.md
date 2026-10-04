@@ -1,6 +1,6 @@
 # Plan y tareas
 
-> Estado: F1.1 Core + F1.2 MCP implementados/validados. F1.3 ya pasó preflight/smoke; el primer fresh-agent dio 0/3 y el ajuste de ergonomía MCP quedó implementado/validado. Pendiente refresh de app + retest fresh-agent positivo/negativo.
+> Estado: F1.1 Core + F1.2 MCP implementados/validados. F1.3 pasó preflight/smoke. El ajuste de ergonomía MCP mejoró el golden set de 0/3 a 1/3 positivos, con 2/2 negativos sin sobreplanning. Pendiente investigar/aplicar un ajuste mínimo de la skill del plugin y repetir fresh-agent.
 
 ## Distinciones necesarias
 

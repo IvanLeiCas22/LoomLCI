@@ -1126,6 +1126,36 @@ Nota del harness de tests: `McpStdioTests.GetHostDll` usa Host Debug por defecto
 
 El siguiente paso de F1.3 es refrescar nuevamente el catálogo de la app para incorporar las nuevas descriptions/instructions y ejecutar el golden set fresh-agent positivo/negativo.
 
+#### Resultado del golden set post-ajuste
+
+Tras refrescar la app se ejecutaron cinco chats nuevos, sin mencionar Work Plan.
+
+**Positivos:**
+
+- investigación multiarchivo sobre lifecycle de process output: **falló adopción**; resolvió correctamente con WorkSession + Filesystem, sin Work Plan;
+- implementación documental acotada con inspección -> edición -> validación: **pasó**; usó Work Plan espontáneamente junto con Filesystem/Process;
+- debugging del harness Release/Debug: **falló adopción**; investigó y verificó correctamente, pero sin Work Plan.
+
+Resultado positivo: **1/3**, por debajo del umbral 2/3.
+
+**Negativos:**
+
+- leer `global.json` y devolver SDK: **pasó**; sin Work Plan;
+- leer `McpServiceCollectionExtensions.cs` y responder si Work Plan está enabled por default: **pasó**; sin Work Plan.
+
+Resultado anti-overplanning: **2/2**.
+
+Interpretación:
+
+- el ajuste MCP mejoró adopción respecto del 0/3 inicial, pero sigue siendo insuficiente;
+- no hay señal de sobreplanning en tareas simples;
+- Work Plan parece seleccionarse con más naturalidad cuando la tarea incluye mutación + verificación que en investigación/debugging read-only;
+- la próxima hipótesis a probar es la **skill del plugin**, que actualmente describe explícitamente WorkSession/Filesystem/Process pero omite Work Plan;
+- antes de tocar Core o agregar nuevas tools, conviene hacer un segundo ajuste mínimo únicamente en la skill, manteniendo ServerInstructions/descriptions actuales;
+- el retest posterior debe conservar positivos de investigación/debugging y negativos simples para comprobar que la skill mejora recall sin degradar precisión.
+
+La modificación documental realizada por el positivo #2 en `Especificacion interna v0.1.md` se conserva como cambio pendiente independiente y no forma parte de este registro.
+
 #### Fase 3 - Control trivial / anti-overplanning
 
 Usar otro chat nuevo, sin nombrar Work Plan.

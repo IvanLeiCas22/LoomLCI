@@ -26,7 +26,7 @@ Preguntas deliberadamente diferidas:
 
 - F1.1 Core implementado/validado: estado Work Plan dentro de WorkSession, revision/CAS, límites y lifecycle.
 - F1.2 implementado/validado: `work_plan_get`/`work_plan_update`, schema/annotations y opt-in estático por adapter.
-- F1.3 preflight + smoke aprobados; fresh-agent inicial dio 0/3. Ajuste de ergonomía MCP implementado/validado (trigger positivo, anti-overplanning, revision 0 inicial, descriptions orientadas a selección) sin tocar Core/annotations/skill. Pendiente refresh de app + retest golden set; control trivial incluido en ese retest.
+- F1.3 preflight + smoke aprobados. Tras el ajuste MCP, golden set: positivos 1/3 y negativos 2/2. Hay mejora sin sobreplanning, pero adopción sigue por debajo del umbral; siguiente hipótesis: ajuste mínimo de la skill del plugin antes de tocar Core/API.
 - Evaluar más adelante si hacen falta dependencias explícitas/DAG; no incluirlas en v0.1 sin evidencia.
 
 ## Operación
