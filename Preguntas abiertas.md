@@ -26,7 +26,7 @@ Preguntas deliberadamente diferidas:
 
 - F1.1 Core implementado/validado: estado Work Plan dentro de WorkSession, revision/CAS, límites y lifecycle.
 - F1.2 implementado/validado: `work_plan_get`/`work_plan_update`, schema/annotations y opt-in estático por adapter.
-- F1.3 diseñado: preflight de catálogo 19 tools, smoke por túnel, 3 fresh-agents no triviales y control trivial; ejecución pendiente.
+- F1.3 preflight + smoke por túnel aprobados con catálogo 19 tools; pendientes 3 fresh-agents no triviales y control trivial.
 - Evaluar más adelante si hacen falta dependencias explícitas/DAG; no incluirlas en v0.1 sin evidencia.
 
 ## Operación

@@ -2,7 +2,7 @@
 
 ## Estado
 
-**F1.1 Core y F1.2 MCP implementados/validados; investigación F1.3 completada y su ejecución pendiente.**
+**F1.1 Core y F1.2 MCP implementados/validados; F1.3 preflight + smoke por Secure MCP Tunnel aprobados; fresh-agent pendiente.**
 
 Este bloque propone una primera capability opcional de Agent Support para mantener una checklist estructurada del trabajo lógico de un agente dentro de una WorkSession. No es un scheduler, no ejecuta pasos y no reemplaza Process, Python, MCP Tasks ni la planificación propia del host.
 
@@ -868,6 +868,35 @@ Secuencia:
 Criterio importante: no instruir al agente sobre cómo está implementado el Core. Sólo usar el contrato público.
 
 El wrapping externo de `conflict` o `resource_closed` puede diferir del envelope MCP. Es aceptable si el código/mensaje semántico sigue siendo recuperable y el agente puede continuar.
+
+#### Ejecución F1.3 - Fase 0/1 ✓
+
+Resultado observado desde ChatGPT normal usando la app/túnel real:
+
+- después del refresh manual de acciones de la app, el chat pasó de **17** a **19 tools** visibles;
+- aparecieron `work_plan_get` y `work_plan_update` sin necesidad de reiniciar el runtime;
+- `work_create` creó una WorkSession temporal sin tocar archivos;
+- `work_plan_get` inicial devolvió revision 0 y plan vacío;
+- primer update creó dos steps (`active` + `waiting`), revision 1 e IDs `step_*`;
+- un get posterior preservó exactamente revision, IDs, textos y status;
+- update deliberadamente stale con revision 0 produjo el error semántico esperado:
+  - `conflict`;
+  - mensaje visible: `current revision is 1`;
+- ChatGPT/túnel envolvió el tool error como `INVALID_ARGUMENT / RuntimeException`;
+- el wrapper no expuso `details.currentRevision` de forma directamente utilizable en esta superficie, aunque el mensaje conservó la revisión actual y permitió recuperación determinista;
+- el update de reconciliación con revision 1 preservó los IDs, permitió reorder y avanzó a revision 2;
+- update con array vacío limpió el plan y avanzó a revision 3;
+- `work_close` cerró correctamente la WorkSession;
+- un get posterior devolvió `resource_closed`, nuevamente envuelto exteriormente por el consumidor;
+- no apareció confirmación adicional para `work_plan_update`, consistente con el permiso actual **Allow all actions** de la app;
+- no se modificó ningún archivo del repo mediante las tools LoomLCI durante el smoke.
+
+Conclusión de transporte:
+
+- la superficie F1.2 funciona end-to-end por Secure MCP Tunnel;
+- el refresh de catálogo de la app era necesario para incorporar las dos tools nuevas;
+- la única aspereza observada sigue siendo el wrapping externo de `IsError`, no una pérdida de semántica del Core;
+- el criterio obligatorio pendiente de F1.3 es la evaluación fresh-agent + control trivial.
 
 #### Fase 2 - Fresh-agent no trivial
 
