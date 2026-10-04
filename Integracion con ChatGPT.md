@@ -49,9 +49,9 @@ No se necesita un plugin local `loomlci@personal`, un plugin cloud adicional ni 
 
 La integración fue validada primero con smoke tests y finalmente con una prueba fresh-agent integral en un chat nuevo.
 
-La prueba final descubrió y ejercitó las **15 capabilities públicas actuales** de Work, Filesystem y Process, incluyendo pipes, ConPTY, resize, terminate, release, paginación, búsqueda, patch y cleanup.
+La validación fresh-agent de la baseline descubrió y ejercitó las **15 capabilities públicas** de Work, Filesystem y Process, incluyendo pipes, ConPTY, resize, terminate, release, paginación, búsqueda, patch y cleanup. Después, Python Runtime E1 agregó `python_execute` y `python_reset`, llevando el catálogo público actual a **17 tools**, y ambas fueron validadas por smoke y fresh-agent específico.
 
-Ver [[Validacion final fresh-agent]].
+Ver [[Validacion final fresh-agent]] y [[Bloque E - Python Runtime]].
 
 ### Semántica de errores
 

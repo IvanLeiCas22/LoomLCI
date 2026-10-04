@@ -61,10 +61,13 @@ Implementado hoy:
 - timestamps de creación/última actividad;
 - CancellationTokenSource raíz de la sesión.
 
+Estado asociado a WorkSession:
+
+- Python worker lazy/session-owned, implementado en E1 cuando la sesión lo necesita.
+
 Diseño diferido para futuras capabilities:
 
 - ExecutionContext asociado;
-- Python worker de la sesión, si fue creado;
 - Work Plan opcional.
 
 No contiene conversación, prompts ni memoria semántica del agente.
