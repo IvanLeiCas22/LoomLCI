@@ -49,7 +49,7 @@ No se necesita un plugin local `loomlci@personal`, un plugin cloud adicional ni 
 
 La integración fue validada primero con smoke tests y finalmente con una prueba fresh-agent integral en un chat nuevo.
 
-La validación fresh-agent de la baseline descubrió y ejercitó las **15 capabilities públicas** de Work, Filesystem y Process. Python Runtime E1 agregó `python_execute` y `python_reset`, llevando el catálogo a **17 tools**. Agent Support agregó `work_plan_get` y `work_plan_update`; el catálogo de **19 tools** ya fue validado por Secure MCP Tunnel y el smoke F1.3 pasó. El primer fresh-agent de adopción natural dio 0/3, por lo que se reforzaron ServerInstructions/descriptions sin cambiar Core ni annotations; el retest tras refresh de la app sigue pendiente.
+La validación fresh-agent de la baseline descubrió y ejercitó las **15 capabilities públicas** de Work, Filesystem y Process. Python Runtime E1 agregó `python_execute` y `python_reset`, llevando el catálogo a **17 tools**. Agent Support agregó `work_plan_get` y `work_plan_update`, llevando el catálogo a **19 tools**. F1.3 pasó smoke por Secure MCP Tunnel. La adopción natural evolucionó de 0/3 a 1/3 tras reforzar ServerInstructions/descriptions y finalmente a **2/3 positivos con 2/2 controles negativos** tras actualizar la skill del plugin a 0.2.1; Agent Support quedó cerrado sin cambios adicionales de Core/API.
 
 Ver [[Validacion final fresh-agent]], [[Bloque E - Python Runtime]] y [[Bloque F - Agent Support]].
 

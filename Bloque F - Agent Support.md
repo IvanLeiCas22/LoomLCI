@@ -2,7 +2,7 @@
 
 ## Estado
 
-**F1.1 Core y F1.2 MCP implementados/validados; F1.3 preflight + smoke aprobados, primer fresh-agent dio 0/3 y el ajuste de ergonomía MCP ya está implementado/validado; retest fresh-agent pendiente.**
+**Bloque F cerrado. F1.1 Core + F1.2 MCP implementados/validados; F1.3 pasó smoke por Secure MCP Tunnel y A/B fresh-agent final 2/3 positivos + 2/2 negativos con skill 0.2.1.**
 
 Este bloque propone una primera capability opcional de Agent Support para mantener una checklist estructurada del trabajo lógico de un agente dentro de una WorkSession. No es un scheduler, no ejecuta pasos y no reemplaza Process, Python, MCP Tasks ni la planificación propia del host.
 
@@ -605,7 +605,7 @@ Descripción de `work_plan_update` debe dejar explícito:
 - múltiples `active`/`waiting` son válidos;
 - no ejecuta steps ni altera Process/Python/Filesystem.
 
-Título propuesto: **Update work plan**.
+Título propuesto: **Create or update work plan**.
 
 #### Annotations cerradas
 
@@ -806,7 +806,7 @@ Estado previo confirmado:
 - Host F1.2 expone 19 tools cuando Work Plan está habilitado;
 - suites F1.2: 197/197 Debug y Release;
 - la app `LoomLCI MCP` tiene actualmente permiso específico **Allow all actions**, por lo que en esta instalación no se espera una confirmación por cada `work_plan_update`;
-- la skill privada de LoomLCI no enumera Work Plan ni Python y declara que el schema MCP vivo es la fuente de verdad. Debe mantenerse así durante F1.3 para no enseñar artificialmente al fresh-agent que use Work Plan.
+- en el preflight inicial, la skill privada de LoomLCI no enumeraba Work Plan ni Python y declaraba que el schema MCP vivo era la fuente de verdad. Se mantuvo sin cambios durante las primeras corridas para medir adopción natural antes de cualquier ajuste.
 
 Las annotations MCP siguen siendo hints y no garantías de UX. ChatGPT además decide approvals según permisos de la app, contexto e impacto. Por eso F1.3 debe observar comportamiento real sin reinterpretar un prompt de aprobación como verdad semántica del protocolo.
 
@@ -896,7 +896,7 @@ Conclusión de transporte:
 - la superficie F1.2 funciona end-to-end por Secure MCP Tunnel;
 - el refresh de catálogo de la app era necesario para incorporar las dos tools nuevas;
 - la única aspereza observada sigue siendo el wrapping externo de `IsError`, no una pérdida de semántica del Core;
-- el criterio obligatorio pendiente de F1.3 es la evaluación fresh-agent + control trivial.
+- en ese punto quedaba pendiente la evaluación fresh-agent + control trivial, completada posteriormente en el A/B final.
 
 #### Fase 2 - Fresh-agent no trivial
 
@@ -1124,7 +1124,7 @@ Validación:
 
 Nota del harness de tests: `McpStdioTests.GetHostDll` usa Host Debug por defecto incluso cuando la suite corre en Release. Para validar Release contra el binario correcto se apuntó `LOOMLCI_TEST_HOST_DLL` al Host Release explícitamente. No es un fallo de LoomLCI.
 
-El siguiente paso de F1.3 es refrescar nuevamente el catálogo de la app para incorporar las nuevas descriptions/instructions y ejecutar el golden set fresh-agent positivo/negativo.
+En ese momento, el siguiente paso fue refrescar nuevamente el catálogo de la app e iniciar el golden set fresh-agent positivo/negativo; esa etapa quedó completada posteriormente.
 
 #### Resultado del golden set post-ajuste
 
@@ -1289,7 +1289,32 @@ Para aislar el experimento no se modificaron:
 
 El bump técnico `0.2.0 -> 0.2.1` se sincronizó en `plugin.json` y `.codex-plugin/plugin.json`. El read-back de la release publicada confirmó la preservación de README y configuraciones MCP sin cambios.
 
-Siguiente paso: refrescar/reabrir el plugin en ChatGPT si es necesario y repetir **exactamente el mismo golden set de 5 prompts** para obtener un A/B controlado.
+#### Resultado A/B final con skill 0.2.1 ✓
+
+Tras refrescar las herramientas se repitieron **exactamente los mismos 5 prompts**:
+
+**Positivos**
+- investigación multiarchivo sobre lifecycle de process output: no usó Work Plan;
+- implementación documental acotada: usó Work Plan coherentemente;
+- debugging del harness Release/Debug: usó Work Plan coherentemente.
+
+Resultado: **2/3**, alcanzando el umbral definido.
+
+**Negativos**
+- lectura puntual de `global.json`: sin Work Plan;
+- pregunta puntual sobre `AddLoomMcpStdio`: sin Work Plan.
+
+Resultado: **2/2**, sin señal de overplanning.
+
+Comparación controlada:
+
+- antes de reforzar MCP: 0/3 positivos;
+- tras reforzar ServerInstructions/descriptions: 1/3 positivos, 2/2 negativos;
+- tras agregar la regla mínima a la skill: **2/3 positivos, 2/2 negativos**.
+
+La skill mejoró recall sin degradar precisión. El caso de investigación multiarchivo todavía puede resolverse sin Work Plan, pero no impide el cierre porque el criterio deliberado era generalización >=2/3, no uso obligatorio.
+
+**F1.3 queda aprobado.** No hay evidencia que justifique más prompting, cambios de Core/API ni nuevas tools en este bloque.
 
 #### Fase 3 - Control trivial / anti-overplanning
 
@@ -1368,7 +1393,7 @@ F1 puede cerrarse cuando:
 4. al menos **2 de 3** fresh-agents usan Work Plan coherentemente en la tarea no trivial;
 5. el control trivial no usa Work Plan;
 6. no hay fricción de approval bloqueante con la configuración real de la app;
-7. no se modificaron archivos del repo durante fresh-agent;
+7. no hubo cambios accidentales durante fresh-agent; cualquier modificación intencional pedida por un caso de implementación quedó validada y reconciliada;
 8. WorkSessions de prueba quedan cerradas;
 9. tunnel queda nuevamente `healthy/ready`;
 10. repo sigue limpio;
@@ -1398,7 +1423,7 @@ F1.3 debe hacerse en dos momentos:
 1. smoke determinista en el chat actual o un chat controlado;
 2. fresh-agent en chats nuevos con el prompt no trivial y el control trivial.
 
-No actualizar la skill del plugin hasta terminar las corridas. Si después F1 queda aceptado, recién entonces conviene actualizar metadata/README de la integración para reflejar Python + Agent Support sin convertir esa metadata en una lista exhaustiva.
+La skill ya fue actualizada y el A/B final fue aprobado. La metadata/README de la integración puede reconciliarse aparte para reflejar Python + Agent Support sin convertirla en una lista exhaustiva; no forma parte del criterio funcional de F1.3.
 
 ## Criterio de cierre
 

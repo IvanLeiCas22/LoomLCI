@@ -1,6 +1,6 @@
 # Plan y tareas
 
-> Estado: F1.1 Core + F1.2 MCP implementados/validados. F1.3 pasó preflight/smoke. Tras el ajuste MCP, el golden set quedó en 1/3 positivos y 2/2 negativos. La skill del plugin fue actualizada a 0.2.1 con una regla mínima de Work Plan; pendiente repetir el mismo golden set como A/B.
+> Estado: **Bloque F / Agent Support cerrado**. F1.1 Core + F1.2 MCP implementados/validados; F1.3 pasó smoke por Secure MCP Tunnel y el A/B fresh-agent final con skill 0.2.1 dio **2/3 positivos y 2/2 negativos**, cumpliendo el criterio de adopción sin overplanning.
 
 ## Distinciones necesarias
 
