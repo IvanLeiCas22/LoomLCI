@@ -1156,6 +1156,118 @@ Interpretación:
 
 La modificación documental realizada por el positivo #2 en `Especificacion interna v0.1.md` se conserva como cambio pendiente independiente y no forma parte de este registro.
 
+#### Investigación específica - segundo ajuste en la skill del plugin
+
+El golden set post-ajuste MCP dio 1/3 positivos y 2/2 negativos. La evidencia indica un problema de recall de Work Plan en workflows no triviales, sin señal de sobreplanning en tareas simples.
+
+##### Hallazgo 1 - la skill actual prescribe un workflow completo que omite Work Plan
+
+La skill privada `skills/loomlci/SKILL.md` contiene un `Flujo general` numerado que enseña explícitamente:
+
+- crear/reutilizar WorkSession;
+- explorar filesystem;
+- elegir pipes/terminal;
+- leer/status de procesos;
+- terminate/cleanup;
+- cerrar WorkSession.
+
+Work Plan no aparece en ese recorrido. Por eso un agente puede seguir la skill correctamente de punta a punta sin siquiera considerar la checklist lógica, aunque las ServerInstructions MCP sí la recomienden.
+
+Esto encaja con el golden set: los negativos simples no sobreplanificaron, pero dos tareas read-only no triviales siguieron exactamente el recorrido WorkSession + Filesystem/Process sin Work Plan.
+
+##### Hallazgo 2 - la skill es la capa correcta para esta segunda intervención
+
+La documentación oficial de OpenAI define las skills como la capa de workflow alrededor de las MCP tools: deben enseñar cuándo llamar tools, en qué orden, cómo manejar decisiones y qué constituye un resultado correcto. El servidor MCP conserva live data/actions/contracts.
+
+Por lo tanto, agregar a la skill la decisión `cuándo crear/mantener Work Plan` no viola la separación de responsabilidades; al contrario, corrige el hueco entre capability y workflow.
+
+##### Hallazgo 3 - no hace falta cambiar la metadata de activación de la skill
+
+La descripción actual de la skill ya cumple su objetivo de activación: se carga cuando el usuario pide trabajar sobre su PC mediante LoomLCI. En todas las corridas del golden set el agente utilizó LoomLCI correctamente.
+
+El problema ocurre **después** de que el plugin/skill ya está seleccionado. Cambiar `name`, `description`, `defaultPrompt`, `shortDescription` o `longDescription` agregaría variables al experimento sin atacar la causa observada.
+
+OpenAI recomienda separar problemas de activation/selection de problemas del workflow una vez activado. Aquí la activación no es el cuello de botella.
+
+##### Hallazgo 4 - el ajuste debe ser deliberadamente corto
+
+No conviene copiar las ServerInstructions completas dentro de la skill. Eso produciría drift y dos fuentes de verdad para detalles de protocolo.
+
+La skill sólo necesita cuatro decisiones:
+
+1. trigger positivo: tarea no trivial con varias fases significativas, acciones dependientes o checkpoints;
+2. trigger negativo: lookup simple o tarea corta de un solo paso;
+3. timing: si aplica, inicializar el plan inmediatamente después de `work_create`, antes del trabajo sustantivo;
+4. cadence/granularidad: pocos pasos outcome-oriented y updates sólo en milestones.
+
+Los detalles de IDs, revision/CAS, conflicts, límites y statuses deben seguir delegados al schema/descriptions vivos del MCP.
+
+##### Hallazgo 5 - conviene mencionar explícitamente la tool inicial
+
+La guía oficial de skills recomienda decir qué tools usar y en qué orden cuando el workflow depende de MCP.
+
+Para eliminar ambigüedad en investigación/debugging, la skill debería indicar que una WorkSession recién creada parte en revision 0 y que, cuando Work Plan aplica, puede iniciarse directamente con `work_plan_update(expectedRevision=0)` tras `work_create`.
+
+No hace falta enseñar `work_plan_get` en el flujo normal inicial; su uso para resume/conflict ya está cubierto por el schema vivo.
+
+##### Hallazgo 6 - no tocar todavía manifest/README salvo el bump técnico de versión
+
+El plugin manifest y README siguen algo desactualizados respecto de Python/Agent Support, pero eso no explica el fallo actual: el usuario invoca LoomLCI explícitamente y las tools están disponibles.
+
+Actualizar esa metadata al mismo tiempo confundiría el A/B. Para esta iteración conviene modificar sólo `SKILL.md` y realizar el bump técnico requerido de versión del plugin (`0.2.0` -> `0.2.1`) en los manifests repetidos cuando se publique el update.
+
+El README puede quedar para la reconciliación posterior a F1.3.
+
+#### Ajuste mínimo recomendado para la skill
+
+Insertar un único paso inmediatamente después del actual paso de WorkSession, conceptualmente:
+
+> Si la tarea es no trivial y requiere varias fases significativas, acciones dependientes o checkpoints, usa Work Plan en esa WorkSession. Inicialízalo inmediatamente después de `work_create` con `work_plan_update(expectedRevision=0)` en una sesión nueva, antes del trabajo sustantivo. Mantén pocos pasos orientados a resultados y actualízalos sólo en hitos; omite Work Plan para lookups simples o tareas cortas de un solo paso. Para IDs, revisions, conflicts, límites y demás semántica, sigue el schema vivo.
+
+Después se renumeran los pasos existentes. No hace falta una sección nueva ni ejemplos extensos.
+
+##### Por qué esta formulación
+
+- aumenta recall precisamente en investigación/debugging read-only, donde falló;
+- conserva un anti-trigger explícito para proteger los 2/2 negativos;
+- obliga a tomar la decisión temprano, antes de que el agente ya haya arrancado el trabajo sustantivo sin plan;
+- evita duplicar detalles contractuales;
+- mantiene al schema MCP como fuente de verdad;
+- es compatible con el rol oficial de skills como workflow layer.
+
+#### Retest recomendado
+
+Después de actualizar el plugin y refrescarlo, repetir **exactamente el mismo golden set de 5 prompts** usado antes.
+
+En esta iteración conviene reutilizar los mismos prompts porque el objetivo es un A/B controlado del único cambio: skill sin regla de Work Plan vs skill con regla mínima.
+
+Criterio:
+
+- positivos: al menos 2/3 usan Work Plan coherentemente;
+- negativos: 2/2 siguen sin usarlo;
+- en positivos, creación temprana tras `work_create`, pocos pasos y updates por milestones;
+- cero confusión entre plan lógico y ejecución real.
+
+Si alcanza 2/3 + 2/2, F1.3 puede continuar hacia cierre sin tocar Core/API.
+
+Si sigue en 0-1/3 positivos, detener la optimización de prompting y reevaluar si Work Plan aporta suficiente valor en ChatGPT normal antes de introducir más mecanismos o complejidad.
+
+#### Decisión recomendada
+
+Aplicar **una sola modificación conductual a la skill**: agregar el paso anterior al `Flujo general`.
+
+No cambiar en esta iteración:
+
+- ServerInstructions;
+- tool descriptions/schemas;
+- Core/CAS/statuses;
+- annotations;
+- plugin activation metadata/defaultPrompt;
+- README funcional;
+- cantidad o nombres de tools.
+
+Al publicar el plugin, sólo acompañar el cambio con el bump técnico de versión requerido por Plugin Creator.
+
 #### Fase 3 - Control trivial / anti-overplanning
 
 Usar otro chat nuevo, sin nombrar Work Plan.
@@ -1307,4 +1419,6 @@ Si la evaluación fresh-agent muestra que ChatGPT no usa Work Plan de forma úti
 - OpenAI Function calling - function descriptions and tool-selection guidance: https://developers.openai.com/api/docs/guides/function-calling
 - OpenAI Plugins - Define tools: https://developers.openai.com/plugins/plan/tools
 - OpenAI Plugins - Optimize metadata / golden prompt sets: https://developers.openai.com/plugins/guides/optimize-metadata
+- OpenAI Plugins - Skills: https://developers.openai.com/plugins/concepts/skills
+- OpenAI Plugins - Build skills: https://developers.openai.com/plugins/build/skills
 - Codex default planning instructions: https://github.com/openai/codex/blob/main/codex-rs/protocol/src/prompts/base_instructions/default.md
