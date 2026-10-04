@@ -452,69 +452,117 @@ No intentar unificar artificialmente los handles heredables de pipes con ConPTY.
 
 ### Política de lifetime
 
-Para `ioMode=terminal`, el lifetime de la sesión terminal sigue al proceso raíz.
+Para `ioMode=terminal`, la sesión terminal sigue al proceso raíz, pero el **output retenido sigue al ProcessHandle**.
+
+Esto separa dos lifetimes:
+
+- **terminal session**: input pipe + output pipe activo + HPCON + conhost;
+- **retained result**: estado del root + exit code + spool terminal todavía legible por `process_read`.
 
 Cuando el root sale naturalmente:
 
-1. conservar su exit code real;
-2. iniciar teardown terminal;
+1. conservar inmediatamente su exit code real y marcarlo `exited`;
+2. bloquear nuevos writes/resizes;
 3. terminar descendientes todavía vivos mediante el Job Object;
-4. drenar output final;
-5. liberar ConPTY.
+4. iniciar teardown de la sesión terminal;
+5. seguir drenando output final hasta EOF/fallo;
+6. cerrar HPCON y pipes;
+7. conservar el spool hasta que se cierre el ProcessHandle.
 
-Razón: una terminal cuyo shell/root terminó no debe quedar viva indefinidamente por un descendant background. Es equivalente a cerrar la sesión terminal y evita recursos huérfanos.
+Así, `process_status` puede reflejar el exit del root sin esperar al teardown completo y `process_read` continúa siendo útil después del exit.
 
-Esto es deliberadamente más estricto que el modo pipes, donde un descendant puede seguir vivo hasta `process_terminate` o cleanup del recurso.
+Esto es deliberadamente más estricto que `pipes`, donde un descendant puede seguir vivo hasta `process_terminate` o cleanup del recurso.
+
+### State machine interna
+
+No agregar estados públicos nuevos a `ManagedProcessState`.
+
+El backend terminal tendrá su propio estado interno:
+
+```text
+Open
+  -> Closing
+  -> Closed
+```
+
+Reglas:
+
+- `Open`: write y resize permitidos;
+- transición a `Closing`: exactamente una vez;
+- `Closing`: nuevos writes/resizes devuelven `conflict`;
+- `Closed`: input/output/HPCON ya liberados, pero el spool continúa legible;
+- múltiples llamadas a teardown comparten la misma tarea y son idempotentes.
+
+La transición debe estar serializada dentro de `WindowsTerminalProcessIo`; no depender de `ResourceRegistry.Entry.Gate`, porque hoy ese gate sólo protege `CloseAsync` y no las operaciones obtenidas previamente mediante `Resolve`.
 
 ### process_terminate
 
 Para terminal:
 
-1. marcar `terminating`;
+1. marcar el Process como `terminating`;
 2. impedir nuevos writes/resizes;
-3. terminar Job Object;
-4. conservar output pump activo;
-5. completar teardown ConPTY;
-6. esperar al root si todavía no salió;
-7. fijar estado `terminated`;
-8. mantener output retenido accesible.
+3. terminar el Job Object;
+4. esperar el exit del root;
+5. completar el mismo teardown terminal idempotente usado por root-exit natural;
+6. fijar estado `terminated`;
+7. mantener output retenido accesible.
 
-### Windows 11 24H2+
+No habrá un segundo camino de cierre específico de `process_terminate`: natural exit, terminate y work_close convergen en la misma operación de teardown.
 
-Si `ReleasePseudoConsole` está disponible:
+### Windows 11 24H2+ / ReleasePseudoConsole
 
-1. Job termina root + descendants cuando corresponde;
-2. `ReleasePseudoConsole`;
-3. mantener output pump hasta EOF/fallo;
-4. `ClosePseudoConsole`;
-5. liberar pipes/store.
+No detectar soporte sólo por número de versión. Detectar la disponibilidad real del export `ReleasePseudoConsole` en runtime y cachearla.
+
+Si está disponible:
+
+1. el Job garantiza que root/descendants que Loom decidió cerrar ya no permanezcan vivos;
+2. cerrar input para impedir nuevas escrituras;
+3. llamar `ReleasePseudoConsole` una sola vez;
+4. seguir drenando output hasta EOF/fallo, que indica que todos los clientes se desconectaron y conhost salió;
+5. llamar `ClosePseudoConsole` para liberar el almacenamiento restante del HPCON;
+6. cerrar reader/output pipe.
+
+`ReleasePseudoConsole` no reemplaza a `ClosePseudoConsole`.
 
 ### Windows 10 1809 .. Windows 11 23H2
 
-No existe `ReleasePseudoConsole`.
+Si el export `ReleasePseudoConsole` no existe:
 
-1. Job termina los clientes cuando corresponde;
-2. mantener output pump drenando;
-3. ejecutar `ClosePseudoConsole` fuera del pump de output;
-4. esperar que retorne;
-5. liberar pipes/store.
+1. el Job termina los clientes;
+2. cerrar input;
+3. mantener el output pump activo;
+4. ejecutar `ClosePseudoConsole` en un trabajo separado del pump;
+5. esperar en paralelo cierre de HPCON + EOF/fallo del output;
+6. cerrar reader/output pipe.
 
-Nunca ejecutar un `ClosePseudoConsole` potencialmente bloqueante en el mismo flujo encargado de drenar output.
+Nunca llamar un `ClosePseudoConsole` potencialmente bloqueante en el flujo que drena output.
+
+### Output pump
+
+EOF y broken pipe son finales normales del lifecycle ConPTY.
+
+El pump terminal debe tratar como finalización esperada:
+
+- `ReadAsync` devuelve 0;
+- broken pipe / `IOException` durante teardown;
+- `ObjectDisposedException` durante cleanup idempotente.
+
+No deben convertirse en fallas del proceso si ocurren después de iniciar `Closing`.
 
 ### Dispose / work_close
 
-Debe ser idempotente.
+`DisposeAsync` debe:
 
-Orden conceptual:
+1. marcar el recurso como cerrado para nuevas operaciones;
+2. terminar el Job Object;
+3. esperar el exit observer del root;
+4. completar teardown terminal idempotente;
+5. liberar process handle y Job Object;
+6. recién entonces liberar spool/store y gates.
 
-1. bloquear nuevas operaciones I/O;
-2. terminar Job Object;
-3. teardown ConPTY mientras output continúa drenándose;
-4. completar pumps;
-5. liberar process handle;
-6. liberar pipes;
-7. liberar store/spool;
-8. liberar gates.
+En session-owned, `work_close` elimina todo el árbol y el handle deja de ser utilizable según la semántica actual del registry.
+
+En independent, cerrar la WorkSession no inicia teardown; el ProcessHandle y su terminal siguen vivos hasta exit natural, terminate o cierre explícito.
 
 ## Concurrencia
 
@@ -523,13 +571,16 @@ La regla existente sigue:
 - distintos ProcessHandles: concurrentes;
 - writes al mismo proceso: serializados.
 
-Agregar:
+Para terminal, una única coordinación interna debe serializar:
 
-- resize del mismo terminal serializado contra teardown;
-- release/close de `HPCON` serializados e idempotentes;
-- write y resize deben detectar terminal en closing/closed y devolver error claro.
+- write vs inicio de teardown;
+- resize vs inicio de teardown;
+- release/close del HPCON;
+- múltiples callers intentando cerrar simultáneamente.
 
-No confiar en `ResourceRegistry.Entry.Gate` para proteger operaciones normales: hoy ese gate sólo serializa `CloseAsync`. El recurso Windows debe proteger su propio lifecycle.
+El output pump permanece independiente de esa coordinación para que siempre pueda drenar mientras ocurre el teardown.
+
+`Read` no participa en el gate de lifecycle: `ProcessOutputStore` ya es thread-safe y debe seguir permitiendo lecturas durante y después del cierre de la sesión.
 
 ## Manejo de errores
 
@@ -836,14 +887,28 @@ Hallazgo de implementación: el canal ConPTY es UTF-8, pero la fidelidad de cara
 
 ### C2.3 - Lifecycle y hardening
 
-- Ctrl+C smoke;
-- root-exit policy;
-- teardown 24H2+ con ReleasePseudoConsole;
-- fallback pre-24H2;
-- hardening de resize contra teardown;
-- races/cleanup tests;
-- tree cleanup terminal;
-- session-owned / independent terminal.
+Diseño refinado:
+
+- agregar a la abstracción interna de I/O una operación idempotente de cierre de sesión; en pipes es no-op y en terminal ejecuta el teardown sin destruir el spool;
+- `ObserveExitAsync` registra primero el exit real del root y luego dispara/espera cleanup terminal;
+- natural root exit termina descendants del Job, pero conserva el exit code original del root;
+- `process_terminate`, root exit y `work_close` convergen en el mismo teardown terminal;
+- detectar `ReleasePseudoConsole` por disponibilidad real del export, no sólo por versión de Windows;
+- mantener un único task de teardown para que callers concurrentes compartan el mismo cierre;
+- output pump independiente, con EOF/broken-pipe tratados como cierre normal;
+- write/resize serializados contra transición `Open -> Closing`;
+- spool terminal retenido hasta cerrar el ProcessHandle.
+
+Validación requerida:
+
+- Ctrl+C smoke y shell reutilizable después del interrupt;
+- natural root exit con descendant: root conserva exit code y descendant desaparece;
+- `process_terminate`: árbol completo eliminado y output final retenido;
+- session-owned: `work_close` elimina árbol/terminal;
+- independent: sobrevive `work_close` y sigue aceptando status/read/write/resize;
+- carreras write/resize/terminate/work_close sin crash, leak ni use-after-close;
+- fallback sin `ReleasePseudoConsole` ejercitado mediante un seam interno de test, aunque la máquina de desarrollo sea 24H2+;
+- repetición de terminales cortos para detectar leaks de `conhost.exe`/handles.
 
 ### C2.4 - Validación final
 
