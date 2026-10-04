@@ -4,7 +4,7 @@ Segundo cerebro del proyecto LoomLCI.
 
 ## Estado
 
-Arquitectura v0.1 definida. Milestone 1 (Process), Milestone 2 (Filesystem) y C1 (Native Process + Job Objects) implementados, validados y cerrados; siguiente foco: C2 / ConPTY.
+Arquitectura v0.1 definida. Milestone 1 (Process), Milestone 2 (Filesystem) y C1 (Native Process + Job Objects) implementados, validados y cerrados; C2 / ConPTY tiene diseño propuesto pendiente de aprobación para implementación.
 
 ## Notas
 
@@ -15,6 +15,8 @@ Arquitectura v0.1 definida. Milestone 1 (Process), Milestone 2 (Filesystem) y C1
 - [[Estructura del repositorio v0.1]]
 - [[Milestone 1 - Process vertical slice]]
 - [[Milestone 2 - Filesystem vertical slice]]
+- [[Bloque C1 - Native Process y Job Objects]]
+- [[Bloque C2 - ConPTY]]
 - [[Preguntas abiertas]]
 - [[Python Runtime]]
 - [[Plan y tareas]]

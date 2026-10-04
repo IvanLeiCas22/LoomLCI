@@ -9,7 +9,7 @@
 ## Process
 
 - Contrato público exacto de run/start/read/write/status/terminate.
-- Semántica final de ConPTY y cursores del stream terminal.
+- Semántica final de ConPTY y cursores del stream terminal: propuesta en [[Bloque C2 - ConPTY]], pendiente de aprobación.
 - Política concreta de TTL/retención de ProcessHandle después del exit.
 
 ## Python Runtime
