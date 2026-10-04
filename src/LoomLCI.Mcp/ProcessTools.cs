@@ -196,10 +196,10 @@ public sealed class ProcessTools
         Destructive = true,
         Idempotent = false,
         OpenWorld = false)]
-    [Description("Writes text verbatim to a running process input. For pipe-based processes this writes stdin; for terminal processes this writes the ConPTY input stream, including control characters or VT sequences. No newline is appended automatically; include it in text when the target expects Enter or a line terminator.")]
+    [Description("Writes text verbatim to a running process input. For pipe-based processes this writes stdin; for terminal processes this writes the ConPTY input stream, including control characters or VT sequences. To send Ctrl+C to a terminal without terminating the terminal process, write \\u0003 (ETX). No newline is appended automatically; include it in text when the target expects Enter or a line terminator.")]
     public async Task<CallToolResult> Write(
         [Description("Process handle returned by process_start.")] string processHandle,
-        [Description("Text to write verbatim to the process input. Include newline or control characters when required by the target process.")] string text,
+        [Description("Text to write verbatim to the process input. Include newline or control characters when required by the target process. For terminal Ctrl+C, write \\u0003 (ETX).")] string text,
         CancellationToken cancellationToken = default)
     {
         var result = await _processes.WriteAsync(new ProcessHandle(processHandle), text, cancellationToken).ConfigureAwait(false);

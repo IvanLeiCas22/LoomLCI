@@ -159,6 +159,16 @@ public sealed class McpStdioTests
         AssertSchemaRange(GetRequiredProperty(processStartProperties, "terminalColumns"), 1, short.MaxValue);
         AssertSchemaRange(GetRequiredProperty(processStartProperties, "terminalRows"), 1, short.MaxValue);
 
+        var writeProcess = Assert.Single(tools, tool => tool.Name == "process_write");
+        Assert.Contains("Ctrl+C", writeProcess.Description, StringComparison.Ordinal);
+        Assert.Contains("\\u0003", writeProcess.Description, StringComparison.Ordinal);
+        var processWriteProperties = GetRequiredProperty(writeProcess.JsonSchema, "properties");
+        var writeTextDescription = GetRequiredProperty(
+            GetRequiredProperty(processWriteProperties, "text"),
+            "description").GetString();
+        Assert.Contains("Ctrl+C", writeTextDescription, StringComparison.Ordinal);
+        Assert.Contains("\\u0003", writeTextDescription, StringComparison.Ordinal);
+
         var terminateProcess = Assert.Single(tools, tool => tool.Name == "process_terminate");
         Assert.Contains("idempotent", terminateProcess.Description, StringComparison.OrdinalIgnoreCase);
         Assert.True(terminateProcess.ProtocolTool.Annotations?.IdempotentHint ?? false);

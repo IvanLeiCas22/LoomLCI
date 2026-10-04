@@ -2,7 +2,7 @@
 
 ## Estado
 
-**Diseño aprobado. C2.1, C2.2 y C2.3 implementados y validados; siguiente etapa: C2.4 validación final y actualización del runtime/plugin vivo.**
+**Cerrado. C2.1–C2.4 implementados y validados; ConPTY está disponible end-to-end por MCP público.**
 
 C1 dejó resueltos el launch nativo con `CreateProcessW`, `STARTUPINFOEX`, Job Objects, quoting, environment, working directory, estado, output retenido y lifecycle de `ProcessHandle`. C2 agrega el segundo modo de I/O previsto desde la arquitectura inicial: **terminal mediante ConPTY**.
 
@@ -921,18 +921,26 @@ Validación Release:
 - total: **93/93**;
 - Host Release: **0 warnings, 0 errores**.
 
-### C2.4 - Validación final
+### C2.4 - Validación final ✓
 
-- suite completa;
-- Release/Debug;
-- runtime actualizado;
-- smoke MCP público;
-- Secure MCP Tunnel;
-- fresh-agent;
-- documentación de cierre.
+Validado:
+
+- suite completa Release: **93/93**;
+- suite completa Debug: **93/93**;
+- Host Release y Debug: **0 warnings, 0 errores**;
+- runtime administrado `loomlci` recompilado, reconectado y en estado `ready`;
+- complemento actualizado a `0.2.0`, con el schema vivo como fuente de verdad;
+- smoke/fresh-agent público por Secure MCP Tunnel exitoso de punta a punta;
+- fresh-agent distinguió naturalmente `pipes` vs `terminal`, validó consola real 80×24, resize a 100×30, cursor terminal, Ctrl+C sin matar PowerShell, reutilización de la shell, exit code y cleanup;
+- única fricción detectada: Ctrl+C requería inferir ETX; `process_write` ahora documenta explícitamente `\\u0003` (ETX) y el schema queda cubierto por test de integración.
 
 ## Estado de decisión
 
-Diseño aprobado. C2.1, C2.2 y C2.3 quedaron implementados y validados.
+**C2 cerrado.**
 
-C2 está funcionalmente completo a nivel de código y lifecycle. Resta C2.4: validación final Debug/Release, actualización del runtime/plugin vivo, smoke público por Secure MCP Tunnel y fresh-agent.
+La capa Process queda con dos modos públicos estables:
+
+- `pipes`: automatización normal con stdout/stderr separados;
+- `terminal`: ConPTY real con stream terminal raw, input interactivo, resize, Ctrl+C, cursores, retención y lifecycle seguro.
+
+No queda trabajo funcional pendiente dentro de C2. Los temas posteriores pertenecen a otros bloques, como TTL de `ProcessHandle`, Python Runtime o Computer Use.
