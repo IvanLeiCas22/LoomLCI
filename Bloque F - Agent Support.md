@@ -940,6 +940,39 @@ Criterio de utilidad:
 
 Una corrida cuenta como correcta si el agente usa Work Plan cuando lo considera útil y lo mantiene coherentemente. No es requisito que use todos los status ni que actualice después de cada tool call.
 
+#### Resultado fresh-agent no trivial
+
+Se ejecutaron tres chats nuevos independientes con el mismo prompt, sin mencionar Work Plan ni sus tools.
+
+Resultado:
+
+- **Fresh-agent #1: 0/1** — investigó correctamente la arquitectura, entendió Work Plan, pero no usó `work_plan_get` ni `work_plan_update`;
+- **Fresh-agent #2: 0/1** — mismo patrón: comprendió Agent Support/Work Plan y resolvió la tarea con WorkSession + Filesystem, sin adoptar Work Plan;
+- **Fresh-agent #3: 0/1** — nuevamente entendió el flujo MCP/Core, lifecycle y concurrencia, pero no usó ninguna tool de Work Plan.
+
+En las tres corridas:
+
+- la tarea era no trivial y multi-step;
+- el agente descubrió conceptualmente Work Plan durante la investigación;
+- no hubo confusión entre plan lógico y estado real;
+- no se modificaron archivos;
+- la WorkSession de inspección se cerró correctamente;
+- la navegación se resolvió con herramientas de filesystem;
+- aparecieron asperezas menores de volumen/ruido de búsqueda, no fallos de Agent Support.
+
+**Resultado de adopción natural: 0/3.**
+
+Esto falla deliberadamente el criterio de cierre definido para F1.3. La feature funciona técnicamente y es descubrible conceptualmente, pero las instrucciones actuales no inducen su uso natural en una tarea claramente multi-step.
+
+La señal es especialmente clara porque el agente fue capaz de explicar Work Plan correctamente después de descubrirlo en el código, pero aun así no lo consideró útil para organizar su propia ejecución. Por lo tanto, el próximo paso debe enfocarse en **ergonomía/instrucciones públicas**, no en Core, lifecycle, concurrencia ni transporte.
+
+Antes de cambiar nada:
+
+- completar opcionalmente el control trivial para conservar la evidencia negativa de sobreplanning;
+- investigar específicamente por qué las ServerInstructions actuales ("use Work Plan only for non-trivial multi-step tasks") no son suficientes para gatillar uso;
+- revisar si conviene reforzar cuándo crear/actualizar el plan y qué granularidad esperar, sin convertirlo en uso obligatorio ni contaminar tareas simples;
+- repetir fresh-agent después del ajuste con prompts equivalentes, no idénticos al punto de sobreentrenar la prueba.
+
 #### Fase 3 - Control trivial / anti-overplanning
 
 Usar otro chat nuevo, sin nombrar Work Plan.
