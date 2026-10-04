@@ -7,10 +7,14 @@
 
 ## Python Runtime
 
-- Paquetes incluidos por defecto.
-- Protocolo IPC worker ↔ Core.
-- Forma exacta del futuro bridge loom.*.
-- Política concreta de timeout/reset.
+El vertical slice E1 quedó diseñado en [[Bloque E - Python Runtime]]. Cerrado para E1: runtime privado CPython 3.14.8 embeddable, Named Pipe versionado, un worker lazy por WorkSession, timeout/reset y stdlib-only.
+
+Preguntas deliberadamente diferidas:
+
+- paquetes de terceros posteriores a E1;
+- forma exacta del futuro bridge `loom.*`;
+- outputs de imagen cuando la capa MCP utilizada tenga una ruta binaria estable;
+- integración PyAutoGUI/Computer.
 
 ## Computer
 

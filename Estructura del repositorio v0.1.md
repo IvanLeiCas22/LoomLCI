@@ -1,6 +1,6 @@
 # Estructura del repositorio v0.1
 
-> Estado: **baseline de repositorio adoptada y reconciliada con el árbol real al 2026-10-04**. La separación Core / Windows / MCP / Host y los tres proyectos de tests están implementados. Los módulos Python Runtime, Agent Support y Computer siguen diferidos y no existen todavía en el árbol.
+> Estado: **baseline de repositorio adoptada y reconciliada con el árbol real al 2026-10-04**. La separación Core / Windows / MCP / Host y los tres proyectos de tests están implementados. Python Runtime ya tiene diseño E1 confirmado en [[Bloque E - Python Runtime]], pero todavía no existe en el árbol; Agent Support y Computer también siguen diferidos.
 
 ## Criterio
 
