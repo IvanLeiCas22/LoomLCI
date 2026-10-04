@@ -441,6 +441,7 @@ public sealed class ProcessCapabilityTests
             "$psi = [Diagnostics.ProcessStartInfo]::new(); " +
             "$psi.FileName = 'powershell.exe'; " +
             "$psi.UseShellExecute = $false; " +
+            "$psi.CreateNoWindow = $true; " +
             "[void]$psi.ArgumentList.Add('-NoProfile'); " +
             "[void]$psi.ArgumentList.Add('-Command'); " +
             "[void]$psi.ArgumentList.Add('Start-Sleep -Seconds 60'); " +
@@ -460,7 +461,7 @@ public sealed class ProcessCapabilityTests
                         "$child = Start-Process powershell.exe " +
                         "-ArgumentList @('-NoProfile','-ExecutionPolicy'," +
                         "'Bypass','-File',$env:LOOM_CHILD_SCRIPT) " +
-                        "-PassThru; " +
+                        "-NoNewWindow -PassThru; " +
                         "[IO.File]::WriteAllText($env:LOOM_CHILD_PID, " +
                         "[string]$child.Id); " +
                         "Start-Sleep -Seconds 60"
@@ -526,7 +527,7 @@ public sealed class ProcessCapabilityTests
                         "-Command",
                         "$child = Start-Process powershell.exe " +
                         "-ArgumentList @('-NoProfile','-Command'," +
-                        "'Start-Sleep -Seconds 60') -PassThru; " +
+                        "'Start-Sleep -Seconds 60') -NoNewWindow -PassThru; " +
                         "[IO.File]::WriteAllText($env:LOOM_CHILD_PID, " +
                         "[string]$child.Id)"
                     ],
@@ -588,7 +589,7 @@ public sealed class ProcessCapabilityTests
                         "-Command",
                         "$child = Start-Process powershell.exe " +
                         "-ArgumentList @('-NoProfile','-Command'," +
-                        "'Start-Sleep -Seconds 60') -PassThru; " +
+                        "'Start-Sleep -Seconds 60') -NoNewWindow -PassThru; " +
                         "[IO.File]::WriteAllText($env:LOOM_CHILD_PID, " +
                         "[string]$child.Id); " +
                         "Start-Sleep -Seconds 60"

@@ -213,7 +213,7 @@ public sealed class TerminalProcessCapabilityTests
                         "-Command",
                         "$child = Start-Process powershell.exe " +
                         "-ArgumentList @('-NoProfile','-Command'," +
-                        "'Start-Sleep -Seconds 60') -PassThru; " +
+                        "'Start-Sleep -Seconds 60') -NoNewWindow -PassThru; " +
                         "[IO.File]::WriteAllText($env:LOOM_CHILD_PID, " +
                         "[string]$child.Id); " +
                         "Write-Output 'ROOT-EXIT'; exit 7"
@@ -275,7 +275,7 @@ public sealed class TerminalProcessCapabilityTests
                         "-Command",
                         "$child = Start-Process powershell.exe " +
                         "-ArgumentList @('-NoProfile','-Command'," +
-                        "'Start-Sleep -Seconds 60') -PassThru; " +
+                        "'Start-Sleep -Seconds 60') -NoNewWindow -PassThru; " +
                         "[IO.File]::WriteAllText($env:LOOM_CHILD_PID, " +
                         "[string]$child.Id); " +
                         "Write-Output 'RETAINED-BEFORE-TERMINATE'; " +
@@ -344,7 +344,7 @@ public sealed class TerminalProcessCapabilityTests
                         "-Command",
                         "$child = Start-Process powershell.exe " +
                         "-ArgumentList @('-NoProfile','-Command'," +
-                        "'Start-Sleep -Seconds 60') -PassThru; " +
+                        "'Start-Sleep -Seconds 60') -NoNewWindow -PassThru; " +
                         "[IO.File]::WriteAllText($env:LOOM_CHILD_PID, " +
                         "[string]$child.Id); " +
                         "Start-Sleep -Seconds 60"
