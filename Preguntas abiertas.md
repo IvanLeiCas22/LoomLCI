@@ -26,7 +26,7 @@ Preguntas deliberadamente diferidas:
 
 - F1.1 Core implementado/validado: estado Work Plan dentro de WorkSession, revision/CAS, límites y lifecycle.
 - F1.2 implementado/validado: `work_plan_get`/`work_plan_update`, schema/annotations y opt-in estático por adapter.
-- F1.3 cerrado: smoke por Secure MCP Tunnel aprobado y A/B fresh-agent final con skill 0.2.1 = **2/3 positivos, 2/2 negativos**. No se justifican más ajustes de prompting/Core/API para F1.
+- F1.3 provisional: smoke y A/B de regresión aprobados (2/3 positivos, 2/2 negativos), pero falta un holdout independiente de selección de Work Plan con casos claros y boundary cases antes del cierre definitivo. Congelar skill 0.2.1 durante esa evaluación.
 - Evaluar más adelante si hacen falta dependencias explícitas/DAG; no incluirlas en v0.1 sin evidencia.
 
 ## Operación

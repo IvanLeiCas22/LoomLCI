@@ -2,7 +2,7 @@
 
 ## Estado
 
-**Bloque F cerrado. F1.1 Core + F1.2 MCP implementados/validados; F1.3 pasó smoke por Secure MCP Tunnel y A/B fresh-agent final 2/3 positivos + 2/2 negativos con skill 0.2.1.**
+**F1.1 Core + F1.2 MCP cerrados. F1.3 pasó smoke y un A/B de regresión (2/3 positivos + 2/2 negativos), pero el cierre conductual queda provisional hasta completar un holdout independiente de selección de Work Plan con casos claros y de frontera.**
 
 Este bloque propone una primera capability opcional de Agent Support para mantener una checklist estructurada del trabajo lógico de un agente dentro de una WorkSession. No es un scheduler, no ejecuta pasos y no reemplaza Process, Python, MCP Tasks ni la planificación propia del host.
 

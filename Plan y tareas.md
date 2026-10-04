@@ -1,6 +1,6 @@
 # Plan y tareas
 
-> Estado: **Bloque F / Agent Support cerrado**. F1.1 Core + F1.2 MCP implementados/validados; F1.3 pasó smoke por Secure MCP Tunnel y el A/B fresh-agent final con skill 0.2.1 dio **2/3 positivos y 2/2 negativos**, cumpliendo el criterio de adopción sin overplanning.
+> Estado: **F1.1 Core + F1.2 MCP cerrados; F1.3 provisional**. Smoke por Secure MCP Tunnel y A/B de regresión pasaron (2/3 positivos, 2/2 negativos), pero falta un holdout independiente más representativo para validar selección/calibración de Work Plan antes de cerrar Bloque F definitivamente.
 
 ## Distinciones necesarias
 
