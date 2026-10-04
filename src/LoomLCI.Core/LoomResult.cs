@@ -35,6 +35,7 @@ public static class LoomErrors
     public static LoomError AccessDenied(string message) => new("access_denied", message, false);
     public static LoomError Unsupported(string message) => new("unsupported", message, false);
     public static LoomError ResourceClosed(string handle) => new("resource_closed", $"Resource '{handle}' is closed.", false);
+    public static LoomError ResourceExpired(string handle) => new("resource_expired", $"Resource '{handle}' has expired.", false);
     public static LoomError ResourceTypeMismatch(string handle, string expected)
         => new("resource_type_mismatch", $"Resource '{handle}' is not a '{expected}'.", false);
     public static LoomError Busy(string message) => new("busy", message, true);

@@ -144,6 +144,10 @@ public sealed class McpStdioTests
         var changeProperties = GetRequiredProperty(changesItems, "properties");
         AssertSchemaEnum(GetRequiredProperty(changeProperties, "op"), "write", "replace", "delete", "move");
 
+        var createWork = Assert.Single(tools, tool => tool.Name == "work_create");
+        Assert.Contains("expire", createWork.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("idle timeout", createWork.Description, StringComparison.OrdinalIgnoreCase);
+
         var closeWork = Assert.Single(tools, tool => tool.Name == "work_close");
         Assert.Contains("can no longer be inspected", closeWork.Description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("process_read", closeWork.Description, StringComparison.OrdinalIgnoreCase);
@@ -260,10 +264,10 @@ public sealed class McpStdioTests
         Assert.DoesNotContain(repoRoot, GetSingleTextContent(create), StringComparison.OrdinalIgnoreCase);
         var createRoot = GetStructured(create.StructuredContent);
         Assert.True(GetRequiredProperty(createRoot, "ok").GetBoolean());
-        var workId = GetRequiredProperty(
-            GetRequiredProperty(createRoot, "result"),
-            "workId").GetString();
+        var createResult = GetRequiredProperty(createRoot, "result");
+        var workId = GetRequiredProperty(createResult, "workId").GetString();
         Assert.False(string.IsNullOrWhiteSpace(workId));
+        Assert.Equal(3600, GetRequiredProperty(createResult, "idleTimeoutSeconds").GetInt64());
 
         var start = await client.CallToolAsync(
             "process_start",

@@ -22,6 +22,13 @@ public sealed class LoomEventBus
             SingleWriter = false
         });
 
+    private readonly TimeProvider _timeProvider;
+
+    public LoomEventBus(TimeProvider? timeProvider = null)
+    {
+        _timeProvider = timeProvider ?? TimeProvider.System;
+    }
+
     public bool Publish(
         string kind,
         string source,
@@ -31,7 +38,7 @@ public sealed class LoomEventBus
         IReadOnlyDictionary<string, object?>? payload = null)
         => _channel.Writer.TryWrite(new LoomEvent(
             IdentifierFactory.Create("evt"),
-            DateTimeOffset.UtcNow,
+            _timeProvider.GetUtcNow(),
             kind,
             source,
             workId,

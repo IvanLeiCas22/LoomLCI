@@ -1,9 +1,11 @@
 using LoomLCI.Core.Filesystem;
 using LoomLCI.Core.Invocations;
+using LoomLCI.Core.Lifetime;
 using LoomLCI.Core.Observability;
 using LoomLCI.Core.Processes;
 using LoomLCI.Core.Resources;
 using LoomLCI.Core.Work;
+using LoomLCI.Host;
 using LoomLCI.Mcp;
 using LoomLCI.Windows.Filesystem;
 using LoomLCI.Windows.Processes;
@@ -19,6 +21,8 @@ builder.Logging.AddConsole(options =>
     options.LogToStandardErrorThreshold = LogLevel.Trace;
 });
 
+builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
+builder.Services.AddSingleton(new LifetimeOptions());
 builder.Services.AddSingleton<LoomEventBus>();
 builder.Services.AddSingleton<ResourceRegistry>();
 builder.Services.AddSingleton<WorkSessionManager>();
@@ -27,6 +31,7 @@ builder.Services.AddSingleton<IProcessProvider, WindowsProcessProvider>();
 builder.Services.AddSingleton<ProcessCapability>();
 builder.Services.AddSingleton<IFilesystemProvider, WindowsFilesystemProvider>();
 builder.Services.AddSingleton<FilesystemCapability>();
+builder.Services.AddHostedService<LifetimeSweeperService>();
 
 builder.Services.AddLoomMcpStdio();
 

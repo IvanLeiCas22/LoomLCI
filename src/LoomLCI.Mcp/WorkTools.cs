@@ -11,7 +11,8 @@ public sealed record WorkSessionDto(
     string? BaseDirectory,
     string? Label,
     string State,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    long IdleTimeoutSeconds);
 
 [McpServerToolType]
 public sealed class WorkTools
@@ -32,7 +33,7 @@ public sealed class WorkTools
         Destructive = false,
         Idempotent = false,
         OpenWorld = false)]
-    [Description("Creates a work session for calls that need a shared base directory or session-owned resources. Use it before relative-path operations or session-owned process_start calls; stateless operations with fully explicit absolute paths do not require one.")]
+    [Description("Creates a work session for calls that need a shared base directory or session-owned resources. Use it before relative-path operations or session-owned process_start calls; stateless operations with fully explicit absolute paths do not require one. Inactive work sessions expire automatically after the idle timeout reported in the result; active invocations keep the session alive.")]
     public CallToolResult Create(
         [Description("Optional base directory used to resolve relative paths. This is context, not a security boundary.")] string? baseDirectory = null,
         [Description("Optional human-readable label for the work session.")] string? label = null)
@@ -53,7 +54,8 @@ public sealed class WorkTools
                     session.BaseDirectory,
                     session.Label,
                     session.State.ToString().ToLowerInvariant(),
-                    session.CreatedAt)));
+                    session.CreatedAt,
+                    checked((long)_workSessions.IdleTimeout.TotalSeconds))));
         }
 
         return McpToolResults.From(envelope);

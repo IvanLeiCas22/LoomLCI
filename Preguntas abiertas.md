@@ -9,7 +9,8 @@
 ## Process
 
 - Contrato público exacto de run/start/read/write/status/terminate.
-- Política concreta de TTL/retención de ProcessHandle después del exit.
+- D0.3: política concreta de TTL/retención de ProcessHandle después del exit y sliding refresh por status/read.
+- D0.4: contrato público de `process_release`.
 
 ## Python Runtime
 
@@ -32,7 +33,7 @@
 
 ## Operación
 
-- TTLs concretos.
+- WorkSession idle TTL y tombstone retention definidos en [[Bloque D0 - Resource lifetime y expiry]]; quedan TTL post-exit de ProcessHandle y futuras policies por resource kind.
 - tamaños de buffers.
 - formato y retención del audit durable.
 - autenticación remota si se habilita HTTP fuera de localhost/tunnel.
