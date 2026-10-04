@@ -210,6 +210,202 @@ public sealed class ProcessRetentionTests
         Assert.True(fixture.Provider.Resource.Disposed);
     }
 
+    [Theory]
+    [InlineData(ManagedProcessState.Starting)]
+    [InlineData(ManagedProcessState.Running)]
+    [InlineData(ManagedProcessState.Terminating)]
+    public async Task ReleaseRejectsNonTerminalProcess(
+        ManagedProcessState state)
+    {
+        await using var fixture = new Fixture();
+        var started = await fixture.StartIndependentAsync();
+        Assert.True(started.IsSuccess, started.Error?.Message);
+
+        fixture.Provider.Resource!.SetState(state);
+
+        var released = await fixture.Processes.ReleaseAsync(
+            started.Value!.Handle);
+
+        Assert.False(released.IsSuccess);
+        Assert.Equal("conflict", released.Error?.Code);
+        Assert.Contains(
+            "process_terminate",
+            released.Error?.Message,
+            StringComparison.Ordinal);
+        Assert.False(fixture.Provider.Resource.Disposed);
+    }
+
+    [Fact]
+    public async Task ReleaseExitedProcessClosesRetainedResource()
+    {
+        await using var fixture = new Fixture();
+        var started = await fixture.StartIndependentAsync();
+        Assert.True(started.IsSuccess, started.Error?.Message);
+
+        fixture.Provider.Resource!.Exit(0);
+
+        var released = await fixture.Processes.ReleaseAsync(
+            started.Value!.Handle);
+
+        Assert.True(released.IsSuccess, released.Error?.Message);
+        Assert.True(fixture.Provider.Resource.Disposed);
+        Assert.Equal(1, fixture.Provider.Resource.DisposeCount);
+
+        var status = await fixture.Processes.StatusAsync(
+            started.Value.Handle);
+        Assert.False(status.IsSuccess);
+        Assert.Equal("resource_closed", status.Error?.Code);
+    }
+
+    [Fact]
+    public async Task ReleaseTerminatedProcessClosesRetainedResource()
+    {
+        await using var fixture = new Fixture();
+        var started = await fixture.StartIndependentAsync();
+        Assert.True(started.IsSuccess, started.Error?.Message);
+
+        var terminated = await fixture.Processes.TerminateAsync(
+            started.Value!.Handle);
+        Assert.True(terminated.IsSuccess, terminated.Error?.Message);
+
+        var released = await fixture.Processes.ReleaseAsync(
+            started.Value.Handle);
+
+        Assert.True(released.IsSuccess, released.Error?.Message);
+        Assert.Equal(1, fixture.Provider.Resource!.DisposeCount);
+    }
+
+    [Fact]
+    public async Task ReleaseIsIdempotentAndDisposesOnce()
+    {
+        await using var fixture = new Fixture();
+        var started = await fixture.StartIndependentAsync();
+        Assert.True(started.IsSuccess, started.Error?.Message);
+
+        fixture.Provider.Resource!.Exit(0);
+
+        var first = await fixture.Processes.ReleaseAsync(
+            started.Value!.Handle);
+        var second = await fixture.Processes.ReleaseAsync(
+            started.Value.Handle);
+
+        Assert.True(first.IsSuccess, first.Error?.Message);
+        Assert.True(second.IsSuccess, second.Error?.Message);
+        Assert.Equal(1, fixture.Provider.Resource.DisposeCount);
+    }
+
+    [Fact]
+    public async Task ReleaseAfterExpiryIsIdempotentAndKeepsExpiredTombstone()
+    {
+        await using var fixture = new Fixture();
+        var started = await fixture.StartIndependentAsync();
+        Assert.True(started.IsSuccess, started.Error?.Message);
+
+        fixture.Provider.Resource!.Exit(0);
+        fixture.Clock.Advance(TimeSpan.FromMinutes(10));
+        var sweep = await fixture.Processes.SweepExpiredAsync();
+        Assert.Equal(1, sweep.ExpiredProcesses);
+
+        var released = await fixture.Processes.ReleaseAsync(
+            started.Value!.Handle);
+
+        Assert.True(released.IsSuccess, released.Error?.Message);
+        Assert.Equal(1, fixture.Provider.Resource.DisposeCount);
+
+        var status = await fixture.Processes.StatusAsync(
+            started.Value.Handle);
+        Assert.False(status.IsSuccess);
+        Assert.Equal("resource_expired", status.Error?.Code);
+    }
+
+    [Fact]
+    public async Task ActiveReadLeaseDelaysReleaseUntilReadFinishes()
+    {
+        await using var fixture = new Fixture();
+        var started = await fixture.StartIndependentAsync();
+        Assert.True(started.IsSuccess, started.Error?.Message);
+
+        var handle = started.Value!.Handle;
+        var resource = fixture.Provider.Resource!;
+        resource.Exit(0);
+        resource.BlockReads = true;
+
+        var readTask = Task.Run(
+            async () => await fixture.Processes.ReadAsync(handle));
+
+        Assert.True(
+            resource.ReadEntered.Wait(
+                TimeSpan.FromSeconds(5)));
+
+        var releaseTask = fixture.Processes.ReleaseAsync(handle);
+        Assert.False(releaseTask.IsCompleted);
+        Assert.False(resource.Disposed);
+
+        resource.ReleaseRead.Set();
+
+        var read = await readTask;
+        var released = await releaseTask;
+
+        Assert.True(read.IsSuccess, read.Error?.Message);
+        Assert.True(released.IsSuccess, released.Error?.Message);
+        Assert.Equal(1, resource.DisposeCount);
+    }
+
+    [Fact]
+    public async Task ConcurrentReleaseCallsDisposeOnce()
+    {
+        await using var fixture = new Fixture();
+        var started = await fixture.StartIndependentAsync();
+        Assert.True(started.IsSuccess, started.Error?.Message);
+
+        fixture.Provider.Resource!.Exit(0);
+
+        var first = fixture.Processes.ReleaseAsync(
+            started.Value!.Handle);
+        var second = fixture.Processes.ReleaseAsync(
+            started.Value.Handle);
+
+        var results = await Task.WhenAll(first, second);
+
+        Assert.All(
+            results,
+            result => Assert.True(
+                result.IsSuccess,
+                result.Error?.Message));
+        Assert.Equal(1, fixture.Provider.Resource.DisposeCount);
+    }
+
+    [Fact]
+    public async Task ReleaseConvergesWithWorkClose()
+    {
+        await using var fixture = new Fixture();
+        var work = fixture.Sessions.Create(Path.GetTempPath());
+        Assert.True(work.IsSuccess, work.Error?.Message);
+
+        var started = await fixture.StartSessionOwnedAsync(
+            work.Value!.Id);
+        Assert.True(started.IsSuccess, started.Error?.Message);
+
+        fixture.Provider.Resource!.Exit(0);
+
+        var releaseTask = fixture.Processes.ReleaseAsync(
+            started.Value!.Handle);
+        var closeTask = fixture.Sessions.CloseAsync(
+            work.Value.Id).AsTask();
+
+        var released = await releaseTask;
+        var closed = await closeTask;
+
+        Assert.True(released.IsSuccess, released.Error?.Message);
+        Assert.True(closed.IsSuccess, closed.Error?.Message);
+        Assert.Equal(1, fixture.Provider.Resource.DisposeCount);
+
+        var status = await fixture.Processes.StatusAsync(
+            started.Value.Handle);
+        Assert.False(status.IsSuccess);
+        Assert.Equal("resource_closed", status.Error?.Code);
+    }
+
     private sealed class Fixture : IAsyncDisposable
     {
         public Fixture()
@@ -257,6 +453,14 @@ public sealed class ProcessRetentionTests
                     "fake.exe",
                     Ownership: ResourceOwnership.Independent));
 
+        public Task<LoomResult<ProcessStartResult>>
+            StartSessionOwnedAsync(WorkId workId)
+            => Processes.StartAsync(
+                new ProcessStartRequest(
+                    "fake.exe",
+                    WorkId: workId,
+                    Ownership: ResourceOwnership.SessionOwned));
+
         public async ValueTask DisposeAsync()
         {
             Provider.Resource?.ReleaseRead.Set();
@@ -295,7 +499,8 @@ public sealed class ProcessRetentionTests
         public DateTimeOffset StartedAt { get; } =
             clock.GetUtcNow();
         public ProcessIoMode IoMode { get; } = ioMode;
-        public bool Disposed { get; private set; }
+        public int DisposeCount { get; private set; }
+        public bool Disposed => DisposeCount != 0;
         public bool BlockReads { get; set; }
         public ManualResetEventSlim ReadEntered { get; } =
             new(initialState: false);
@@ -307,6 +512,11 @@ public sealed class ProcessRetentionTests
             _state = ManagedProcessState.Exited;
             _exitCode = exitCode;
             _exitedAt = clock.GetUtcNow();
+        }
+
+        public void SetState(ManagedProcessState state)
+        {
+            _state = state;
         }
 
         public ProcessStatusResult Snapshot(ProcessHandle handle)
@@ -395,7 +605,7 @@ public sealed class ProcessRetentionTests
 
         public ValueTask DisposeAsync()
         {
-            Disposed = true;
+            DisposeCount++;
             ReleaseRead.Set();
             return ValueTask.CompletedTask;
         }

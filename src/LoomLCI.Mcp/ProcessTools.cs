@@ -263,6 +263,30 @@ public sealed class ProcessTools
         return McpToolResults.From(envelope);
     }
 
+    [McpServerTool(
+        Name = "process_release",
+        Title = "Release process handle",
+        UseStructuredContent = true,
+        OutputSchemaType = typeof(ToolEnvelope<bool>),
+        ReadOnly = false,
+        Destructive = true,
+        Idempotent = true,
+        OpenWorld = false)]
+    [Description("Explicitly releases a retained Loom process handle after the root process has exited or been terminated. This permanently discards retained process state and output, closes process/Job/pipe or terminal resources, and may terminate descendants that are still attached to the Loom Job. Read any final output you need before calling this tool. This does not stop a live process: starting, running, or terminating processes return conflict; use process_terminate first when the process should be stopped. Releasing an already closed or expired handle is idempotent while its tombstone is retained.")]
+    public async Task<CallToolResult> Release(
+        [Description("Process handle returned by process_start. The root process must already be exited or terminated.")] string processHandle,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _processes.ReleaseAsync(
+            new ProcessHandle(processHandle),
+            cancellationToken).ConfigureAwait(false);
+        var envelope = result.IsSuccess
+            ? ToolEnvelope<bool>.From(LoomResult<bool>.Success(true))
+            : ToolEnvelope<bool>.From(LoomResult<bool>.Failure(result.Error!));
+
+        return McpToolResults.From(envelope);
+    }
+
     private static ToolEnvelope<ProcessStatusDto> MapStatus(LoomResult<ProcessStatusResult> result)
         => result.IsSuccess
             ? ToolEnvelope<ProcessStatusDto>.From(LoomResult<ProcessStatusDto>.Success(ToDto(result.Value!)))

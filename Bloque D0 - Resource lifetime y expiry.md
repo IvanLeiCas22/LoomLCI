@@ -2,7 +2,7 @@
 
 ## Estado
 
-**D0.1–D0.3 implementados y validados. D0.4 pendiente.**
+**D0.1–D0.4 implementados y validados. D0 cerrado.**
 
 Objetivo: evitar crecimiento indefinido de registries y dar semantics explícitas a cierre, expiración y cleanup antes de incorporar nuevos recursos duraderos como Python Runtime.
 
@@ -116,13 +116,54 @@ Resultado final acumulado:
 - Debug/Release: **0 warnings, 0 errores**;
 - runtime administrado `loomlci`: actualizado y `ready`.
 
-## Pendiente
+## D0.4 - Explicit release ✓
 
-### D0.4 - Explicit release
+Implementado `process_release(processHandle)` como cleanup explícito de un proceso ya terminal:
 
-Diseñar `process_release`:
+- sólo acepta root en `exited` o `terminated`;
+- `starting`, `running` o `terminating` devuelven `conflict` y orientan a `process_terminate`;
+- descarta inmediatamente metadata pesada, output retenido, handles, Job y pipes/ConPTY;
+- si aún quedan descendientes dentro del Job, el release también los limpia;
+- el tombstone resultante es `resource_closed`, diferenciándolo del `resource_expired` automático;
+- una segunda release es idempotente mientras exista el tombstone;
+- release sobre un recurso ya expirado también es éxito idempotente, conservando el tombstone `expired`;
+- después del pruning normal del tombstone, el handle pasa a `not_found`;
+- no se agregó una tool genérica `resource_release`.
 
-- sólo para procesos ya terminales;
-- descarta inmediatamente handle/output retenido;
-- proceso vivo devuelve conflicto y orienta a `process_terminate`;
-- no introducir todavía una tool genérica `resource_release`.
+El Core incorporó `ResourceRegistry.CloseIfAsync<T>` como primitiva condicional reusable. Serializa con el mismo `Gate` de close/expiry, impide nuevos leases, espera operaciones activas y ejecuta el disposer una sola vez.
+
+`process_release` deliberadamente no adquiere un lease de WorkSession: esto permite que converja con `work_close` incluso si la sesión ya está cerrando o cerrada.
+
+Races validadas:
+
+- release vs `process_read`: la lectura iniciada termina y release espera antes de eliminar el spool;
+- release vs release: un solo dispose, ambas llamadas exitosas;
+- release vs expiry: el ganador define `closed` o `expired`, release sigue siendo idempotente;
+- release vs `work_close`: ambas operaciones convergen sin doble dispose;
+- release vs procesos no terminales: no modifica el recurso;
+- backend Windows real: root `independent` ya salido + child vivo → release mata el child, elimina el spool y deja `resource_closed`.
+
+Contrato MCP:
+
+- `ReadOnly=false`;
+- `Destructive=true`;
+- `Idempotent=true`;
+- la descripción exige leer cualquier output final antes de release y aclara que no reemplaza a `process_terminate`.
+
+Validación final de D0:
+
+- Core: **39/39**;
+- Windows: **78/78**;
+- Integration MCP: **5/5**;
+- total Debug: **122/122**;
+- total Release: **122/122**;
+- Debug/Release: **0 warnings, 0 errores**;
+- integración MCP real validó `start → exit → read → release → status=resource_closed → release` idempotente;
+- Secure MCP Tunnel con el Host Debug actualizado: **live/ready**;
+- el catálogo de esta conversación permanece cacheado, por lo que `process_release` requiere un chat nuevo/refresco para aparecer como tool invocable desde ChatGPT.
+
+## Estado final
+
+**D0 cerrado.**
+
+La base de lifecycle queda preparada para incorporar nuevos recursos duraderos —especialmente Python Runtime— sin crecimiento indefinido de registries ni cleanup ambiguo.

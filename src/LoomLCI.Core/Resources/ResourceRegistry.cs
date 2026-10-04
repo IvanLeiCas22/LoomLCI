@@ -210,6 +210,93 @@ public sealed class ResourceRegistry : IAsyncDisposable
     public ValueTask<LoomResult<Unit>> CloseAsync(ResourceHandle handle)
         => TransitionAsync(handle, ResourceState.Closed);
 
+    public async ValueTask<LoomResult<bool>> CloseIfAsync<T>(
+        ResourceHandle handle,
+        string expectedKind,
+        Func<T, LoomResult<Unit>> canClose)
+        where T : class
+    {
+        if (!_entries.TryGetValue(handle.Value, out var entry))
+        {
+            return LoomResult<bool>.Failure(
+                LoomErrors.NotFound($"Resource '{handle}' was not found."));
+        }
+
+        await entry.Gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            T resource;
+
+            lock (entry.Sync)
+            {
+                if (!string.Equals(entry.Kind, expectedKind, StringComparison.Ordinal))
+                {
+                    return LoomResult<bool>.Failure(
+                        LoomErrors.ResourceTypeMismatch(handle.Value, expectedKind));
+                }
+
+                if (entry.State is ResourceState.Closed or ResourceState.Expired)
+                {
+                    return LoomResult<bool>.Success(false);
+                }
+
+                if (entry.State != ResourceState.Active ||
+                    entry.Resource is not T typed)
+                {
+                    return LoomResult<bool>.Failure(
+                        LoomErrors.Internal(
+                            "Resource registry type invariant was violated."));
+                }
+
+                resource = typed;
+            }
+
+            var allowed = canClose(resource);
+            if (!allowed.IsSuccess)
+            {
+                return LoomResult<bool>.Failure(allowed.Error!);
+            }
+
+            Func<ValueTask>? disposer;
+            Task operationsDrained;
+
+            lock (entry.Sync)
+            {
+                if (entry.State is ResourceState.Closed or ResourceState.Expired)
+                {
+                    return LoomResult<bool>.Success(false);
+                }
+
+                if (entry.State != ResourceState.Active ||
+                    !ReferenceEquals(entry.Resource, resource))
+                {
+                    return LoomResult<bool>.Failure(
+                        LoomErrors.Internal(
+                            "Resource registry state changed unexpectedly during conditional close."));
+                }
+
+                BeginClosingLocked(entry, ResourceState.Closed);
+                disposer = entry.Disposer;
+                operationsDrained = GetOperationsDrainedTaskLocked(entry);
+            }
+
+            await operationsDrained.ConfigureAwait(false);
+            var disposed = await DisposeEntryAsync(
+                    entry,
+                    ResourceState.Closed,
+                    disposer)
+                .ConfigureAwait(false);
+
+            return disposed.IsSuccess
+                ? LoomResult<bool>.Success(true)
+                : LoomResult<bool>.Failure(disposed.Error!);
+        }
+        finally
+        {
+            entry.Gate.Release();
+        }
+    }
+
     internal ValueTask<LoomResult<Unit>> ExpireAsync(ResourceHandle handle)
         => TransitionAsync(handle, ResourceState.Expired);
 

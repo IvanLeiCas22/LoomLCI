@@ -189,6 +189,13 @@ public sealed class McpStdioTests
         Assert.Contains("refreshes", terminateProcess.Description, StringComparison.OrdinalIgnoreCase);
         Assert.False(terminateProcess.ProtocolTool.Annotations?.IdempotentHint ?? true);
 
+        var releaseProcess = Assert.Single(tools, tool => tool.Name == "process_release");
+        Assert.Contains("does not stop a live process", releaseProcess.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("final output", releaseProcess.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("already closed or expired", releaseProcess.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.True(releaseProcess.ProtocolTool.Annotations?.IdempotentHint ?? false);
+        Assert.True(releaseProcess.ProtocolTool.Annotations?.DestructiveHint ?? false);
+
         var readProcess = Assert.Single(tools, tool => tool.Name == "process_read");
         Assert.Contains("absolute UTF-16 positions", readProcess.Description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("retentionExpiresAt", readProcess.Description, StringComparison.Ordinal);
@@ -239,6 +246,7 @@ public sealed class McpStdioTests
         Assert.Contains("process_write", toolNames);
         Assert.Contains("process_resize", toolNames);
         Assert.Contains("process_terminate", toolNames);
+        Assert.Contains("process_release", toolNames);
         Assert.True(
             toolNames.Contains("filesystem_list_tree"),
             $"Host '{hostDll}' did not expose filesystem_list_tree. Tools: {string.Join(", ", toolNames.OrderBy(x => x))}");
@@ -374,6 +382,43 @@ public sealed class McpStdioTests
             GetRequiredProperty(
                 GetRequiredProperty(resizeRoot, "error"),
                 "code").GetString());
+
+        var release = await client.CallToolAsync(
+            "process_release",
+            new Dictionary<string, object?>
+            {
+                ["processHandle"] = processHandle
+            });
+        var releaseRoot = GetStructured(release.StructuredContent);
+        Assert.True(GetRequiredProperty(releaseRoot, "ok").GetBoolean());
+        Assert.True(GetRequiredProperty(releaseRoot, "result").GetBoolean());
+
+        var releasedStatus = await client.CallToolAsync(
+            "process_status",
+            new Dictionary<string, object?>
+            {
+                ["processHandle"] = processHandle
+            });
+        var releasedStatusRoot =
+            GetStructured(releasedStatus.StructuredContent);
+        Assert.False(
+            GetRequiredProperty(releasedStatusRoot, "ok").GetBoolean());
+        Assert.Equal(
+            "resource_closed",
+            GetRequiredProperty(
+                GetRequiredProperty(releasedStatusRoot, "error"),
+                "code").GetString());
+
+        var secondRelease = await client.CallToolAsync(
+            "process_release",
+            new Dictionary<string, object?>
+            {
+                ["processHandle"] = processHandle
+            });
+        Assert.True(
+            GetRequiredProperty(
+                GetStructured(secondRelease.StructuredContent),
+                "ok").GetBoolean());
 
         var close = await client.CallToolAsync(
             "work_close",

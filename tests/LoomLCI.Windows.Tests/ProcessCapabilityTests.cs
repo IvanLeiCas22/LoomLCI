@@ -738,6 +738,84 @@ public sealed class ProcessCapabilityTests
     }
 
     [Fact]
+    public async Task ExplicitReleaseKillsIndependentDescendantsAndDeletesSpool()
+    {
+        await using var fixture = new ProcessFixture();
+        var work = fixture.Sessions.Create(Environment.CurrentDirectory);
+        Assert.True(work.IsSuccess);
+
+        var directory =
+            Directory.CreateTempSubdirectory("loom-process-release-");
+        var childPidPath =
+            Path.Combine(directory.FullName, "child.pid");
+
+        try
+        {
+            var started = await fixture.Processes.StartAsync(
+                new ProcessStartRequest(
+                    "powershell.exe",
+                    [
+                        "-NoProfile",
+                        "-Command",
+                        "$child = Start-Process powershell.exe " +
+                        "-ArgumentList @('-NoProfile','-Command'," +
+                        "'Start-Sleep -Seconds 60') -NoNewWindow -PassThru; " +
+                        "[IO.File]::WriteAllText($env:LOOM_CHILD_PID, " +
+                        "[string]$child.Id); " +
+                        "Write-Output 'ROOT-EXIT-RELEASE'; exit 0"
+                    ],
+                    Environment: new Dictionary<string, string?>
+                    {
+                        ["LOOM_CHILD_PID"] = childPidPath
+                    },
+                    WorkId: work.Value!.Id,
+                    Ownership: ResourceOwnership.Independent));
+
+            Assert.True(started.IsSuccess, started.Error?.Message);
+            var childPid = await WaitForPidFileAsync(childPidPath);
+
+            var exited = await WaitForExitAsync(
+                fixture.Processes,
+                started.Value!.Handle);
+            Assert.Equal(ManagedProcessState.Exited, exited.State);
+            Assert.Equal(0, exited.ExitCode);
+            Assert.True(IsProcessAlive(childPid));
+
+            var resolved = fixture.Resources.Resolve<IProcessResource>(
+                started.Value.Handle.AsResourceHandle(),
+                ProcessCapability.ResourceKind);
+            Assert.True(resolved.IsSuccess, resolved.Error?.Message);
+
+            var resource = Assert.IsType<WindowsProcessResource>(
+                resolved.Value!.Resource);
+            var spoolPath = resource.StdoutSpoolPath;
+            Assert.True(File.Exists(spoolPath));
+
+            var released = await fixture.Processes.ReleaseAsync(
+                started.Value.Handle);
+
+            Assert.True(released.IsSuccess, released.Error?.Message);
+            await WaitForProcessGoneAsync(childPid);
+            Assert.False(File.Exists(spoolPath));
+
+            var status = await fixture.Processes.StatusAsync(
+                started.Value.Handle);
+            Assert.False(status.IsSuccess);
+            Assert.Equal("resource_closed", status.Error?.Code);
+
+            var secondRelease = await fixture.Processes.ReleaseAsync(
+                started.Value.Handle);
+            Assert.True(
+                secondRelease.IsSuccess,
+                secondRelease.Error?.Message);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task FullExecutablePathWithSpacesStillLaunches()
     {
         await using var fixture = new ProcessFixture();

@@ -297,6 +297,66 @@ public sealed class ProcessCapability
             cancellationToken,
             touchOnSuccess: true);
 
+    public Task<LoomResult<Unit>> ReleaseAsync(
+        ProcessHandle handle,
+        CancellationToken cancellationToken = default)
+    {
+        var initial = Resolve(handle);
+        var owner = initial.IsSuccess
+            ? initial.Value!.OwnerWorkId
+            : null;
+
+        return _invocations.RunAsync(
+            "process.release",
+            workId: null,
+            async (context, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+
+                var closed = await _resources.CloseIfAsync<IProcessResource>(
+                        handle.AsResourceHandle(),
+                        ResourceKind,
+                        resource =>
+                        {
+                            var status = resource.Snapshot(handle);
+                            if (IsTerminal(status.State))
+                            {
+                                return LoomResult<Unit>.Success(Unit.Value);
+                            }
+
+                            return LoomResult<Unit>.Failure(
+                                LoomErrors.Conflict(
+                                    $"Cannot release process '{handle}' while its state is '{status.State.ToString().ToLowerInvariant()}'. " +
+                                    "process_release only discards retained state after the root process has exited or been terminated; " +
+                                    "use process_terminate first if the process should be stopped."));
+                        })
+                    .ConfigureAwait(false);
+
+                if (!closed.IsSuccess)
+                {
+                    return LoomResult<Unit>.Failure(closed.Error!);
+                }
+
+                if (closed.Value == true)
+                {
+                    _events.Publish(
+                        "ResourceClosed",
+                        "process",
+                        owner,
+                        context.Id,
+                        handle.AsResourceHandle(),
+                        new Dictionary<string, object?>
+                        {
+                            ["kind"] = ResourceKind,
+                            ["reason"] = "explicit_release"
+                        });
+                }
+
+                return LoomResult<Unit>.Success(Unit.Value);
+            },
+            cancellationToken);
+    }
+
     public async Task<ProcessLifetimeSweepResult> SweepExpiredAsync()
     {
         var now = _timeProvider.GetUtcNow();
