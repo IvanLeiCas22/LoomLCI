@@ -1,0 +1,450 @@
+#pragma warning disable CA1416 // LoomLCI.Windows is the Windows-specific platform backend.
+
+using System.Buffers.Binary;
+using System.IO.Pipes;
+using System.Security.AccessControl;
+using System.Security.Principal;
+using System.Text;
+using System.Text.Json;
+using LoomLCI.Core.Python;
+
+namespace LoomLCI.Windows.Python;
+
+internal sealed class PythonWorkerProtocolException(string message, Exception? inner = null)
+    : Exception(message, inner);
+
+internal sealed record PythonWorkerHello(
+    int ProtocolVersion,
+    int ProcessId,
+    string PythonVersion);
+
+internal static class PythonWorkerProtocol
+{
+    public const int ProtocolVersion = 1;
+    public const int MaxRequestFrameBytes = 2 * 1024 * 1024;
+    public const int MaxResponseFrameBytes = 32 * 1024 * 1024;
+    public const int MaxHelloFrameBytes = 16 * 1024;
+    public const int MaxCodeUtf8Bytes = 256 * 1024;
+    public const int MaxRequestIdChars = 128;
+    public const int MaxExceptionMessageChars = 16 * 1024;
+    public const int MaxTracebackChars = 64 * 1024;
+
+    private static readonly UTF8Encoding StrictUtf8 =
+        new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        PropertyNameCaseInsensitive = false,
+        AllowTrailingCommas = false,
+        ReadCommentHandling = JsonCommentHandling.Disallow
+    };
+
+    public static string CreatePipeName()
+        => $"loom-python-{Guid.NewGuid():N}";
+
+    public static NamedPipeServerStream CreateServer(string pipeName)
+    {
+        ValidatePipeName(pipeName);
+
+        using var identity = WindowsIdentity.GetCurrent(TokenAccessLevels.Query);
+        var currentUser = identity.User
+            ?? throw new InvalidOperationException("Could not determine the current Windows user SID.");
+
+        var network = new SecurityIdentifier(
+            WellKnownSidType.NetworkSid,
+            domainSid: null);
+
+        var security = new PipeSecurity();
+        security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+        security.SetOwner(currentUser);
+        security.AddAccessRule(
+            new PipeAccessRule(
+                network,
+                PipeAccessRights.FullControl,
+                AccessControlType.Deny));
+        security.AddAccessRule(
+            new PipeAccessRule(
+                currentUser,
+                PipeAccessRights.FullControl,
+                AccessControlType.Allow));
+
+        return NamedPipeServerStreamAcl.Create(
+            pipeName,
+            PipeDirection.InOut,
+            maxNumberOfServerInstances: 1,
+            PipeTransmissionMode.Byte,
+            PipeOptions.Asynchronous | PipeOptions.FirstPipeInstance,
+            inBufferSize: 4096,
+            outBufferSize: 4096,
+            security,
+            HandleInheritability.None,
+            (PipeAccessRights)0);
+    }
+
+    public static async Task<PythonWorkerHello> ReadHelloAsync(
+        Stream stream,
+        CancellationToken cancellationToken)
+    {
+        using var document = await ReadFrameAsync(
+                stream,
+                MaxHelloFrameBytes,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        var root = document.RootElement;
+        RequireObject(root);
+
+        if (ReadRequiredString(root, "type") != "hello")
+        {
+            throw new PythonWorkerProtocolException(
+                "Expected Python worker hello frame.");
+        }
+
+        var version = ReadRequiredInt32(root, "protocolVersion");
+        if (version != ProtocolVersion)
+        {
+            throw new PythonWorkerProtocolException(
+                $"Python worker protocol version {version} is incompatible with {ProtocolVersion}.");
+        }
+
+        var processId = ReadRequiredInt32(root, "pid");
+        if (processId <= 0)
+        {
+            throw new PythonWorkerProtocolException(
+                "Python worker hello contained an invalid process id.");
+        }
+
+        var pythonVersion = ReadRequiredString(root, "pythonVersion");
+        if (string.IsNullOrWhiteSpace(pythonVersion) || pythonVersion.Length > 64)
+        {
+            throw new PythonWorkerProtocolException(
+                "Python worker hello contained an invalid Python version.");
+        }
+
+        return new PythonWorkerHello(version, processId, pythonVersion);
+    }
+
+    public static async Task WriteExecuteRequestAsync(
+        Stream stream,
+        string requestId,
+        PythonWorkerExecuteSpec request,
+        CancellationToken cancellationToken)
+    {
+        ValidateRequestId(requestId);
+
+        int codeBytes;
+        try
+        {
+            codeBytes = StrictUtf8.GetByteCount(request.Code);
+        }
+        catch (EncoderFallbackException ex)
+        {
+            throw new PythonWorkerProtocolException(
+                "Python code is not valid Unicode.",
+                ex);
+        }
+
+        if (codeBytes > MaxCodeUtf8Bytes)
+        {
+            throw new PythonWorkerProtocolException(
+                $"Python code exceeds {MaxCodeUtf8Bytes} UTF-8 bytes.");
+        }
+
+        if (request.MaxOutputChars is < 1 or > PythonCapability.MaxOutputChars)
+        {
+            throw new PythonWorkerProtocolException(
+                $"maxOutputChars must be between 1 and {PythonCapability.MaxOutputChars}.");
+        }
+
+        var envelope = new ExecuteEnvelope(
+            "execute",
+            requestId,
+            request.Code,
+            request.MaxOutputChars);
+
+        await WriteFrameAsync(
+                stream,
+                envelope,
+                MaxRequestFrameBytes,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public static async Task<PythonExecutionResult> ReadExecutionResultAsync(
+        Stream stream,
+        string expectedRequestId,
+        int maxOutputChars,
+        CancellationToken cancellationToken)
+    {
+        ValidateRequestId(expectedRequestId);
+
+        using var document = await ReadFrameAsync(
+                stream,
+                MaxResponseFrameBytes,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        var root = document.RootElement;
+        RequireObject(root);
+
+        if (ReadRequiredString(root, "type") != "result")
+        {
+            throw new PythonWorkerProtocolException(
+                "Expected Python worker result frame.");
+        }
+
+        var requestId = ReadRequiredString(root, "requestId");
+        if (!string.Equals(requestId, expectedRequestId, StringComparison.Ordinal))
+        {
+            throw new PythonWorkerProtocolException(
+                "Python worker result requestId does not match the active request.");
+        }
+
+        var statusText = ReadRequiredString(root, "status");
+        var status = statusText switch
+        {
+            "completed" => PythonExecutionStatus.Completed,
+            "exception" => PythonExecutionStatus.Exception,
+            _ => throw new PythonWorkerProtocolException(
+                $"Unknown Python execution status '{statusText}'.")
+        };
+
+        var stdout = ReadRequiredString(root, "stdout");
+        var stderr = ReadRequiredString(root, "stderr");
+        if (stdout.Length > maxOutputChars || stderr.Length > maxOutputChars)
+        {
+            throw new PythonWorkerProtocolException(
+                "Python worker returned output beyond the negotiated character limit.");
+        }
+
+        var stdoutTruncated = ReadRequiredBoolean(root, "stdoutTruncated");
+        var stderrTruncated = ReadRequiredBoolean(root, "stderrTruncated");
+
+        PythonExceptionInfo? exception = null;
+        if (root.TryGetProperty("exception", out var exceptionElement) &&
+            exceptionElement.ValueKind != JsonValueKind.Null)
+        {
+            RequireObject(exceptionElement);
+
+            var type = ReadRequiredString(exceptionElement, "type");
+            var message = ReadRequiredString(exceptionElement, "message");
+            var traceback = ReadRequiredString(exceptionElement, "traceback");
+
+            if (type.Length > 512 ||
+                message.Length > MaxExceptionMessageChars ||
+                traceback.Length > MaxTracebackChars)
+            {
+                throw new PythonWorkerProtocolException(
+                    "Python worker returned oversized exception metadata.");
+            }
+
+            exception = new PythonExceptionInfo(type, message, traceback);
+        }
+
+        if (status == PythonExecutionStatus.Completed && exception is not null)
+        {
+            throw new PythonWorkerProtocolException(
+                "Completed Python result must not contain exception metadata.");
+        }
+
+        if (status == PythonExecutionStatus.Exception && exception is null)
+        {
+            throw new PythonWorkerProtocolException(
+                "Exceptional Python result must contain exception metadata.");
+        }
+
+        return new PythonExecutionResult(
+            status,
+            stdout,
+            stderr,
+            stdoutTruncated,
+            stderrTruncated,
+            exception);
+    }
+
+    internal static Task WriteRawFrameAsync(
+        Stream stream,
+        object value,
+        int maxFrameBytes,
+        CancellationToken cancellationToken = default)
+        => WriteFrameAsync(stream, value, maxFrameBytes, cancellationToken);
+
+    internal static Task<JsonDocument> ReadRawFrameAsync(
+        Stream stream,
+        int maxFrameBytes,
+        CancellationToken cancellationToken = default)
+        => ReadFrameAsync(stream, maxFrameBytes, cancellationToken);
+
+    private static async Task WriteFrameAsync(
+        Stream stream,
+        object value,
+        int maxFrameBytes,
+        CancellationToken cancellationToken)
+    {
+        byte[] payload;
+        try
+        {
+            payload = JsonSerializer.SerializeToUtf8Bytes(value, JsonOptions);
+        }
+        catch (Exception ex) when (ex is JsonException or NotSupportedException)
+        {
+            throw new PythonWorkerProtocolException(
+                "Could not serialize Python worker protocol frame.",
+                ex);
+        }
+
+        if (payload.Length < 2 || payload.Length > maxFrameBytes)
+        {
+            throw new PythonWorkerProtocolException(
+                $"Python worker protocol frame size {payload.Length} is outside the allowed range.");
+        }
+
+        var header = new byte[sizeof(uint)];
+        BinaryPrimitives.WriteUInt32LittleEndian(header, checked((uint)payload.Length));
+
+        await stream.WriteAsync(header, cancellationToken).ConfigureAwait(false);
+        await stream.WriteAsync(payload, cancellationToken).ConfigureAwait(false);
+        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<JsonDocument> ReadFrameAsync(
+        Stream stream,
+        int maxFrameBytes,
+        CancellationToken cancellationToken)
+    {
+        var header = new byte[sizeof(uint)];
+        await ReadExactlyAsync(stream, header, cancellationToken)
+            .ConfigureAwait(false);
+
+        var payloadLength = BinaryPrimitives.ReadUInt32LittleEndian(header);
+        if (payloadLength < 2 || payloadLength > maxFrameBytes)
+        {
+            throw new PythonWorkerProtocolException(
+                $"Python worker protocol frame size {payloadLength} is outside the allowed range.");
+        }
+
+        var payload = new byte[checked((int)payloadLength)];
+        await ReadExactlyAsync(stream, payload, cancellationToken)
+            .ConfigureAwait(false);
+
+        try
+        {
+            var text = StrictUtf8.GetString(payload);
+            return JsonDocument.Parse(
+                text,
+                new JsonDocumentOptions
+                {
+                    AllowTrailingCommas = false,
+                    CommentHandling = JsonCommentHandling.Disallow,
+                    MaxDepth = 64
+                });
+        }
+        catch (Exception ex) when (
+            ex is DecoderFallbackException or
+            JsonException or
+            ArgumentException)
+        {
+            throw new PythonWorkerProtocolException(
+                "Python worker protocol frame is not valid strict UTF-8 JSON.",
+                ex);
+        }
+    }
+
+    private static async Task ReadExactlyAsync(
+        Stream stream,
+        Memory<byte> buffer,
+        CancellationToken cancellationToken)
+    {
+        var offset = 0;
+        while (offset < buffer.Length)
+        {
+            var read = await stream.ReadAsync(
+                    buffer[offset..],
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (read == 0)
+            {
+                throw new PythonWorkerProtocolException(
+                    "Unexpected EOF while reading Python worker protocol frame.");
+            }
+
+            offset += read;
+        }
+    }
+
+    private static void ValidatePipeName(string pipeName)
+    {
+        if (string.IsNullOrWhiteSpace(pipeName) ||
+            pipeName.Length > 128 ||
+            pipeName.Contains('\\') ||
+            pipeName.Contains('/'))
+        {
+            throw new ArgumentException(
+                "Pipe name must be a non-empty simple name of at most 128 characters.",
+                nameof(pipeName));
+        }
+    }
+
+    private static void ValidateRequestId(string requestId)
+    {
+        if (string.IsNullOrWhiteSpace(requestId) ||
+            requestId.Length > MaxRequestIdChars)
+        {
+            throw new PythonWorkerProtocolException(
+                "requestId must be a non-empty bounded string.");
+        }
+    }
+
+    private static void RequireObject(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            throw new PythonWorkerProtocolException(
+                "Python worker protocol frame root must be a JSON object.");
+        }
+    }
+
+    private static string ReadRequiredString(JsonElement root, string name)
+    {
+        if (!root.TryGetProperty(name, out var value) ||
+            value.ValueKind != JsonValueKind.String)
+        {
+            throw new PythonWorkerProtocolException(
+                $"Python worker protocol field '{name}' must be a string.");
+        }
+
+        return value.GetString()!;
+    }
+
+    private static int ReadRequiredInt32(JsonElement root, string name)
+    {
+        if (!root.TryGetProperty(name, out var value) ||
+            value.ValueKind != JsonValueKind.Number ||
+            !value.TryGetInt32(out var result))
+        {
+            throw new PythonWorkerProtocolException(
+                $"Python worker protocol field '{name}' must be an Int32.");
+        }
+
+        return result;
+    }
+
+    private static bool ReadRequiredBoolean(JsonElement root, string name)
+    {
+        if (!root.TryGetProperty(name, out var value) ||
+            value.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        {
+            throw new PythonWorkerProtocolException(
+                $"Python worker protocol field '{name}' must be a boolean.");
+        }
+
+        return value.GetBoolean();
+    }
+
+    private sealed record ExecuteEnvelope(
+        string Type,
+        string RequestId,
+        string Code,
+        int MaxOutputChars);
+}

@@ -1,6 +1,6 @@
 # Python Runtime
 
-> Estado: **arquitectura confirmada; E1.1 Core implementado y validado, E1.2 worker/IPC pendiente**. Ver [[Bloque E - Python Runtime]].
+> Estado: **arquitectura confirmada; E1.1 Core y E1.2 worker/IPC implementados y validados, E1.3 backend Windows/provider pendiente**. Ver [[Bloque E - Python Runtime]].
 
 ## Decisión
 
@@ -41,11 +41,13 @@ Los paquetes futuros se vendorizarán/versionarán como parte de la aplicación.
 
 Named Pipe duplex privado entre C# y Python:
 
-- asynchronous;
-- `CurrentUserOnly`;
+- asynchronous + byte mode;
+- una única instancia con `FirstPipeInstance`;
+- DACL protegida: allow al SID del usuario actual + deny explícito a `NetworkSid`;
+- handle no heredable;
 - framing length-prefixed + JSON UTF-8;
 - handshake/versionado;
-- request IDs.
+- request IDs y límites acotados.
 
 No usar stdout como canal de protocolo.
 
@@ -114,5 +116,5 @@ OpenAI utiliza públicamente el mismo patrón general de code execution persiste
 - https://www.python.org/ftp/python/3.14.8/
 - https://github.com/openai/openai-cua-sample-app
 - https://github.com/openai/openai-cua-sample-app/blob/main/python-app/README.md
-- https://learn.microsoft.com/dotnet/api/system.io.pipes.pipeoptions?view=net-10.0
+- https://learn.microsoft.com/windows/win32/ipc/named-pipe-security-and-access-rights
 - https://github.com/modelcontextprotocol/csharp-sdk/issues/1835

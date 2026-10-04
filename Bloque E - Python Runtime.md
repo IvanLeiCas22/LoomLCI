@@ -2,7 +2,7 @@
 
 ## Estado
 
-**E1.1 (Core) implementado y validado; E1.2 (worker + IPC) pendiente.**
+**E1.1 (Core) y E1.2 (worker + IPC) implementados y validados; E1.3 (backend Windows/provider) pendiente.**
 
 Este bloque define el primer vertical slice de Python Runtime después del cierre de la baseline v0.1. No modifica todavía Computer ni Agent Support.
 
@@ -234,7 +234,9 @@ Cada request ejecuta:
 
     exec(compile(code, "<loom-python>", "exec"), namespace)
 
-Una excepción se captura con traceback y se devuelve como `status=exception`. El namespace no se reinicia por una excepción ordinaria.
+El worker captura `BaseException` y devuelve `status=exception`, por lo que `SyntaxError`, excepciones ordinarias, `SystemExit` y `KeyboardInterrupt` explícito no destruyen el REPL. El namespace y cualquier asignación previa al error permanecen. `os._exit`, crash nativo o pérdida del pipe sí son fallos duros.
+
+No hay stdin interactivo en E1: `sys.stdin` se restaura a EOF antes/después de cada ejecución, por lo que `input()` devuelve `EOFError` inmediatamente en lugar de bloquear hasta timeout.
 
 No se introduce un DSL.
 
@@ -249,12 +251,15 @@ Servidor C#:
 - `PipeDirection.InOut`;
 - byte mode;
 - asynchronous;
-- `PipeOptions.CurrentUserOnly`;
-- nombre aleatorio no predecible.
+- una única instancia + `FirstPipeInstance`;
+- nombre aleatorio no predecible;
+- DACL protegida: allow explícito sólo al SID del usuario actual;
+- deny explícito a `NetworkSid`;
+- handle no heredable.
 
-En Windows, `CurrentUserOnly` comprueba mismo usuario y mismo nivel de elevación.
+No depender únicamente de `CurrentUserOnly`: Named Pipes pueden exponerse por red y la ACL explícita evita acceso remoto incluso bajo la misma identidad. El protocolo E1.2 usa `NamedPipeServerStreamAcl.Create`.
 
-Se validó experimentalmente que CPython estándar puede abrir directamente `\\.\pipe\...` con stdlib y comunicarse con `NamedPipeServerStream` sin dependencias externas.
+Se validó con CPython 3.14.8 embeddable que la stdlib puede abrir directamente `\\.\pipe\...` y comunicarse con el server .NET sin dependencias externas.
 
 ### Framing
 
@@ -265,7 +270,7 @@ Frames:
     uint32 little-endian payloadLength
     UTF-8 JSON payload
 
-Límite de frame acotado y validado antes de reservar memoria.
+Límites E1.2: código ≤256 KiB UTF-8, request frame ≤2 MiB, response frame ≤32 MiB, request ID ≤128 chars, mensaje de excepción ≤16 Ki chars y traceback ≤64 Ki chars. El largo se valida antes de reservar el payload.
 
 Handshake inicial worker -> Host:
 
@@ -299,9 +304,19 @@ El pipe es el canal de control. stdout/stderr del proceso worker quedan reservad
 
 ## stdout / stderr
 
-E1 captura stdout/stderr Python de cada ejecución y devuelve texto acotado.
+E1 captura stdout/stderr Python de cada ejecución mediante proxies permanentes de `sys.stdout` / `sys.stderr` y un `ContextVar` por ejecución. Con `-X thread_inherit_context=1`, threads normales iniciados durante la ejecución heredan el buffer; al terminar, el buffer se cierra para impedir contaminación de la siguiente llamada.
 
-No se prometen todavía semánticas de ProcessOutputStore/cursors: cada `python_execute` es una Invocation síncrona con un resultado finito.
+Garantizado en E1.2:
+
+- `print()`;
+- `sys.stdout.write()` / `sys.stderr.write()`;
+- librerías que escriban a esos streams.
+
+No se promete capturar dentro del resultado escrituras directas a file descriptors (`os.write(1, ...)`), extensiones nativas ni stdout/stderr heredado por subprocessos. Esas salidas permanecen en los pipes diagnósticos del proceso; para subprocessos con output relevante se usa captura explícita de Python o la capability Process.
+
+Si el usuario reasigna `sys.stdout`/`sys.stderr`, esa escritura puede escapar de la captura de esa ejecución, pero los proxies se restauran antes de la siguiente.
+
+No se prometen semánticas de ProcessOutputStore/cursors: cada `python_execute` es una Invocation síncrona con un resultado finito.
 
 Si se supera el límite:
 
@@ -350,7 +365,7 @@ No hay cwd global en Core.
 
 Python puede ejecutar `os.chdir()`; al ser namespace/proceso persistente, ese cambio persiste deliberadamente dentro de ese worker hasta reset.
 
-El worker corre con el environment/permisos normales del usuario. La distribución embeddable y `-I` reducen interferencia de configuración Python externa, pero **no crean un sandbox**.
+El worker corre con el environment/permisos normales del usuario. Lanzamiento fijado para E1: `-I -B -u -X utf8 -X faulthandler -X thread_inherit_context=1`. El worker agrega `""` a `sys.path` para permitir imports relativos al cwd pese al `._pth` aislado del embeddable. `-B` evita `__pycache__`. Estas opciones reducen interferencia externa y mejoran diagnóstico, pero **no crean un sandbox**.
 
 ## Distribución / layout
 
@@ -479,17 +494,43 @@ Validación E1.1:
 
 Todavía no hay Python real: E1.2 incorpora worker + IPC.
 
-### E1.2 - Worker + IPC
+### E1.2 - Worker + IPC ✓
 
-- worker.py;
-- protocolo v1;
-- framing;
-- handshake;
+Implementado:
+
+- `runtime/python/worker.py`;
+- `runtime/python/runtime.json` con CPython 3.14.8 x64 embeddable + SHA-256 oficial;
+- protocolo v1 length-prefixed JSON UTF-8;
+- handshake `hello` con versión/PID/Python;
+- request IDs y validación estricta;
+- límites de frame/código/excepción;
 - namespace persistente;
-- stdout/stderr bounded;
-- excepción estructurada;
-- Named Pipe CurrentUserOnly;
-- manejo de EOF/protocolo corrupto.
+- captura bounded de stdout/stderr con `ContextVar`;
+- herencia de captura en `threading.Thread`;
+- excepción estructurada capturando `BaseException`;
+- stdin EOF;
+- restauración de streams entre ejecuciones;
+- imports desde cwd bajo embeddable aislado;
+- Named Pipe con DACL user-only + deny NetworkSid + FirstPipeInstance;
+- EOF/protocolo corrupto invalidan/cierran el worker;
+- harness real usando Native Process + CPython privado, sin conectar todavía `PythonCapability`.
+
+Validación E1.2:
+
+- 13 tests nuevos de Windows;
+- handshake real con CPython **3.14.8** privado;
+- persistencia, Unicode, stdout/stderr, truncamiento, excepciones, `SystemExit`, stdin EOF, threads, stream restoration e imports desde cwd;
+- framing fragmentado, límite previo a allocation, UTF-8 inválido y requestId inválido;
+- mensaje de protocolo no soportado termina el worker con exit code 2;
+- Core: **58/58**;
+- Windows: **91/91**;
+- Integration MCP: **6/6**;
+- total Debug: **155/155**;
+- total Release: **155/155**;
+- build Release: **0 warnings / 0 errors**;
+- ningún `python.exe` privado queda vivo al finalizar los tests.
+
+E1.2 no implementa todavía `IPythonRuntimeProvider`: la conexión durable Core ↔ Windows, health/cancellation y lifecycle vía Job pertenecen a E1.3.
 
 ### E1.3 - Backend Windows
 
@@ -603,7 +644,7 @@ E1 se considera cerrado cuando:
   https://github.com/openai/openai-cua-sample-app
 - OpenAI Python/PyAutoGUI sample:
   https://github.com/openai/openai-cua-sample-app/blob/main/python-app/README.md
-- .NET PipeOptions.CurrentUserOnly:
-  https://learn.microsoft.com/dotnet/api/system.io.pipes.pipeoptions?view=net-10.0
+- Windows Named Pipe security and access rights:
+  https://learn.microsoft.com/windows/win32/ipc/named-pipe-security-and-access-rights
 - MCP C# SDK 2.2.0 binary content regression:
   https://github.com/modelcontextprotocol/csharp-sdk/issues/1835
