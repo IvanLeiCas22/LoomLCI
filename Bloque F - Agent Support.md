@@ -2,7 +2,7 @@
 
 ## Estado
 
-**F1.1 Core y F1.2 MCP implementados y validados; F1.3 (Secure MCP Tunnel + fresh-agent) pendiente.**
+**F1.1 Core y F1.2 MCP implementados/validados; investigación F1.3 completada y su ejecución pendiente.**
 
 Este bloque propone una primera capability opcional de Agent Support para mantener una checklist estructurada del trabajo lógico de un agente dentro de una WorkSession. No es un scheduler, no ejecuta pasos y no reemplaza Process, Python, MCP Tasks ni la planificación propia del host.
 
@@ -795,10 +795,230 @@ Durante la validación se detuvo una instancia previa de `LoomLCI.Host` que bloq
 
 ### F1.3 - Validación
 
-- Debug/Release;
-- smoke Secure MCP Tunnel;
-- fresh-agent específico de Agent Support;
-- decidir `destructiveHint` con evidencia del host real.
+#### Resultado de la investigación específica
+
+F1.3 no necesita más código antes de probarse. Es una validación de integración real y ergonomía del agente sobre la superficie ya implementada.
+
+Estado previo confirmado:
+
+- repo limpio en `main`;
+- runtime administrado del Secure MCP Tunnel: `healthy=true`, `runtime_state=ready`, proceso activo, `healthz`/ `readyz` OK;
+- Host F1.2 expone 19 tools cuando Work Plan está habilitado;
+- suites F1.2: 197/197 Debug y Release;
+- la app `LoomLCI MCP` tiene actualmente permiso específico **Allow all actions**, por lo que en esta instalación no se espera una confirmación por cada `work_plan_update`;
+- la skill privada de LoomLCI no enumera Work Plan ni Python y declara que el schema MCP vivo es la fuente de verdad. Debe mantenerse así durante F1.3 para no enseñar artificialmente al fresh-agent que use Work Plan.
+
+Las annotations MCP siguen siendo hints y no garantías de UX. ChatGPT además decide approvals según permisos de la app, contexto e impacto. Por eso F1.3 debe observar comportamiento real sin reinterpretar un prompt de aprobación como verdad semántica del protocolo.
+
+OpenAI documenta además que los cambios de herramientas de una app MCP pueden quedar detrás de un snapshot/catálogo aprobado y requerir refresh/revisión. Por eso una ausencia inicial de las dos tools nuevas en ChatGPT debe diagnosticarse primero como posible catálogo stale, no como fallo de LoomLCI.
+
+#### Fase 0 - Preflight
+
+Antes de cualquier prueba:
+
+1. confirmar repo limpio;
+2. confirmar tunnel `healthy/ready`;
+3. confirmar que el Host local es el commit F1.2 esperado;
+4. abrir un chat nuevo de ChatGPT normal con LoomLCI seleccionado;
+5. comprobar que el catálogo visible contiene **19 tools**, incluyendo:
+   - `work_plan_get`;
+   - `work_plan_update`.
+
+Si ChatGPT continúa viendo 17 tools:
+
+- no ejecutar todavía el fresh-agent;
+- refrescar/revisar las acciones de la app para que ChatGPT tome el catálogo MCP actual;
+- repetir el preflight;
+- sólo considerar un bug de Loom si el Host/túnel expone 19 pero el catálogo actualizado sigue sin transportar las nuevas tools.
+
+No modificar la skill/plugin para mencionar Work Plan antes de las pruebas.
+
+#### Fase 1 - Smoke determinista por Secure MCP Tunnel
+
+Objetivo: demostrar que la misma semántica validada por STDIO atraviesa ChatGPT + app + túnel.
+
+Usar una WorkSession temporal y no modificar archivos.
+
+Secuencia:
+
+1. `work_create`;
+2. `work_plan_get`:
+   - revision 0;
+   - steps vacíos;
+3. `work_plan_update(expectedRevision=0)` con dos pasos nuevos:
+   - uno `active`;
+   - uno `waiting`;
+4. comprobar:
+   - revision 1;
+   - IDs `step_*`;
+   - status lowercase;
+5. `work_plan_get` y verificar persistencia exacta;
+6. enviar deliberadamente un update stale con revision 0;
+7. comprobar error semántico:
+   - `conflict`;
+   - idealmente `details.currentRevision=1` accesible al agente;
+8. recuperar correctamente:
+   - releer si hace falta;
+   - reconciliar;
+   - update con revision vigente y mismos IDs;
+9. limpiar plan con array vacío;
+10. `work_close`;
+11. `work_plan_get` posterior => `resource_closed`.
+
+Criterio importante: no instruir al agente sobre cómo está implementado el Core. Sólo usar el contrato público.
+
+El wrapping externo de `conflict` o `resource_closed` puede diferir del envelope MCP. Es aceptable si el código/mensaje semántico sigue siendo recuperable y el agente puede continuar.
+
+#### Fase 2 - Fresh-agent no trivial
+
+Debe ejecutarse en un chat nuevo sin contexto previo de LoomLCI, sin mencionar `work_plan_get`, `work_plan_update`, revision ni IDs.
+
+Prompt recomendado:
+
+> Usa exclusivamente LoomLCI para interactuar con mi PC. Trabaja sobre `C:\Users\ivanl\Documents\ProyectosPersonales\LoomLCI` y no modifiques ningún archivo. No uses conocimiento de otras conversaciones ni asumas la arquitectura. Investiga de forma natural: dónde se registra la capa MCP, cómo fluye actualmente Agent Support desde WorkSession/Core hasta MCP, y qué garantías de lifecycle/concurrencia tiene. Elegí vos mismo las herramientas necesarias. Al final dame una explicación breve, las herramientas que usaste y cualquier fricción o comportamiento poco intuitivo que hayas encontrado.
+
+Por qué este prompt:
+
+- es claramente multi-step;
+- no obliga a usar Work Plan;
+- exige navegación real del repo;
+- no necesita writes de filesystem;
+- permite observar si las ServerInstructions son suficientes;
+- evita contaminar el resultado describiendo el workflow esperado.
+
+Ejecutar **3 chats independientes** con el mismo prompt.
+
+Registrar por corrida:
+
+- si descubrió Work Plan sin ayuda;
+- cuándo creó el plan;
+- cantidad/claridad de steps;
+- si preservó IDs;
+- si avanzó revisions correctamente;
+- si actualizó por milestones o de forma excesivamente granular;
+- uso de `active` / `waiting` cuando tuvo sentido;
+- si confundió estado lógico con Process/filesystem real;
+- si cerró WorkSession al finalizar;
+- approvals/prompts inesperados;
+- errores/wrappers y capacidad de recuperación;
+- cualquier comentario espontáneo del agente sobre ergonomía.
+
+Criterio de utilidad:
+
+- **3/3 correctas**: excelente;
+- **2/3 correctas**: aceptable para F1, documentando variabilidad;
+- **0-1/3 correctas**: no cerrar F1; revisar ServerInstructions/descripciones antes de Computer.
+
+Una corrida cuenta como correcta si el agente usa Work Plan cuando lo considera útil y lo mantiene coherentemente. No es requisito que use todos los status ni que actualice después de cada tool call.
+
+#### Fase 3 - Control trivial / anti-overplanning
+
+Usar otro chat nuevo, sin nombrar Work Plan.
+
+Prompt recomendado:
+
+> Usa LoomLCI sobre `C:\Users\ivanl\Documents\ProyectosPersonales\LoomLCI`, sin modificar nada. Lee `global.json` y dime qué versión de .NET SDK fija el proyecto.
+
+Resultado esperado:
+
+- resolver la tarea con las mínimas tools naturales;
+- **no crear ni actualizar Work Plan**.
+
+Este control es tan importante como el caso positivo: las ServerInstructions dicen que Work Plan es para tareas multi-step no triviales.
+
+Si el agente usa Work Plan aquí, considerar sobreplanificación y ajustar instrucciones antes de cerrar F1.
+
+#### Fase 4 - Evaluación de approvals / destructiveHint
+
+No cambiar permisos de la app durante la validación principal.
+
+La app `LoomLCI MCP` está configurada actualmente con **Allow all actions**, por lo que la ausencia de confirmaciones es el comportamiento esperado de esta instalación. No se debe usar “no apareció popup” para concluir que `destructiveHint` es ignorado.
+
+Qué medir:
+
+- que `work_plan_update` no quede bloqueado;
+- que no aparezcan confirmaciones repetitivas inesperadas bajo la configuración actual;
+- que ChatGPT siga tratando la acción como write/mutation cuando corresponda.
+
+La annotation F1.2 permanece:
+
+- `Destructive=true` para update.
+
+No cambiarla sólo para optimizar prompts. MCP define estas annotations como hints de riesgo; `destructive=false` sería incorrecto para un full replacement capaz de eliminar steps.
+
+Opcional, fuera del criterio obligatorio de F1: repetir una única operación con permisos más restrictivos (`ask_before_writes`) para caracterizar UX de deployment alternativo. No es necesario para cerrar la instalación actual y no conviene modificar permisos del usuario sólo para completar F1.3.
+
+#### Fase 5 - Diagnóstico de fallos
+
+Clasificar cualquier problema antes de cambiar código.
+
+**LoomLCI/Core/MCP**
+- revision/IDs incorrectos;
+- plan perdido dentro de la misma WorkSession;
+- close no limpia;
+- schema/descripción contradictoria;
+- error semántico incorrecto.
+
+**Secure MCP Tunnel / app catalog**
+- Host local expone 19 pero ChatGPT sólo ve 17;
+- herramientas nuevas no aparecen hasta refresh;
+- definición stale de una tool.
+
+**ChatGPT/consumer wrapper**
+- `IsError` mostrado como excepción exterior;
+- `details` no visible directamente pero código/mensaje sí;
+- retry bloqueado por política/orquestación;
+- confirmaciones determinadas por permisos/contexto.
+
+**Ergonomía/instructions**
+- fresh-agent nunca usa Work Plan en tarea claramente multi-step;
+- usa Work Plan para tarea trivial;
+- actualiza obsesivamente en cada tool call;
+- confunde `waiting` con process state real.
+
+Cada categoría tiene una solución diferente; no parchear Loom para compensar automáticamente una conducta del consumidor.
+
+#### Criterio de cierre F1.3 / Bloque F
+
+F1 puede cerrarse cuando:
+
+1. ChatGPT normal ve el catálogo actualizado de **19 tools**;
+2. smoke por Secure MCP Tunnel pasa `get/update/conflict/recovery/clear/close`;
+3. error stale sigue siendo recuperable por el agente;
+4. al menos **2 de 3** fresh-agents usan Work Plan coherentemente en la tarea no trivial;
+5. el control trivial no usa Work Plan;
+6. no hay fricción de approval bloqueante con la configuración real de la app;
+7. no se modificaron archivos del repo durante fresh-agent;
+8. WorkSessions de prueba quedan cerradas;
+9. tunnel queda nuevamente `healthy/ready`;
+10. repo sigue limpio;
+11. se documentan las asperezas observadas sin atribuir wrappers externos al Core.
+
+Si sólo falla el criterio de adopción natural (puntos 4/5), primero ajustar ServerInstructions/tool descriptions y repetir fresh-agent. No rediseñar Core.
+
+#### Qué no probar nuevamente en F1.3
+
+No repetir exhaustivamente:
+
+- límites de 32 steps;
+- Unicode 512 scalars;
+- duplicate/unknown IDs;
+- CAS concurrente;
+- expiry;
+- snapshot immutability;
+- ResourceRegistry;
+- schemas completos.
+
+Todo eso ya está cubierto por Core/Integration F1.1/F1.2. F1.3 debe concentrarse en **transporte real, descubribilidad y comportamiento del agente**.
+
+#### Recomendación
+
+F1.3 debe hacerse en dos momentos:
+
+1. smoke determinista en el chat actual o un chat controlado;
+2. fresh-agent en chats nuevos con el prompt no trivial y el control trivial.
+
+No actualizar la skill del plugin hasta terminar las corridas. Si después F1 queda aceptado, recién entonces conviene actualizar metadata/README de la integración para reflejar Python + Agent Support sin convertir esa metadata en una lista exhaustiva.
 
 ## Criterio de cierre
 
@@ -836,3 +1056,6 @@ Si la evaluación fresh-agent muestra que ChatGPT no usa Work Plan de forma úti
 - MCP C# SDK `WithTools<T>` contract (2.2.0 local XML docs / upstream SDK)
 - NuGet `ModelContextProtocol` 2.2.0: https://www.nuget.org/packages/ModelContextProtocol/2.2.0
 - JSON Schema 2020-12 `maxLength`: https://json-schema.org/draft/2020-12/json-schema-validation#section-6.3.1
+- OpenAI - Developer mode and MCP apps in ChatGPT: https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt
+- OpenAI - Apps in ChatGPT / action permissions: https://help.openai.com/en/articles/11487775-apps-in-chatgpt
+- MCP Server Instructions: https://blog.modelcontextprotocol.io/posts/2025-11-03-using-server-instructions/
