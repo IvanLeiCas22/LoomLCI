@@ -1,6 +1,6 @@
 # Plan y tareas
 
-> Estado: **Agent Support F1 cerrado**. F1.1 Core + F1.2 MCP + F1.3 conducta real-world están validados. El benchmark final de [[F1.3 - Benchmark real-world Work Plan]] cerró 4/4 positivos, 3/3 controles y escalada 8A sin plan -> 8B con plan. Skill 0.2.1 no requiere más ajuste. Próximo bloque propuesto: **Computer**.
+> Estado: **Agent Support F1 cerrado**. F1.1 Core + F1.2 MCP + F1.3 conducta real-world están validados. El benchmark final de [[F1.3 - Benchmark real-world Work Plan]] cerró 4/4 positivos, 3/3 controles y escalada 8A sin plan -> 8B con plan. Skill 0.2.1 no requiere más ajuste. Antes de Computer se prioriza implementar [[Deployment portable]] de forma side-by-side y reversible. **Computer sigue siendo la próxima capability grande.**
 
 ## Distinciones necesarias
 
@@ -76,9 +76,24 @@ El holdout real-world confirmó que la política de selección es suficientement
 
 No continuar optimizando prompting ni contrato de Work Plan sin evidencia nueva.
 
-## Próximo bloque
+## Próximo trabajo operativo - Deployment portable
 
-**Computer** es el siguiente bloque de arquitectura. Antes de implementar conviene hacer una investigación específica que cierre, como mínimo:
+Diseño cerrado en [[Deployment portable]]. Implementar primero una instalación side-by-side sin reemplazar el runtime actual:
+
+- `LoomLCI.Launcher` con `start` / `stop` / `status` / `setup`;
+- Host Release self-contained `win-x64`;
+- tunnel-client v0.0.14 oficial fijado por SHA-256;
+- profile/state/secrets aislados por máquina;
+- runtime key con DACL user-only;
+- acceso directo de escritorio;
+- cutover y rollback controlados;
+- prueba real posterior en una segunda PC Windows.
+
+No tocar capabilities Core para resolver este bloque. No actualizar tunnel-client ni plugin en la misma iteración.
+
+## Próximo bloque de capability
+
+**Computer** sigue siendo el siguiente bloque de arquitectura funcional. Antes de implementarlo conviene hacer una investigación específica que cierre, como mínimo:
 
 - contrato de Observation y stale detection;
 - captura de ventana/escritorio, multi-monitor y DPI;

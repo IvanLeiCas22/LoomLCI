@@ -1,0 +1,366 @@
+# Deployment portable
+
+> Estado: **diseño cerrado para implementación inicial**. No reemplaza todavía la integración actual. El objetivo es instalar LoomLCI side-by-side como aplicación por usuario, arrancable con doble clic y transferible a otra PC Windows x64, conservando rollback inmediato al runtime actual.
+
+## Objetivo
+
+Separar definitivamente:
+
+- **repositorio de desarrollo**: código, tests y builds Debug/Release;
+- **instalación de uso**: Host Release publicado, launcher, tunnel-client y configuración local por máquina.
+
+Computer sigue siendo la próxima capability grande. Este bloque es infraestructura de deployment y operación previa a Computer.
+
+## Restricciones de diseño
+
+- no modificar Core/Filesystem/Process/Python/Work Plan para resolver deployment;
+- no sustituir el runtime actual hasta validar el nuevo end-to-end;
+- no depender de IvanSpace, Visual Studio, Python del sistema ni .NET instalado;
+- no ejecutar como Windows Service: LoomLCI debe permanecer en la sesión interactiva del usuario, compatible con el futuro Computer;
+- no elevar a administrador por defecto;
+- soportar rutas de usuario con espacios;
+- separar binarios instalados de estado/config/secrets por máquina.
+
+## Layout propuesto
+
+```text
+%LOCALAPPDATA%\Programs\LoomLCI\
+    LoomLCI.Launcher.exe
+    versions\
+        <version>\
+            LoomLCI.Host.exe
+            ...
+    tools\
+        tunnel-client.exe
+
+%LOCALAPPDATA%\LoomLCI\
+    config\
+        machine.json
+    secrets\
+        runtime-api-key.txt
+    tunnel-profiles\
+    tunnel-state\
+    runtimes\
+    logs\
+```
+
+`machine.json` no contiene secretos. Debe registrar como mínimo schema/version de configuración, versión activa, versión anterior, tunnel id, alias local y versión fijada de tunnel-client. Las rutas derivables desde Known Folders no deben duplicarse innecesariamente.
+
+## Host distribuible
+
+Publicar `LoomLCI.Host` como:
+
+- Release;
+- `win-x64`;
+- self-contained;
+- carpeta normal, no single-file inicialmente.
+
+Prueba realizada sin modificar el repo:
+
+```text
+dotnet publish LoomLCI.Host -c Release -r win-x64 --self-contained true
+```
+
+Resultado observado:
+
+- publicación correcta;
+- aproximadamente 81 MiB / 231 archivos;
+- `LoomLCI.Host.exe` presente;
+- IntegrationTests contra el Host publicado: **9/9**.
+
+Esto confirma que el Host actual puede distribuirse sin requerir .NET instalado en la PC destino.
+
+## tunnel-client
+
+### Versión inicial fijada
+
+Usar **OpenAI tunnel-client v0.0.14** en la primera implementación porque es exactamente la versión ya validada por la instalación actual:
+
+```text
+0.0.14+0f870e50a973fa820d4c409000059e181e8d242b
+```
+
+No mezclar el primer deployment con una actualización a v0.0.15.
+
+### Obtención y supply chain
+
+Primera estrategia recomendada: Setup descarga el ZIP oficial fijado, verifica un SHA-256 compilado/registrado en nuestro manifest y recién entonces extrae el binario.
+
+Artefacto oficial:
+
+```text
+tunnel-client-v0.0.14-windows-amd64.zip
+SHA-256:
+784ab8da7b5a88f0109f1fd8aaf0a1c86067430b896dddf307ef7e3cc49fa1a5
+```
+
+La release oficial publica además `SHA256SUMS.txt`, SPDX, sidecars de licencias y evidencia de provenance/vulnerabilidades.
+
+Verificación real en esta PC:
+
+- el ZIP descargado desde la release oficial produjo exactamente el SHA esperado;
+- el `tunnel-client.exe` extraído produjo SHA-256 `fcc85a69ec0ad82518e4f8964f60c45e31787957782a0fc9c1b0c44e82d61b9b`;
+- ese hash coincide exactamente con el `tunnel-client.exe` actualmente usado por IvanSpace;
+- el binario extraído reportó la misma versión 0.0.14.
+
+### Redistribución
+
+El proyecto `openai/tunnel-client` usa **Apache License 2.0**, que permite redistribución en forma binaria sujeto a sus condiciones. Si más adelante elegimos un bundle offline que incluya el binario, el paquete de LoomLCI debe incluir como mínimo:
+
+- copia de Apache-2.0;
+- NOTICE de OpenAI;
+- sidecar de licencias de terceros de la release correspondiente;
+- preferentemente también el SPDX publicado.
+
+Para la primera versión, descargar el artefacto oficial durante Setup reduce superficie de mantenimiento y evita vendorear el binario dentro del repo.
+
+## Secrets y runtime key
+
+### Estado actual verificado
+
+La runtime API key actual está en archivo y **no** embebida en YAML. La ACL real inspeccionada es:
+
+- owner: usuario actual;
+- herencia deshabilitada;
+- una única regla explícita: usuario actual = FullControl.
+
+Es exactamente el límite de acceso deseado para la primera versión.
+
+### Decisión inicial
+
+Mantener una runtime key por máquina como archivo local con DACL protegida sólo para el usuario actual.
+
+Setup debe:
+
+1. crear el directorio de secrets;
+2. desactivar herencia;
+3. dejar sólo el SID del usuario actual con FullControl;
+4. escribir la key;
+5. verificar luego la ACL;
+6. generar el profile con referencia `file:...`, nunca con la key literal.
+
+Cada PC debe usar preferentemente una runtime key distinta con permisos mínimos **Tunnels Read + Use**.
+
+### Por qué no DPAPI inicialmente
+
+DPAPI `CurrentUser` sí aporta cifrado at-rest ligado al usuario/máquina, pero `tunnel-client` consume directamente referencias `file:` o `env:`. Introducir DPAPI obligaría al launcher a descifrar la key y moverla a environment o a un archivo temporal antes de cada arranque.
+
+Eso:
+
+- crea una segunda ruta de secret handling;
+- acopla más fuertemente el runtime al launcher;
+- complica restart/diagnóstico;
+- no cambia el trust boundary principal de LoomLCI Full Trust bajo el mismo usuario.
+
+Para v1, key de scope reducido + ACL user-only es más simple y coincide con el camino ya validado. DPAPI queda como hardening opcional futuro si aparece un threat model que lo justifique.
+
+## Profile y state isolation
+
+Mantener separados:
+
+- `TUNNEL_CLIENT_PROFILE_DIR=%LOCALAPPDATA%\LoomLCI\tunnel-profiles`;
+- `TUNNEL_CLIENT_STATE_DIR=%LOCALAPPDATA%\LoomLCI\tunnel-state`.
+
+La documentación oficial distingue explícitamente profile, runtime alias y state dir. El nuevo deployment no debe reutilizar el state root legacy durante la fase side-by-side.
+
+Alias inicial recomendado para la prueba de migración:
+
+```text
+loomlci-installed
+```
+
+El alias actual `loomlci` permanece intacto hasta completar el cutover.
+
+## Rutas con espacios
+
+Prueba específica realizada:
+
+- un `--mcp-command` con ruta absoluta quoted que contiene espacios fue interpretado incorrectamente por tunnel-client v0.0.14;
+- un profile con `mcp-command = LoomLCI.Host.exe` funcionó correctamente cuando el directorio del Host se agregó al `PATH` heredado del proceso tunnel-client;
+- `doctor` resolvió correctamente el ejecutable incluso estando dentro de una carpeta con espacios;
+- una referencia `file:` hacia una runtime key en una ruta con espacios también pasó `doctor`.
+
+Decisión:
+
+- el profile usa `LoomLCI.Host.exe`, no una ruta absoluta quoted;
+- Launcher antepone la carpeta de la versión activa al `PATH` sólo en el environment del proceso tunnel-client;
+- no modificar el PATH global del usuario o del sistema.
+
+## LoomLCI.Launcher
+
+Superficie inicial:
+
+```text
+LoomLCI.Launcher.exe start
+LoomLCI.Launcher.exe stop
+LoomLCI.Launcher.exe status
+LoomLCI.Launcher.exe setup
+```
+
+El acceso directo principal del escritorio ejecuta `start`.
+
+Launcher **no** implementa su propio daemon ni protocolo de túnel. Delega lifecycle local a:
+
+- `tunnel-client runtimes connect`;
+- `tunnel-client runtimes status`;
+- `tunnel-client runtimes stop`.
+
+### start
+
+1. validar `machine.json`, versión activa, Host y tunnel-client;
+2. configurar PROFILE_DIR, STATE_DIR y PATH sólo para el child process;
+3. consultar `runtimes status`;
+4. si ya está healthy/ready, devolver éxito idempotente;
+5. si no está activo, ejecutar `runtimes connect`;
+6. volver a consultar `status --json`;
+7. declarar éxito sólo con criterios de salud completos.
+
+### status
+
+Mostrar al usuario al menos:
+
+- detenido / iniciando / listo / error;
+- versión activa de LoomLCI;
+- versión de tunnel-client;
+- alias;
+- health/ready.
+
+No mostrar runtime key ni datos secretos.
+
+### stop
+
+Ejecutar `runtimes stop <alias>`. Esta operación detiene el runtime local y deja intacto el tunnel remoto y la configuración de ChatGPT.
+
+## Setup inicial
+
+Secuencia propuesta:
+
+1. validar Windows x64 y ubicación de Known Folders;
+2. copiar Launcher y Host Release a una nueva carpeta versionada;
+3. descargar tunnel-client v0.0.14 desde release oficial;
+4. verificar SHA-256 antes de extraer;
+5. verificar `tunnel-client --version`;
+6. solicitar/importar tunnel id;
+7. solicitar runtime key de esa máquina;
+8. crear secret con ACL user-only;
+9. generar profile local sin secretos literales;
+10. ejecutar `tunnel-client doctor --explain --json`;
+11. escribir `machine.json`;
+12. crear acceso directo de escritorio mediante Shell Link de Windows;
+13. **no** iniciar ni detener todavía el runtime legacy durante la instalación side-by-side.
+
+Setup debe ser transaccional en lo posible: escribir primero en staging y publicar la instalación sólo después de pasar validaciones locales.
+
+## Criterio de instalación sana
+
+Antes de cutover:
+
+- todos los archivos de la versión activa existen;
+- tunnel-client tiene versión y hash esperados;
+- secret existe y su DACL está protegida correctamente;
+- profile no contiene key literal;
+- `doctor` devuelve result=ok;
+- Host publicado pasó tests de integración;
+- runtime legacy sigue funcionando.
+
+Después de start:
+
+- `process_running=true`;
+- `healthy=true`;
+- `ready=true`;
+- `runtime_state=ready`;
+- tunnel id coincide con el esperado;
+- no hay issues locales relevantes;
+- smoke real desde ChatGPT lista/ejecuta tools de LoomLCI.
+
+## Primer cutover sin riesgo
+
+La primera migración se hace manualmente y de forma reversible:
+
+1. capturar `runtimes status loomlci --json` del runtime legacy y conservar su `repair_command`/profile como evidencia de rollback;
+2. confirmar que el nuevo deployment pasó Setup + doctor;
+3. detener **sólo** el runtime legacy;
+4. iniciar `loomlci-installed`;
+5. validar status completo;
+6. hacer smoke real desde ChatGPT;
+7. si falla cualquier punto, detener `loomlci-installed` y relanzar el runtime legacy con su configuración original, que nunca fue modificada.
+
+No ejecutar simultáneamente los dos runtimes sobre el mismo tunnel durante esta prueba STDIO.
+
+## Rollback de versiones una vez adoptado
+
+Estructura:
+
+```text
+versions\
+    <actual>\
+    <anterior>\
+```
+
+`machine.json` mantiene `activeVersion` y `previousVersion`.
+
+Update futuro:
+
+1. instalar nueva versión en staging;
+2. validar archivos;
+3. stop;
+4. cambiar activeVersion;
+5. start + health;
+6. smoke.
+
+Si falla:
+
+1. stop;
+2. restaurar previousVersion;
+3. start;
+4. verificar health.
+
+No implementar auto-update en la primera versión; sólo dejar la estructura preparada.
+
+## Segunda PC Windows
+
+Primera plataforma soportada: **Windows x64**.
+
+La PC destino no debe requerir:
+
+- repo;
+- Visual Studio;
+- .NET instalado;
+- Python instalado;
+- IvanSpace.
+
+Sí requiere red saliente para Secure MCP Tunnel y, en el primer uso de Python, para descargar el CPython embeddable ya verificado por LoomLCI.
+
+Cada PC:
+
+- instala su copia;
+- crea su config/state local;
+- recibe su propia runtime key.
+
+Para operación simultánea se recomienda un tunnel distinto por PC. Compartir el mismo tunnel queda reservado a uso alternado, nunca con dos runtimes STDIO activos simultáneamente.
+
+## Fuera de alcance inicial
+
+- autoarranque al login;
+- Windows Service;
+- MSIX/MSI;
+- auto-update;
+- code signing;
+- win-arm64;
+- bundle totalmente offline;
+- DPAPI;
+- migración automática de la skill/plugin de ChatGPT.
+
+Estas mejoras se evalúan sólo después de validar el deployment portable real en dos PCs.
+
+## Fuentes
+
+- OpenAI tunnel-client v0.0.14: https://github.com/openai/tunnel-client/releases/tag/v0.0.14
+- OpenAI tunnel-client LICENSE (Apache-2.0): https://github.com/openai/tunnel-client/blob/v0.0.14/LICENSE
+- OpenAI tunnel-client NOTICE: https://github.com/openai/tunnel-client/blob/v0.0.14/NOTICE
+- Profiles/state/key split: https://github.com/openai/tunnel-client/blob/v0.0.14/plugins/tunnel-mcp/skills/tunnel-mcp/references/profiles-state-and-keys.md
+- Runtime lifecycle/status: https://github.com/openai/tunnel-client/blob/v0.0.14/plugins/tunnel-mcp/README.md
+- Microsoft DPAPI / ProtectedData: https://learn.microsoft.com/dotnet/api/system.security.cryptography.protecteddata
+- Microsoft CryptProtectData: https://learn.microsoft.com/windows/win32/api/dpapi/nf-dpapi-cryptprotectdata
+- Microsoft icacls: https://learn.microsoft.com/windows-server/administration/windows-commands/icacls
+- .NET self-contained deployment: https://learn.microsoft.com/dotnet/core/deploying/

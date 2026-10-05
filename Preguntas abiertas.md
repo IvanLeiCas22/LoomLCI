@@ -16,6 +16,31 @@ Preguntas deliberadamente diferidas:
 - outputs de imagen cuando la capa MCP utilizada tenga una ruta binaria estable;
 - integración PyAutoGUI/Computer.
 
+## Deployment portable
+
+Cerrado para la primera implementación en [[Deployment portable]]:
+
+- instalación side-by-side por usuario;
+- Host Release self-contained `win-x64`;
+- Launcher `start`/`stop`/`status`/`setup`;
+- tunnel-client v0.0.14 oficial con hash fijado;
+- secrets por máquina con DACL user-only y referencia `file:`;
+- profile/state dirs aislados;
+- acceso directo de escritorio;
+- cutover y rollback sin tocar el runtime legacy hasta la prueba final.
+
+Diferido hasta tener evidencia real del deployment:
+
+- DPAPI;
+- autoarranque al login;
+- MSI/MSIX;
+- code signing;
+- auto-update;
+- win-arm64;
+- bundle offline;
+- estrategia final multi-PC/tunnels simultáneos;
+- reconciliación de metadata portable de la skill/plugin.
+
 ## Computer
 
 - Contrato de Observation y stale detection.

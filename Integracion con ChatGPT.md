@@ -76,6 +76,20 @@ Esas rutas producían registros duplicados o no exponían las tools a Chat norma
 
 La instalación final mantiene una única ruta de acceso: la app MCP conectada al Secure MCP Tunnel.
 
+## Evolución prevista - deployment portable
+
+La conexión actual sigue siendo la baseline validada y **no se reemplaza todavía**. El diseño de [[Deployment portable]] agrega en paralelo:
+
+- Host Release self-contained instalado fuera del repo;
+- `LoomLCI.Launcher` para iniciar/detener/verificar con doble clic;
+- copia oficial fijada de tunnel-client independiente de IvanSpace;
+- profile/state/secrets por máquina bajo `%LOCALAPPDATA%`;
+- acceso directo de escritorio y posibilidad de mover LoomLCI a otra PC Windows x64.
+
+La primera migración será side-by-side: Setup + `doctor` con el runtime legacy aún activo; luego stop legacy, start instalado, health completo y smoke desde ChatGPT. Ante fallo se detiene el nuevo y se relanza el legacy sin modificar su profile original.
+
+Computer sigue siendo la próxima capability funcional; el deployment portable es una capa operativa, no una nueva capability MCP.
+
 ## Notas
 
 - Work/Codex puede consumir MCP local por otros mecanismos, pero no es parte del camino objetivo.
