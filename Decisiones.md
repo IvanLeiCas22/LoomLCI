@@ -25,7 +25,7 @@
 - E1 de Python será stdlib-only y textual; PyAutoGUI, imágenes, paquetes de terceros y `loom.*` quedan diferidos.
 - Antes de Computer se implementará Visual Files G1 con tres tools read-only: `filesystem_view_image`, `filesystem_read_pdf` y `filesystem_render_pdf_page`; Computer pasa al bloque H. G1 mantiene nombres públicos `filesystem_*` pero separa internamente `VisualFilesCapability`/provider del Filesystem clásico.
 - Visual Files fija 7 MiB máximos por imagen/PNG para permanecer bajo el límite real de 10 MiB del Secure MCP Tunnel; los PDFs se limitan a 64 MiB.
-- La extracción textual de PDF usará PdfPig 0.1.16 dentro de un `LoomLCI.PdfWorker` one-shot aislado con Job Object y timeout, no dentro de `LoomLCI.Host`, porque el corpus adversarial confirmó que PDFs patológicos pueden provocar stack overflow en el parser.
+- La extracción textual de PDF usará PdfPig 0.1.16 dentro de un `LoomLCI.PdfWorker` one-shot aislado con Job Object, límite de memoria de proceso de 256 MiB y timeout de 20 s, no dentro de `LoomLCI.Host`, porque el corpus adversarial confirmó que PDFs patológicos pueden provocar stack overflow o expansión de memoria fuerte en el parser.
 - El render visual de PDF usará `Windows.Data.Pdf`; por eso la migración a Windows TFM se adelanta a G1 y Computer H reutilizará esa base.
 - `python_execute`/`python_reset` serán la superficie MCP pública inicial. Una excepción Python ordinaria será un resultado exitoso (`ok=true`, `status=exception`); sólo fallos de Loom/infraestructura serán tool errors.
 - El código enviado a Python se limita a 256 KiB en UTF-8 estricto y se valida en Core antes de crear/tocar worker.

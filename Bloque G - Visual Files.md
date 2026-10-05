@@ -237,11 +237,25 @@ Características:
 - usar Job Object / kill-on-close ya probado por `WindowsNativeProcessLauncher`;
 - pipes, no terminal;
 - timeout duro de **20 s**;
+- Job Object con `JOB_OBJECT_LIMIT_PROCESS_MEMORY` de **256 MiB** además de kill-on-close;
 - stdout acotado;
 - stderr sólo diagnóstico acotado;
 - al terminar/fallar se libera todo inmediatamente.
 
 Si el worker hace stack overflow, crash o salida anormal, muere sólo el worker.
+
+### Evidencia para el límite de memoria
+
+Con PdfPig 0.1.16, `ContentOrderTextExtractor` sobre PDFs sintéticos de una página produjo aproximadamente:
+
+- 131.072 caracteres -> 93,5 MiB peak working set;
+- 262.144 caracteres -> 138,8 MiB;
+- 524.288 caracteres -> 227,1 MiB;
+- 1.048.576 caracteres -> 412,6 MiB.
+
+También se validó localmente que `JOB_OBJECT_LIMIT_PROCESS_MEMORY` fuerza el límite: un child bajo un Job de 128 MiB recibió `OutOfMemoryException` al intentar seguir creciendo, sin afectar al proceso padre.
+
+Como G1 limita el texto público a 65.536 code points por página y 262.144 agregados, **256 MiB** deja margen amplio para documentos normales y corta casos de expansión patológica. Si el worker detecta OOM/resource limit, debe devolver un error acotado; si muere abruptamente, el cliente lo clasifica como worker crash.
 
 ### Corpus dirigido
 
@@ -355,9 +369,10 @@ Con proyecto temporal `net10.0-windows10.0.19041.0`:
 - `PdfDocument.LoadFromFileAsync` correcto;
 - render a stream;
 - PNG válido;
-- magic `89504E470D0A1A0A`.
+- magic `89504E470D0A1A0A`;
+- render sintético a 2400x3200 (~7,7 MP): ~420 ms y ~80 MiB peak working set en esta PC.
 
-Con inputs aleatorios/truncados devolvió errores COM rápidos en vez de colgar el proceso en las pruebas realizadas.
+Con inputs aleatorios/truncados devolvió errores COM rápidos en vez de colgar el proceso en las pruebas realizadas. Con estos límites, el renderer puede permanecer in-process en G1; el riesgo fuerte que justificó aislamiento está en PdfPig/texto.
 
 # 6. filesystem_render_pdf_page
 
@@ -414,7 +429,7 @@ Una sola página por llamada.
 
 No agregar password a las tools G1.
 
-Prueba local con PDF cifrado generado temporalmente:
+Prueba local con PDF cifrado generado temporalmente, repetida con la versión final elegida PdfPig 0.1.16:
 
 PdfPig:
 
@@ -516,6 +531,7 @@ Usar los existentes con `details.reason` específico.
 | page fuera de rango | `invalid_argument` | `page_out_of_range` |
 | archivo cambió durante lectura | `conflict` | `file_changed_during_read` |
 | worker agotó 20 s | `deadline_exceeded` | `pdf_worker_timeout` |
+| worker alcanza límite de memoria/OOM controlado | `unsupported` | `pdf_resource_limit` |
 | worker crash/salida anormal | `execution_failed` | `pdf_worker_crashed` |
 | fallo renderer no clasificable | `execution_failed` | `pdf_render_failed` |
 
@@ -581,6 +597,7 @@ La plataforma portable ya es Windows x64. Computer H reutilizará esta migració
 - issue reproductions del corpus upstream;
 - worker crash deliberado;
 - timeout deliberado;
+- memory-limit/OOM deliberado;
 - Job cleanup;
 - stdout inválido/oversized;
 - archivo modificado mientras se procesa.
@@ -639,7 +656,7 @@ Sin tools Visual Files públicas todavía.
 - proyecto privado `LoomLCI.PdfWorker`;
 - PdfPig 0.1.16;
 - PdfWorkerClient;
-- Job Object + 20 s;
+- Job Object + 20 s + 256 MiB process-memory cap;
 - page/text caps;
 - password/invalid/crash mapping;
 - `filesystem_read_pdf`;

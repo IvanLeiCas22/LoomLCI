@@ -108,7 +108,7 @@ Implementación incremental propuesta:
 4. **G1.3 PDF render**: Windows.Data.Pdf y `filesystem_render_pdf_page`.
 5. **G1.4 Evaluation + portable**: corpus real, malformed/oversized, tunnel/ChatGPT, fresh-agent y deployment.
 
-Decisiones cerradas: tunnel 10 MiB real, imágenes/PNG <=7 MiB, PDF <=64 MiB, texto PDF <=65.536 code points por página y <=262.144 agregados, parser PdfPig aislado en worker privado y PDFs protegidos reportados como `unsupported`.
+Decisiones cerradas: tunnel 10 MiB real, imágenes/PNG <=7 MiB, PDF <=64 MiB, texto PDF <=65.536 code points por página y <=262.144 agregados, PdfPig 0.1.16 aislado en worker privado con 256 MiB/20 s, y PDFs protegidos reportados como `unsupported`.
 
 ## Bloque siguiente - Computer H1
 
