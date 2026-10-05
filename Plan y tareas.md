@@ -88,7 +88,7 @@ No continuar optimizando prompting ni contrato de Work Plan sin evidencia nueva.
 - cutover y rollback reales;
 - smoke end-to-end desde ChatGPT.
 
-Pendiente operativo: **probar el paquete desde cero en una segunda PC Windows x64**. No cambiar Core, tunnel-client ni plugin sólo para esa prueba.
+Validación multi-PC cerrada: el mismo paquete se instaló desde cero en una notebook Windows x64, ChatGPT operó correctamente sobre ella y luego se volvió a la PC de escritorio deteniendo/iniciando el launcher correspondiente. Quedan como UX futura la confirmación visible al finalizar y un acceso directo de stop; no bloquean el roadmap.
 
 ## Próximo bloque de capability
 

@@ -1,6 +1,6 @@
 # Deployment portable
 
-> Estado: **implementado y validado end-to-end en la PC principal**. LoomLCI ya funciona desde una instalación Release side-by-side, arrancable con doble clic e independiente del repo/IvanSpace. Falta validar el mismo paquete en una segunda PC Windows x64.
+> Estado: **implementado y validado end-to-end en dos PCs Windows x64**. El mismo paquete se instaló desde cero en una notebook sin repo/IvanSpace/.NET/Python preinstalados, conectó por el mismo Secure MCP Tunnel y fue controlado desde ChatGPT. El deployment portable queda cerrado funcionalmente; sólo quedan mejoras de UX/operación no bloqueantes.
 
 ## Objetivo
 
@@ -374,25 +374,23 @@ Por lo tanto, para rollback de un runtime existente **no se debe asumir que `rep
 
 ## Segunda PC Windows
 
-Primera plataforma soportada: **Windows x64**.
+Validación real completada con el mismo paquete portable en una notebook Windows x64:
 
-La PC destino no debe requerir:
+1. se copió y extrajo el ZIP;
+2. primera ejecución pidió tunnel id y runtime API key;
+3. Setup descargó/verificó tunnel-client y creó el acceso directo;
+4. la PC principal fue detenida antes de iniciar la notebook;
+5. el acceso directo inició `loomlci-installed` en la notebook;
+6. ChatGPT pudo crear una WorkSession, ejecutar Python y leer la configuración local de esa notebook;
+7. el runtime de la notebook se detuvo con `LoomLCI.Launcher.exe stop`;
+8. se inició nuevamente el acceso directo en la PC de escritorio;
+9. ChatGPT confirmó que volvió a operar sobre el equipo de escritorio.
 
-- repo;
-- Visual Studio;
-- .NET instalado;
-- Python instalado;
-- IvanSpace.
+Conclusión: el flujo **ZIP -> setup -> acceso directo -> tunnel -> ChatGPT -> LoomLCI en otra PC** funciona sin repo, Visual Studio, .NET, Python del sistema ni IvanSpace.
 
-Sí requiere red saliente para Secure MCP Tunnel y, en el primer uso de Python, para descargar el CPython embeddable ya verificado por LoomLCI.
+Primera plataforma soportada: **Windows x64**. El primer uso de Python sigue requiriendo red para provisionar el CPython embeddable privado.
 
-Cada PC:
-
-- instala su copia;
-- crea su config/state local;
-- recibe su propia runtime key.
-
-Para operación simultánea se recomienda un tunnel distinto por PC. Compartir el mismo tunnel queda reservado a uso alternado, nunca con dos runtimes STDIO activos simultáneamente.
+Con el mismo tunnel remoto, las PCs se usan alternativamente: se detiene LoomLCI en una antes de iniciar la otra. Para operación simultánea se mantiene la recomendación de un tunnel distinto por PC.
 
 ## Fuera de alcance inicial
 
@@ -406,7 +404,7 @@ Para operación simultánea se recomienda un tunnel distinto por PC. Compartir e
 - DPAPI;
 - migración automática de la skill/plugin de ChatGPT.
 
-Estas mejoras se evalúan sólo después de validar el deployment portable real en dos PCs.
+Estas mejoras ya pueden evaluarse por separado ahora que el deployment portable real quedó validado en dos PCs. UX detectada durante la prueba: las ventanas de Setup/Start se cierran apenas termina la operación, por lo que conviene más adelante agregar confirmación visible/pause controlado o una UI mínima; también sería útil un acceso directo `Detener LoomLCI`. No bloquea Computer.
 
 ## Fuentes
 

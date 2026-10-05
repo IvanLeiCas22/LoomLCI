@@ -29,7 +29,7 @@ Implementado y validado en la PC principal en [[Deployment portable]]:
 - acceso directo de escritorio;
 - cutover y rollback reales validados; el legacy queda preservado y detenido como fallback.
 
-Pendiente de evidencia en una segunda PC / diferido:
+Validación en segunda PC completada. Diferido/no bloqueante:
 
 - DPAPI;
 - autoarranque al login;

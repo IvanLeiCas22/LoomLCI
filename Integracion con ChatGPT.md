@@ -92,7 +92,7 @@ La instalación final mantiene una única ruta de acceso: la app MCP conectada a
 - segundo cutover al instalado validado;
 - smoke real desde ChatGPT en ambos caminos validado.
 
-El runtime activo final es `loomlci-installed`; el legacy `loomlci` permanece detenido como fallback. La prueba todavía pendiente es llevar el paquete a una segunda PC Windows x64 y ejecutar el setup desde cero.
+El runtime activo final es `loomlci-installed`; el legacy `loomlci` permanece detenido como fallback. La misma instalación portable fue además validada desde cero en una segunda PC Windows x64: ChatGPT operó sobre la notebook, luego se detuvo ese runtime y se volvió a iniciar LoomLCI en la PC de escritorio sobre el mismo tunnel, confirmando el cambio de máquina correctamente.
 
 Computer sigue siendo la próxima capability funcional; el deployment portable es una capa operativa, no una nueva capability MCP.
 
