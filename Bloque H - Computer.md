@@ -289,9 +289,10 @@ Mantener resolución 1:1 en v0.1 para que las coordenadas del modelo se correspo
 Hard caps iniciales:
 
 - máximo 16 MP para una imagen final;
-- máximo 32 MiB de PNG devuelto.
+- máximo 6 MiB de PNG binario;
+- máximo 9 MiB para el `CallToolResult` MCP visual, usando el estimator exacto heredado de [[Bloque G - Visual Files]].
 
-Si un desktop excede el cap, pedir captura de monitor individual. Downscaling/mapping escalado queda diferido.
+Si un desktop excede cualquiera de esos caps, pedir captura de monitor individual. Downscaling/mapping escalado queda diferido.
 
 ### HDR
 
@@ -830,8 +831,8 @@ Sin tools Computer públicas todavía.
 5. **elevated apps/UIPI**: limitación explícita, sin elevar LoomLCI.
 6. **HDR**: v0.1 SDR.
 7. **multi-monitor temporal skew**: desktop stitch no es atómico.
-8. **imagen grande por MCP**: 16 MP / 32 MiB caps y monitor capture como fallback.
-9. **nuevo Windows TFM**: revalidar publish portable y Secure MCP Tunnel.
+8. **imagen grande por MCP**: 16 MP + 6 MiB binarios + 9 MiB MCP serializados; monitor capture como fallback.
+9. **Windows TFM**: heredado de G1; revalidar publish portable sólo por los cambios específicos de Computer.
 
 ## Criterio para pasar a implementación
 

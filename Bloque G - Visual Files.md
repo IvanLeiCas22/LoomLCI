@@ -107,26 +107,53 @@ Por lo tanto el hard limit actual es **10 MiB = 10.485.760 bytes** por request/r
 
 El fallo de 12 MiB además provocó el cierre del runtime instalado actual. G1 no debe depender de que el túnel rechace un payload: debe impedir localmente que se genere.
 
-## Cap de imagen
+## Cap binario + cap MCP serializado
 
-Base64 agrega aproximadamente 4/3 sobre los bytes binarios.
+La aproximación inicial de usar sólo el crecimiento 4/3 de base64 resultó insuficiente.
 
-Una imagen binaria de 7 MiB produce aproximadamente 9,33 MiB de base64, dejando ~0,67 MiB para JSON/RPC/metadata bajo el límite de 10 MiB.
+Con MCP C# SDK 2.2.0, `McpJsonUtilities.DefaultOptions` usa el encoder JSON por defecto. El carácter `+` de base64 se serializa como `\u002B`, mientras `/` y `=` no se expanden. Por eso el tamaño real depende del contenido binario.
+
+Evidencia con `CallToolResult` mixto real:
+
+- 6,00 MiB random -> ~9.045.460 bytes JSON;
+- 6,25 MiB random -> ~9.422.428 bytes;
+- 6,50 MiB random -> ~9.799.117 bytes;
+- 6,75 MiB random -> ~10.176.241 bytes;
+- 7,00 MiB random -> ~10.553.744 bytes, ya por encima del túnel;
+- patrón adversarial cuyo base64 es casi sólo `+` -> expansión JSON aproximada **8x** respecto del binario.
+
+Por lo tanto un cap binario por sí solo no puede garantizar el límite del túnel.
 
 Decisión G1:
 
 ```text
-MaxImageBytes = 7 * 1024 * 1024
+MaxImageBytes = 6 * 1024 * 1024
+MaxVisualCallToolResultBytes = 9 * 1024 * 1024
 ```
 
-Aplica tanto a:
+Semántica:
 
-- imagen local devuelta por `filesystem_view_image`;
-- PNG generado por `filesystem_render_pdf_page`.
+1. **6 MiB** es el hard cap binario barato para imagen local y PNG renderizado;
+2. **9 MiB** es el hard cap autoritativo del `CallToolResult` visual ya considerado como JSON MCP;
+3. quedan ~1 MiB de margen respecto del hard limit externo de 10 MiB para JSON-RPC/control-plane y variaciones del transporte;
+4. si cualquiera de los dos caps se excede, Loom rechaza localmente antes de enviar al tunnel.
 
-Si se excede, devolver error Loom antes de construir/enviar el `CallToolResult`.
+### Cálculo exacto sin serializar el payload gigante
 
-La validación final de G1.1/G1.3 debe repetir esto con un `ImageContentBlock` real por Secure MCP Tunnel.
+G1.0 no debe serializar el resultado completo sólo para medirlo.
+
+Se validó una fórmula exacta para `ImageContentBlock.FromBytes` con el encoder de MCP 2.2.0:
+
+- largo base64 = `4 * ceil(bytes / 3)`;
+- cada carácter base64 `+` agrega 5 bytes extra al convertirse en `\u002B`;
+- el resto del `CallToolResult` se serializa una vez usando una imagen vacía;
+- tamaño final estimado = resultado base vacío + largo base64 escapado.
+
+La fórmula coincidió **byte por byte** con la serialización real para tamaños aleatorios, padding y un caso `+` adversarial.
+
+Esto evita una segunda copia grande del JSON y hace el guard reutilizable por Computer H.
+
+La validación final de G1.1/G1.3 debe repetir el camino completo con un `ImageContentBlock` real por Secure MCP Tunnel.
 
 # 2. filesystem_view_image
 
@@ -177,7 +204,7 @@ ImageContentBlock.FromBytes(...)
 Antes de leer:
 
 - archivo existente y regular;
-- tamaño <= 7 MiB;
+- tamaño <= 6 MiB;
 - formato soportado.
 
 Registrar length + lastWriteTimeUtc antes y después de la lectura. Si cambia, descartar bytes y devolver `conflict` con `reason=file_changed_during_read`.
@@ -392,9 +419,9 @@ Reglas:
 - `maxWidth` y `maxHeight`: 256..4096;
 - mantener aspect ratio dentro de ese bounding box;
 - PDF máximo 64 MiB;
-- PNG resultante máximo 7 MiB.
+- PNG resultante máximo 6 MiB y resultado MCP serializado <=9 MiB.
 
-Si el PNG excede 7 MiB:
+Si el PNG excede 6 MiB o el resultado MCP estimado excede 9 MiB:
 
 - no enviarlo;
 - devolver `unsupported`;
@@ -523,11 +550,11 @@ Usar los existentes con `details.reason` específico.
 | archivo inexistente | `not_found` | - |
 | ACL/OS denial | `access_denied` | - |
 | formato de imagen no soportado | `unsupported` | `unsupported_image_format` |
-| imagen > 7 MiB | `unsupported` | `image_too_large` |
+| imagen > 6 MiB | `unsupported` | `image_too_large` |
 | PDF > 64 MiB | `unsupported` | `pdf_too_large` |
 | PDF cifrado | `unsupported` | `password_protected_pdf` |
 | PDF inválido/malformado | `unsupported` | `invalid_pdf` |
-| PNG render > 7 MiB | `unsupported` | `rendered_image_too_large` |
+| PNG render > 6 MiB o payload MCP >9 MiB | `unsupported` | `rendered_image_too_large` |
 | page fuera de rango | `invalid_argument` | `page_out_of_range` |
 | archivo cambió durante lectura | `conflict` | `file_changed_during_read` |
 | worker agotó 20 s | `deadline_exceeded` | `pdf_worker_timeout` |
@@ -580,8 +607,10 @@ La plataforma portable ya es Windows x64. Computer H reutilizará esta migració
 - serialize/deserialize de `ImageContentBlock.FromBytes`;
 - PNG/JPEG/WebP reales;
 - magic mismatch;
-- 7 MiB boundary;
-- >7 MiB rechazo local;
+- 6 MiB binary boundary;
+- >6 MiB rechazo local;
+- 9 MiB serialized MCP boundary;
+- patrón base64 adversarial con `+`;
 - mixed structured + text + image;
 - Secure MCP Tunnel real;
 - ChatGPT ve la imagen.
@@ -609,7 +638,7 @@ La plataforma portable ya es Windows x64. Computer H reutilizará esta migració
 - page bounds;
 - max dimensions;
 - preserving aspect ratio;
-- PNG >7 MiB;
+- PNG >6 MiB / payload MCP >9 MiB;
 - encrypted;
 - corrupt/truncated.
 
@@ -632,13 +661,108 @@ Antes de cerrar G1:
 
 ## G1.0 - Binary/image foundation
 
-- migrar Windows TFMs;
-- helper MCP mixed structured + image;
-- regression test `ImageContentBlock.FromBytes`;
-- constants de payload;
-- revalidar build/tests/publish portable.
+> Investigación específica cerrada. El diseño fue prototipado fuera del repo y no requiere cambios de arquitectura adicionales.
 
-Sin tools Visual Files públicas todavía.
+### TFM / WinRT
+
+Migrar:
+
+- `LoomLCI.Windows` -> `net10.0-windows10.0.19041.0`;
+- `LoomLCI.Host` -> mismo TFM;
+- `LoomLCI.Windows.Tests` -> mismo TFM;
+- `LoomLCI.IntegrationTests` -> mismo TFM;
+- `SupportedOSPlatformVersion=10.0.19041.0` en esos cuatro proyectos.
+
+Mantener:
+
+- `LoomLCI.Core` -> `net10.0`;
+- `LoomLCI.Mcp` -> `net10.0`;
+- Core/MCP siguen genéricos y no adquieren dependencia Windows;
+- Launcher permanece como está (`net10.0-windows`).
+
+Prototipo limpio: build Release con el grafo anterior -> **0 warnings / 0 errors**.
+
+### Corregir el harness de IntegrationTests junto con el TFM
+
+El cambio de TFM expuso una deuda preexistente: `GetHostDll` tiene hardcodeados `Debug` y `net10.0`, y `dotnet test LoomLCI.slnx -c Release` no garantiza construir Host porque IntegrationTests no lo declara como dependencia.
+
+Decisión G1.0:
+
+- agregar `ProjectReference` de IntegrationTests a `LoomLCI.Host.csproj` con `ReferenceOutputAssembly="false"`;
+- conservar `LOOMLCI_TEST_HOST_DLL` como override para pruebas contra un Host publicado;
+- en el fallback local derivar Configuration + TFM desde `AppContext.BaseDirectory`, en vez de hardcodearlos.
+
+Prototipo en checkout temporal limpio: **203/203 tests Release verdes**. Esto además elimina la posibilidad de que una suite Release use accidentalmente un Host Debug stale.
+
+### Helper MCP mixto
+
+Extender `McpToolResults` sin cambiar `ToolEnvelope`:
+
+```text
+structuredContent = ToolEnvelope<T>
+Content[0] = TextContentBlock actual
+Content[1..] = success content opcional
+```
+
+Para imágenes usar exclusivamente `ImageContentBlock.FromBytes(ReadOnlyMemory<byte>, mimeType)`.
+
+Si el envelope es error, ignorar contenido visual de éxito y devolver sólo el bloque textual de error.
+
+Con MCP 2.2.0 se verificó round-trip completo con:
+
+- 900.000 bytes random;
+- 7 MiB random;
+- mixed text + structuredContent + image;
+- bytes decodificados idénticos al input.
+
+No actualizar MCP durante G1.0: 2.2.0 sigue siendo la release estable investigada y el camino `FromBytes` probado funciona; el issue #1835 afecta la construcción raw y queda cubierto por regression tests.
+
+### Guard de payload
+
+Fijar para Visual Files:
+
+```text
+MaxImageBytes = 6 MiB
+MaxVisualCallToolResultBytes = 9 MiB
+```
+
+Agregar helper interno que estime exactamente el tamaño serializado del `CallToolResult` visual usando el cálculo de base64 escapado validado en esta investigación. No crear una copia gigante del JSON sólo para medirlo.
+
+### Tests MCP
+
+Crear `tests/LoomLCI.Mcp.Tests` (`net10.0`) y `InternalsVisibleTo("LoomLCI.Mcp.Tests")`, siguiendo el patrón ya usado por Windows.Tests.
+
+Regression tests mínimos:
+
+1. mixed text + structured + image round-trip;
+2. estimador de tamaño == serialización real, incluyendo patrón `+` adversarial;
+3. un resultado de error nunca incluye image content;
+4. boundaries de 6 MiB binarios / 9 MiB serializados.
+
+El prototipo del nuevo proyecto corrió **3/3 tests verdes**.
+
+### Portable
+
+El prototipo completo con Windows TFM se validó mediante `Build-PortablePackage.ps1`:
+
+- Host Release self-contained `win-x64`: OK;
+- Launcher single-file: OK;
+- Launcher tests: 6/6;
+- IntegrationTests contra el Host publicado: 9/9;
+- ZIP + SHA-256: OK.
+
+No hace falta cambiar el formato del paquete en G1.0.
+
+### Definition of done G1.0
+
+- cambios TFM aplicados;
+- harness IntegrationTests corregido;
+- `LoomLCI.Mcp.Tests` agregado;
+- helper mixed/image + payload sizer implementados;
+- ninguna tool Visual Files pública todavía;
+- suite Release completa verde;
+- portable publish + published-host integration verde;
+- repo/documentación coherentes.
 
 ## G1.1 - Local image
 
