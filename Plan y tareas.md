@@ -1,6 +1,6 @@
 # Plan y tareas
 
-> Estado: **Agent Support F1 y Deployment portable cerrados**. El deployment está validado end-to-end en dos PCs Windows x64. La investigación de [[Bloque G - Computer]] cerró arquitectura, observations/stale, captura, UIA, input, DPI, multi-monitor y retorno de imágenes MCP. **Computer G1 está listo para implementación incremental empezando por G1.0.**
+> Estado: **Agent Support F1 y Deployment portable cerrados**. El deployment está validado end-to-end en dos PCs Windows x64. [[Bloque G - Visual Files]] pasa a ser el próximo bloque: lectura nativa de imágenes y PDFs antes de Computer. La investigación de [[Bloque H - Computer]] permanece cerrada, pero su implementación queda después de G1.
 
 ## Distinciones necesarias
 
@@ -90,18 +90,40 @@ No continuar optimizando prompting ni contrato de Work Plan sin evidencia nueva.
 
 Validación multi-PC cerrada: el mismo paquete se instaló desde cero en una notebook Windows x64, ChatGPT operó correctamente sobre ella y luego se volvió a la PC de escritorio deteniendo/iniciando el launcher correspondiente. Quedan como UX futura la confirmación visible al finalizar y un acceso directo de stop; no bloquean el roadmap.
 
-## Próximo bloque de capability - Computer G1
+## Próximo bloque de capability - Visual Files G1
 
-Investigación cerrada en [[Bloque G - Computer]]. Implementar por etapas y validar cada una antes de continuar:
+Investigación iniciada en [[Bloque G - Visual Files]]. Objetivo: que el agente pueda consumir archivos visuales sin depender de Computer ni de abrirlos en una GUI.
 
-1. **G1.0 Windows foundation**: Windows TFM, interop base, mixed MCP image result y revalidación portable.
-2. **G1.1 Observation + topology**: lifecycle, stale semantics, monitores/ventanas y `computer_observe`.
-3. **G1.2 Capture**: WGC window/monitor, desktop stitch, PNG y `computer_capture`.
-4. **G1.3 Native input**: DesktopInputGate, activate, SendInput y `computer_input`.
-5. **G1.4 UI Automation**: MTA dispatcher, bounded inspect y semantic actions.
-6. **G1.5 Evaluation + deployment**: tunnel, real-world, fresh-agent y actualización portable.
+Superficie v0.1 propuesta:
 
-No agregar PyAutoGUI bridge, UIAccess, OCR, video, HDR ni policy engine general dentro de G1.
+1. `filesystem_view_image`: PNG/JPEG/WebP -> `ImageContentBlock`.
+2. `filesystem_read_pdf`: extracción textual paginada con PdfPig.
+3. `filesystem_render_pdf_page`: render de una página PDF -> PNG mediante Windows.Data.Pdf.
+
+Implementación incremental propuesta:
+
+1. **G1.0 Binary/image foundation**: Windows TFM, helper MCP mixed structured + image, regression test binario y revalidación portable.
+2. **G1.1 Local image**: provider/capability + `filesystem_view_image` + prueba real por tunnel.
+3. **G1.2 PDF text**: PdfPig, rangos/límites y `filesystem_read_pdf`.
+4. **G1.3 PDF render**: Windows.Data.Pdf y `filesystem_render_pdf_page`.
+5. **G1.4 Evaluation + portable**: corpus real, malformed/oversized, tunnel/ChatGPT, fresh-agent y deployment.
+
+Antes de implementar falta cerrar caps de payload/texto y robustez con PDFs problemáticos.
+
+## Bloque siguiente - Computer H1
+
+Investigación cerrada en [[Bloque H - Computer]]. Computer se implementará después de G1 y reutilizará la base visual/WinRT que G deje validada.
+
+Etapas actualmente diseñadas:
+
+1. **H1.0 Computer Windows foundation**: interop específico de Computer y reutilización del helper MCP de imagen ya validado por G1.
+2. **H1.1 Observation + topology**: lifecycle, stale semantics, monitores/ventanas y `computer_observe`.
+3. **H1.2 Capture**: WGC window/monitor, desktop stitch, PNG y `computer_capture`.
+4. **H1.3 Native input**: DesktopInputGate, activate, SendInput y `computer_input`.
+5. **H1.4 UI Automation**: MTA dispatcher, bounded inspect y semantic actions.
+6. **H1.5 Evaluation + deployment**: tunnel, real-world, fresh-agent y actualización portable.
+
+No agregar PyAutoGUI bridge, UIAccess, OCR, video, HDR ni policy engine general dentro de H1.
 
 ## Fuentes
 

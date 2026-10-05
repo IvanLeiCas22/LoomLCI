@@ -532,7 +532,7 @@ El adapter/perfil puede decidir no exponer Work Plan a hosts que ya tengan plann
 
 ## 14. Computer relation with Core
 
-El diseño G1 está detallado en [[Bloque G - Computer]]. v0.1 fija:
+El diseño H1 está detallado en [[Bloque H - Computer]]. v0.1 fija:
 
 - acciones nativas en provider Windows;
 - UIA + Windows.Graphics.Capture + SendInput;

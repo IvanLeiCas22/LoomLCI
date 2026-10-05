@@ -41,11 +41,15 @@ Validación en segunda PC completada. Diferido/no bloqueante:
 - estrategia final multi-PC/tunnels simultáneos;
 - reconciliación de metadata portable de la skill/plugin.
 
+## Visual Files
+
+Investigación iniciada en [[Bloque G - Visual Files]]. Propuesta actual: tres tools read-only (`filesystem_view_image`, `filesystem_read_pdf`, `filesystem_render_pdf_page`), PdfPig para texto, Windows.Data.Pdf para render y `ImageContentBlock` para contenido visual. Pendientes principales: límite real por tunnel, caps finales y robustez de PDFs malformados.
+
 ## Computer
 
-Diseño G1 cerrado en [[Bloque G - Computer]]: observations session-owned con TTL corto, stale validation, WGC, DPI físico PMv2, DesktopInputGate + SendInput, UIA en MTA dedicado, seis tools MCP y Python/PyAutoGUI fuera del backend autoritativo.
+Diseño H1 cerrado en [[Bloque H - Computer]]: observations session-owned con TTL corto, stale validation, WGC, DPI físico PMv2, DesktopInputGate + SendInput, UIA en MTA dedicado, seis tools MCP y Python/PyAutoGUI fuera del backend autoritativo.
 
-Diferido después de G1:
+Diferido después de H1:
 
 - HDR/tone mapping;
 - UIAccess/elevated UI;

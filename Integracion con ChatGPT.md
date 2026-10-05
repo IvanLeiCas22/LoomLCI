@@ -94,7 +94,7 @@ La instalación final mantiene una única ruta de acceso: la app MCP conectada a
 
 El runtime activo final es `loomlci-installed`; el legacy `loomlci` permanece detenido como fallback. La misma instalación portable fue además validada desde cero en una segunda PC Windows x64: ChatGPT operó sobre la notebook, luego se detuvo ese runtime y se volvió a iniciar LoomLCI en la PC de escritorio sobre el mismo tunnel, confirmando el cambio de máquina correctamente.
 
-Computer sigue siendo la próxima capability funcional; el deployment portable es una capa operativa, no una nueva capability MCP.
+Visual Files G1 pasa a ser la próxima capability funcional y Computer continúa después como H1; el deployment portable es una capa operativa, no una nueva capability MCP.
 
 ## Notas
 

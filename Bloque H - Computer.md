@@ -1,4 +1,4 @@
-# Bloque G - Computer
+# Bloque H - Computer
 
 > Estado: **investigación y diseño v0.1 cerrados; listo para implementación por etapas**. No se modificó código de producto durante esta investigación. Computer seguirá siendo una capability nativa de LoomLCI, independiente de Python/PyAutoGUI y ejecutada dentro de la sesión interactiva del usuario.
 
@@ -52,7 +52,7 @@ Prueba local:
 - `net10.0-windows10.0.19041.0`: compila correctamente;
 - un proyecto `net10.0` no puede referenciar un proyecto `net10.0-windows10.0.19041.0` (`NU1201`).
 
-Por lo tanto, antes de introducir captura:
+Por lo tanto, antes de introducir captura hacen falta TFMs Windows:
 
 - `LoomLCI.Core`: queda `net10.0`;
 - `LoomLCI.Mcp`: queda `net10.0`;
@@ -63,7 +63,9 @@ Por lo tanto, antes de introducir captura:
 
 Usar `SupportedOSPlatformVersion=10.0.19041.0`.
 
-La primera plataforma portable ya es Windows x64, así que esto hace explícita una realidad del producto en lugar de introducir una restricción nueva. Después del cambio hay que volver a validar publish self-contained y el paquete portable.
+Tras reordenar el roadmap, esta migración se realizará primero en [[Bloque G - Visual Files]], porque `Windows.Data.Pdf` necesita la misma base WinRT. Computer H1 debe reutilizarla, no repetirla.
+
+La primera plataforma portable ya es Windows x64, así que esto hace explícita una realidad del producto en lugar de introducir una restricción nueva. G1 revalidará publish self-contained y el paquete portable después del cambio.
 
 ## Observations
 
@@ -314,13 +316,13 @@ Se hizo una prueba temporal real con la versión 2.2.0 usada por LoomLCI:
 - serialize + deserialize con `McpJsonUtilities.DefaultOptions`;
 - round-trip OK.
 
-Implementar un helper en MCP que combine:
+Reutilizar el helper MCP de resultados mixtos que debe quedar implementado y validado en [[Bloque G - Visual Files]], combinando:
 
 - `structuredContent` con `ToolEnvelope<ComputerCaptureDto>`;
 - text block breve;
 - image block PNG.
 
-Antes de dar G2 por cerrado hay que validar el mismo image block:
+Antes de dar H1.2 por cerrado hay que validar el mismo image block:
 
 1. integration test STDIO;
 2. Secure MCP Tunnel;
@@ -741,17 +743,18 @@ No actualizar skill/plugin hasta ver comportamiento real.
 
 ## Implementación por etapas
 
-### G1.0 - Windows foundation
+### H1.0 - Computer Windows foundation
 
-- migrar TFMs;
-- generar NativeMethods requeridos;
-- agregar helper MCP para mixed text + structured + image;
-- test binario del ImageContentBlock;
-- revalidar build/tests/publish portable.
+Prerequisito: G1 cerrado con Windows TFM y helper MCP de imágenes ya validados.
+
+- generar NativeMethods requeridos por Computer;
+- agregar interop/registrations base específicos de Computer;
+- reutilizar el helper MCP y regression tests de `ImageContentBlock` provenientes de G1;
+- revalidar build/tests antes de exponer topology.
 
 Sin tools Computer públicas todavía.
 
-### G1.1 - Observation + topology
+### H1.1 - Observation + topology
 
 - contratos Core;
 - ObservationHandle;
@@ -762,7 +765,7 @@ Sin tools Computer públicas todavía.
 - `computer_observe`;
 - unit/integration tests.
 
-### G1.2 - Capture
+### H1.2 - Capture
 
 - D3D11/WinRT interop;
 - WGC device/session/frame;
@@ -772,7 +775,7 @@ Sin tools Computer públicas todavía.
 - `computer_capture`;
 - image por MCP/tunnel.
 
-### G1.3 - Native input
+### H1.3 - Native input
 
 - DesktopInputGate;
 - activate window;
@@ -782,7 +785,7 @@ Sin tools Computer públicas todavía.
 - `computer_input`;
 - post-action capture.
 
-### G1.4 - UI Automation
+### H1.4 - UI Automation
 
 - MTA dispatcher;
 - IUIAutomation2 timeouts;
@@ -791,7 +794,7 @@ Sin tools Computer públicas todavía.
 - `computer_inspect`;
 - `computer_uia_action`.
 
-### G1.5 - Evaluation + deployment
+### H1.5 - Evaluation + deployment
 
 - suite completa;
 - real-world tests;
@@ -801,7 +804,7 @@ Sin tools Computer públicas todavía.
 - validar desktop y notebook;
 - sólo después decidir ajustes de skill/descriptions.
 
-## Fuera de alcance G1
+## Fuera de alcance H1
 
 - Windows Service / Session 0;
 - UAC secure desktop;
@@ -844,7 +847,7 @@ La investigación cerró las dudas que figuraban en [[Plan y tareas]]:
 - relación con Python;
 - retorno de imágenes MCP.
 
-No veo una investigación arquitectónica adicional necesaria antes de G1.0. Conviene implementar incrementalmente y exigir evidencia en cada etapa antes de pasar a la siguiente.
+No veo una investigación arquitectónica adicional necesaria antes de H1.0. Conviene implementar incrementalmente y exigir evidencia en cada etapa antes de pasar a la siguiente.
 
 ## Fuentes principales
 

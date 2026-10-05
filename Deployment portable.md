@@ -9,7 +9,7 @@ Separar definitivamente:
 - **repositorio de desarrollo**: código, tests y builds Debug/Release;
 - **instalación de uso**: Host Release publicado, launcher, tunnel-client y configuración local por máquina.
 
-Computer sigue siendo la próxima capability grande. Este bloque es infraestructura de deployment y operación previa a Computer.
+Visual Files G1 pasa a ser el próximo bloque funcional y Computer continúa después como H1. Este bloque sigue siendo infraestructura de deployment y operación previa a ambas capabilities.
 
 ## Restricciones de diseño
 
