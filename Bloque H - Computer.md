@@ -63,7 +63,7 @@ Por lo tanto, antes de introducir captura hacen falta TFMs Windows:
 
 Usar `SupportedOSPlatformVersion=10.0.19041.0`.
 
-Tras reordenar el roadmap, esta migración se realizará primero en [[Bloque G - Visual Files]], porque `Windows.Data.Pdf` necesita la misma base WinRT. Computer H1 debe reutilizarla, no repetirla.
+Tras reordenar el roadmap, esta migración se realizó primero en [[Bloque G - Visual Files]] y quedó validada en G1.0. La investigación específica de G1.3 descartó después `Windows.Data.Pdf` como backend por su soporte desktop/package-identity, pero la base Windows TFM ya es parte válida del producto. Computer H1 debe reutilizarla, no repetirla.
 
 La primera plataforma portable ya es Windows x64, así que esto hace explícita una realidad del producto en lugar de introducir una restricción nueva. G1 revalidará publish self-contained y el paquete portable después del cambio.
 

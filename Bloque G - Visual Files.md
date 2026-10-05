@@ -1,6 +1,6 @@
 # Bloque G - Visual Files
 
-> Estado: **G1.0, G1.1 y G1.2 implementados y validados.** G1.1 conserva un bloqueo upstream de ChatGPT para materializar `ImageContentBlock` como visión. G1.2 PDF text worker está instalado, healthy/ready y pasó el smoke directo desde ChatGPT con catálogo de 21 tools. El próximo bloque de implementación es G1.3 PDF render.
+> Estado: **G1.0, G1.1 y G1.2 implementados y validados; investigación específica de G1.3 cerrada.** G1.1 conserva un bloqueo upstream de ChatGPT para materializar `ImageContentBlock` como visión. G1.2 PDF text worker está instalado, healthy/ready y pasó el smoke directo desde ChatGPT con catálogo de 21 tools. G1.3 queda listo para implementación con PDFium nativo aislado; ver [[G1.3 - PDF render]].
 
 ## Objetivo
 
@@ -378,28 +378,21 @@ No renderizar páginas automáticamente dentro de esta tool.
 
 ## Renderer elegido
 
-Usar `Windows.Data.Pdf`.
+La decisión preliminar de usar `Windows.Data.Pdf` queda **reemplazada** tras la investigación específica de G1.3. Microsoft lista `Windows.Data.Pdf.PdfDocument`/`PdfPage` entre las WinRT APIs no soportadas para el modelo desktop portable/unpackaged usado por LoomLCI; adoptar package identity/MSIX sólo para esta capability no se justifica.
 
-Ventajas:
+Decisión final: **PDFium nativo aislado en el worker privado de PDF**, mediante `bblanchon.PDFium.Win32 157.0.8086`, una capa P/Invoke mínima propia y `StbImageWriteSharp 1.16.7` para PNG. Ver [[G1.3 - PDF render]] para evidencia, límites y arquitectura completos.
 
-- API de Windows ya disponible en la plataforma objetivo;
-- no hay que redistribuir PDFium/Poppler/Ghostscript;
-- page count;
-- render de página;
-- control de dimensiones;
-- PNG mediante `BitmapEncoder.PngEncoderId`.
+### Evidencia local final
 
-### Evidencia local
+- `Windows.Data.Pdf` sí funcionó en un probe local, pero se descarta por soporte oficial/deployment;
+- PDFium directo renderizó una ruta Unicode y produjo PNG correcto;
+- bounding 4096x4096 -> 4096x2896, PNG 654.525 bytes y ~129 MiB peak sin copia managed del bitmap;
+- PDF malformado -> `FPDF_ERR_FORMAT` (3);
+- PDF protegido -> `FPDF_ERR_PASSWORD` (4);
+- publish de prueba de PDFium + encoder: ~7,7 MiB;
+- runtime assets nativos viajan transitivamente al publish del Host.
 
-Con proyecto temporal `net10.0-windows10.0.19041.0`:
-
-- `PdfDocument.LoadFromFileAsync` correcto;
-- render a stream;
-- PNG válido;
-- magic `89504E470D0A1A0A`;
-- render sintético a 2400x3200 (~7,7 MP): ~420 ms y ~80 MiB peak working set en esta PC.
-
-Con inputs aleatorios/truncados devolvió errores COM rápidos en vez de colgar el proceso en las pruebas realizadas. Con estos límites, el renderer puede permanecer in-process en G1; el riesgo fuerte que justificó aislamiento está en PdfPig/texto.
+El renderer debe permanecer **fuera del Host**, reutilizando el patrón de proceso aislado/Job Object de G1.2.
 
 # 6. filesystem_render_pdf_page
 
@@ -464,11 +457,11 @@ PdfPig:
 - password incorrecto -> la misma excepción;
 - password correcto -> OK.
 
-Windows.Data.Pdf:
+PDFium para G1.3:
 
-- sin password -> `COMException`, HRESULT `0x8007052B`;
-- password incorrecto -> mismo HRESULT;
-- password correcto -> OK.
+- sin password -> `FPDF_ERR_PASSWORD` (4);
+- PDF malformado -> `FPDF_ERR_FORMAT` (3);
+- G1.3 no envía passwords al renderer.
 
 Como G1 no acepta password, ambos caminos deben mapear a:
 
@@ -490,9 +483,11 @@ MCP
           -> IVisualFilesProvider
               -> WindowsVisualFilesProvider
                   -> imagen raw
-                  -> PdfWorkerClient
-                      -> LoomLCI.PdfWorker / PdfPig 0.1.16
-                  -> Windows.Data.Pdf
+                  -> PdfWorkerClient / private runner
+                      -> LoomLCI.Host child
+                          -> LoomLCI.PdfWorker
+                              -> PdfPig 0.1.16 (texto)
+                              -> PDFium + StbImageWriteSharp (render)
 ```
 
 Core:
@@ -501,14 +496,14 @@ Core:
 - límites;
 - path resolution compartida;
 - mapping semántico;
-- ninguna dependencia Windows/PdfPig.
+- ninguna dependencia Windows/PdfPig/PDFium.
 
 Windows:
 
 - lectura binaria acotada;
 - detección de formatos;
-- PdfWorkerClient;
-- Windows.Data.Pdf;
+- stable PDF handle;
+- cliente/runner privado del worker;
 - proceso/Job Object.
 
 MCP:
@@ -522,7 +517,8 @@ MCP:
 Host:
 
 - registrations;
-- localizar/deployar `LoomLCI.PdfWorker.exe`.
+- child modes privados para texto/render;
+- reutiliza el mismo executable Host como carrier, sin segundo runtime self-contained.
 
 ## Path resolver
 
@@ -555,12 +551,16 @@ Usar los existentes con `details.reason` específico.
 | PDF > 64 MiB | `unsupported` | `pdf_too_large` |
 | PDF cifrado | `unsupported` | `password_protected_pdf` |
 | PDF inválido/malformado | `unsupported` | `invalid_pdf` |
+| PDF security no soportada por renderer | `unsupported` | `unsupported_pdf_security` |
 | PNG render > 6 MiB o payload MCP >9 MiB | `unsupported` | `rendered_image_too_large` |
 | page fuera de rango | `invalid_argument` | `page_out_of_range` |
 | PDF/archivo futuro cambia durante una lectura que no use lock estable | `conflict` | `file_changed_during_read` |
-| worker agotó 20 s | `deadline_exceeded` | `pdf_worker_timeout` |
-| worker alcanza límite de memoria/OOM controlado | `unsupported` | `pdf_resource_limit` |
-| worker crash/salida anormal | `execution_failed` | `pdf_worker_crashed` |
+| worker texto agotó 20 s | `deadline_exceeded` | `pdf_worker_timeout` |
+| worker texto alcanza límite de memoria/OOM controlado | `unsupported` | `pdf_resource_limit` |
+| worker texto crash/salida anormal | `execution_failed` | `pdf_worker_crashed` |
+| worker render agotó 20 s | `deadline_exceeded` | `pdf_render_worker_timeout` |
+| worker render alcanza límite de memoria/OOM controlado | `unsupported` | `pdf_render_resource_limit` |
+| worker render crash/protocolo inválido | `execution_failed` | `pdf_render_worker_crashed` |
 | fallo renderer no clasificable | `execution_failed` | `pdf_render_failed` |
 
 El adapter MCP debe conservar estos errores dentro del `ToolEnvelope` igual que las tools actuales.
@@ -587,9 +587,9 @@ Reglas:
 
 # 11. Windows TFM pasa a G1
 
-`Windows.Data.Pdf` requiere Windows TFM.
+La migración a Windows TFM se adelantó y quedó completada en G1.0. El backend final de G1.3 ya no depende de `Windows.Data.Pdf`, pero la migración sigue siendo válida para la plataforma Windows de LoomLCI y será reutilizada por Computer H.
 
-G1 realizará:
+G1 dejó:
 
 - `LoomLCI.Core`: queda `net10.0`;
 - `LoomLCI.Mcp`: queda `net10.0`;
@@ -799,18 +799,23 @@ Completado:
 
 ## G1.3 - PDF render
 
-- Windows.Data.Pdf;
-- bounding dimensions;
-- PNG cap;
+> **Investigación específica cerrada.** Ver [[G1.3 - PDF render]]. La decisión preliminar de `Windows.Data.Pdf` fue reemplazada por PDFium nativo aislado para conservar el deployment portable/unpackaged y proteger el Host frente a fallos del parser/renderizador.
+
+- `bblanchon.PDFium.Win32 157.0.8086` + P/Invoke mínimo propio;
+- `StbImageWriteSharp 1.16.7`, encode directo desde bitmap nativo;
+- child mode privado `--internal-pdf-render-worker-v1`;
+- Job Object 256 MiB + timeout 20 s;
+- bounding dimensions 256..4096;
+- PNG <=6 MiB + CallToolResult <=9 MiB;
 - `filesystem_render_pdf_page`;
-- visual/scan tests;
-- MCP image output.
+- visual/scan/error/lifecycle tests;
+- MCP image output; aceptación visual directa de ChatGPT puede seguir `BLOCKED_UPSTREAM` igual que G1.1.
 
 ## G1.4 - Evaluation + portable
 
 - suite completa Release;
 - publish self-contained;
-- verificar que Host publicado incluye `LoomLCI.PdfWorker` + PdfPig sin duplicar un segundo runtime .NET;
+- verificar que Host publicado incluye `LoomLCI.PdfWorker` + PdfPig + `pdfium.dll` + `StbImageWriteSharp.dll` sin duplicar un segundo runtime .NET;
 - Secure MCP Tunnel;
 - real-world/fresh-agent;
 - segunda PC si el cambio de packaging lo justifica;
@@ -839,7 +844,7 @@ Computer H1 hereda de G:
 
 - Windows TFM migrado;
 - helper MCP de imágenes probado;
-- `ImageContentBlock` validado por STDIO/Host publicado; el smoke visual directo por ChatGPT queda pendiente sólo de refrescar el catálogo cliente;
+- `ImageContentBlock` validado por STDIO/Host publicado; ChatGPT descubre/invoca contenido visual pero actualmente no lo materializa como visión del modelo (`BLOCKED_UPSTREAM`);
 - cap binario con evidencia real;
 - patrón de contenido visual;
 - packaging de helper ejecutable ya ejercitado.
@@ -856,7 +861,7 @@ Los cinco pendientes previos a implementación quedan cerrados:
 - PDFs protegidos: comportamiento probado y error fijado;
 - DTOs/error codes/tool contracts: definidos.
 
-G1.0, G1.1 y G1.2 quedaron cerrados técnicamente. G1.1 mantiene un bloqueo visual upstream en ChatGPT; G1.2 completó también el smoke directo de la tool nueva desde ChatGPT con catálogo actualizado. No hay bloqueo arquitectónico conocido para iniciar G1.3.
+G1.0, G1.1 y G1.2 quedaron cerrados técnicamente. G1.1 mantiene un bloqueo visual upstream en ChatGPT; G1.2 completó también el smoke directo de la tool nueva desde ChatGPT con catálogo actualizado. La investigación específica de G1.3 quedó cerrada en [[G1.3 - PDF render]] y no quedan decisiones arquitectónicas bloqueantes antes de implementación.
 
 ## Fuentes
 
@@ -864,7 +869,10 @@ G1.0, G1.1 y G1.2 quedaron cerrados técnicamente. G1.1 mantiene un bloqueo visu
 - MCP C# SDK issue #1835: https://github.com/modelcontextprotocol/csharp-sdk/issues/1835
 - PdfPig releases: https://github.com/UglyToad/PdfPig/releases
 - PdfPig: https://github.com/UglyToad/PdfPig
-- Windows.Data.Pdf PdfDocument: https://learn.microsoft.com/windows/uwp/api/windows.data.pdf.pdfdocument
-- Windows.Data.Pdf RenderToStreamAsync: https://learn.microsoft.com/windows/uwp/api/windows.data.pdf.pdfpage.rendertostreamasync
-- PdfPageRenderOptions: https://learn.microsoft.com/windows/uwp/api/windows.data.pdf.pdfpagerenderoptions
+- Microsoft - WinRT APIs not supported in desktop apps: https://learn.microsoft.com/windows/apps/desktop/modernize/winrt-api-desktop-app-support
+- Microsoft - Grant package identity to nonpackaged apps: https://learn.microsoft.com/windows/apps/desktop/modernize/grant-identity-to-nonpackaged-apps
+- Windows.Data.Pdf (alternativa descartada): https://learn.microsoft.com/windows/uwp/api/windows.data.pdf
+- PDFium public API: https://pdfium.googlesource.com/pdfium/+/refs/heads/main/public/fpdfview.h
+- bblanchon.PDFium.Win32: https://www.nuget.org/packages/bblanchon.PDFium.Win32/
+- StbImageWriteSharp: https://www.nuget.org/packages/StbImageWriteSharp/
 - Secure MCP Tunnel: https://developers.openai.com/api/docs/guides/secure-mcp-tunnels
