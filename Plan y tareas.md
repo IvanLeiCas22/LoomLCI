@@ -92,9 +92,9 @@ Validación multi-PC cerrada: el mismo paquete se instaló desde cero en una not
 
 ## Próximo bloque de capability - Visual Files G1
 
-Investigación iniciada en [[Bloque G - Visual Files]]. Objetivo: que el agente pueda consumir archivos visuales sin depender de Computer ni de abrirlos en una GUI.
+Investigación y diseño v0.1 cerrados en [[Bloque G - Visual Files]]. **G1 está listo para implementación incremental empezando por G1.0.** Objetivo: que el agente pueda consumir archivos visuales sin depender de Computer ni de abrirlos en una GUI.
 
-Superficie v0.1 propuesta:
+Superficie v0.1 fijada:
 
 1. `filesystem_view_image`: PNG/JPEG/WebP -> `ImageContentBlock`.
 2. `filesystem_read_pdf`: extracción textual paginada con PdfPig.
@@ -104,11 +104,11 @@ Implementación incremental propuesta:
 
 1. **G1.0 Binary/image foundation**: Windows TFM, helper MCP mixed structured + image, regression test binario y revalidación portable.
 2. **G1.1 Local image**: provider/capability + `filesystem_view_image` + prueba real por tunnel.
-3. **G1.2 PDF text**: PdfPig, rangos/límites y `filesystem_read_pdf`.
+3. **G1.2 PDF text worker**: `LoomLCI.PdfWorker` one-shot, PdfPig 0.1.16, Job Object/timeout, rangos/límites y `filesystem_read_pdf`.
 4. **G1.3 PDF render**: Windows.Data.Pdf y `filesystem_render_pdf_page`.
 5. **G1.4 Evaluation + portable**: corpus real, malformed/oversized, tunnel/ChatGPT, fresh-agent y deployment.
 
-Antes de implementar falta cerrar caps de payload/texto y robustez con PDFs problemáticos.
+Decisiones cerradas: tunnel 10 MiB real, imágenes/PNG <=7 MiB, PDF <=64 MiB, texto PDF <=65.536 code points por página y <=262.144 agregados, parser PdfPig aislado en worker privado y PDFs protegidos reportados como `unsupported`.
 
 ## Bloque siguiente - Computer H1
 

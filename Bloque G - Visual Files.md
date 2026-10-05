@@ -1,20 +1,18 @@
 # Bloque G - Visual Files
 
-> Estado: **investigación y análisis iniciados; propuesta v0.1 en formación**. No se modificó código de producto. Este bloque pasa a ser anterior a [[Bloque H - Computer]] y busca que el agente pueda consumir archivos visuales directamente, sin tener que abrirlos en una aplicación gráfica.
+> Estado: **investigación y diseño v0.1 cerrados; listo para implementación incremental empezando por G1.0**. No se modificó código de producto durante esta investigación. Este bloque queda antes de [[Bloque H - Computer]].
 
-## Motivación
+## Objetivo
 
-La superficie pública actual de LoomLCI tiene 19 tools. Filesystem permite descubrir rutas, buscar texto, leer UTF-8 y modificar archivos, pero no existe una ruta nativa para entregar al modelo contenido binario visual.
-
-Hoy faltan tres capacidades básicas:
+Permitir que el agente consuma archivos visuales directamente, sin tener que abrirlos en una GUI:
 
 1. ver una imagen local como imagen real;
-2. extraer texto de un PDF de forma eficiente;
-3. renderizar una página PDF como imagen cuando el documento sea escaneado, diagramático o visual.
+2. extraer texto de un PDF de forma eficiente y paginada;
+3. renderizar una página PDF como imagen para documentos gráficos, diagramas o scans.
 
-Computer resolverá captura de la sesión interactiva, no lectura directa de archivos. Abrir un PNG o PDF en una GUI sólo para poder verlo sería una dependencia innecesaria y una peor abstracción.
+Computer H1 resolverá captura de la sesión interactiva. Visual Files G1 resuelve lectura directa de archivos.
 
-## Alcance inicial propuesto
+## Superficie pública v0.1
 
 Agregar tres tools read-only:
 
@@ -22,251 +20,426 @@ Agregar tres tools read-only:
 - `filesystem_read_pdf`
 - `filesystem_render_pdf_page`
 
-Esto llevaría el catálogo objetivo de 19 a 22 tools antes de Computer. Computer H1 agregaría luego sus seis tools sobre esa base.
+Catálogo:
 
-No incluir en G1:
+- actual: 19 tools;
+- después de G1: 22 tools;
+- después de Computer H1, si mantiene sus seis tools: 28 tools.
+
+Todas las tools G1 serán:
+
+- `ReadOnly = true`
+- `Destructive = false`
+- `Idempotent = true`
+- `OpenWorld = false`
+
+No necesitan ResourceRegistry ni estado durable.
+
+## Fuera de alcance G1
 
 - OCR propio;
 - edición de imágenes;
 - edición/generación de PDF;
 - Office/LibreOffice;
 - video;
-- SVG como renderer visual dedicado;
-- extracción masiva automática de todas las páginas como imágenes;
+- SVG como renderer dedicado;
+- extracción automática de todas las páginas como imágenes;
 - computer vision propio;
-- un sistema general de archivos multimedia.
+- passwords/credenciales de PDF;
+- un framework multimedia general.
 
-El modelo ya tiene visión. Loom sólo necesita transportar una representación visual fiable y acotada.
+El modelo ya tiene visión. Loom debe transportar una representación fiable, acotada y verificable.
 
-## Hallazgo 1 - MCP ya tiene el bloque correcto para imágenes
+# 1. Transporte de imágenes MCP
 
-El SDK MCP C# usado por LoomLCI (`ModelContextProtocol 2.2.0`) expone `ImageContentBlock` y soporta resultados mixtos con texto + structuredContent + bloques de imagen.
+## ImageContentBlock
 
-La forma correcta es:
+LoomLCI usa `ModelContextProtocol 2.2.0`. El SDK permite resultados mixtos con:
+
+- `structuredContent`;
+- `TextContentBlock`;
+- `ImageContentBlock`.
+
+La forma obligatoria en G1 será:
 
 ```csharp
 ImageContentBlock.FromBytes(bytes, "image/png")
 ```
 
-La documentación actual del SDK también indica que otros binarios pueden viajar como `EmbeddedResourceBlock`, pero el cliente decide cómo los representa. Un `application/pdf` binario no se convierte automáticamente a una imagen ni garantiza que llegue al modelo como documento interpretable. Para Loom conviene por lo tanto usar texto extraído y, cuando haga falta visión, render de página -> PNG.
+No asignar bytes crudos directamente a `ImageContentBlock.Data`.
 
-### Regresión reportada en MCP 2.2.0
+### Evidencia local
 
-Existe un issue abierto del SDK C# (#1835, agosto 2026) donde asignar bytes crudos directamente a `ImageContentBlock.Data` / `BlobResourceContents.Blob` dentro de un `CallToolResult` puede producir una serialización inválida.
+Con exactamente MCP 2.2.0 se verificó:
 
-Se hizo una reproducción local con exactamente 2.2.0:
-
-- `ImageContentBlock.FromBytes(...)`;
+- bytes -> base64 correcto;
 - serialización del `CallToolResult` completo con `McpJsonUtilities.DefaultOptions`;
-- JSON con base64 correcto;
-- deserialize correcto;
+- deserialize;
 - round-trip OK.
 
-Conclusión provisional: **no usar nunca asignación raw a `Data`**. Centralizar la creación en un helper y congelar un integration/regression test que serialice el resultado completo.
+Existe además el issue upstream #1835 sobre serialización inválida cuando se construyen bloques binarios por asignación raw. Por eso G1 debe centralizar la creación en un helper y congelar un regression test.
 
-## Hallazgo 2 - Imagen local puede ser una operación simple y stateless
+## Límite real del Secure MCP Tunnel
 
-Para PNG/JPEG/WebP no hace falta decodificar ni crear un recurso durable.
-
-Flujo:
+Se midió el transporte real:
 
 ```text
-path
- -> resolver relativo contra WorkSession si corresponde
- -> validar archivo / tamaño / tipo por magic bytes
- -> leer bytes acotados
- -> metadata estructurada
- -> ImageContentBlock.FromBytes(...)
+ChatGPT -> Secure MCP Tunnel -> LoomLCI instalado
 ```
 
-No hace falta ObservationHandle ni ResourceRegistry.
+Usando `filesystem_read_files` con archivos temporales y descartando el payload en el orchestrator para no introducirlo en el contexto:
 
-### Formatos v0.1
+- 1 MiB: OK;
+- 4 MiB: OK;
+- 8 MiB: OK;
+- ~9,33 MiB: OK;
+- ~9,70 MiB: OK;
+- 12 MiB: HTTP 413.
 
-Propuesta conservadora:
+El log del tunnel-client informó explícitamente:
 
-- PNG
-- JPEG
-- WebP
+```text
+request_body_too_large
+Tunnel request or response payload exceeds 10485760 byte limit
+```
 
-No confiar sólo en extensión. Validar firma del archivo y hacer que MIME coincida con el contenido.
+Por lo tanto el hard limit actual es **10 MiB = 10.485.760 bytes** por request/response del tunnel.
 
-Otros formatos pueden incorporarse después mediante conversión a PNG si la evidencia real lo justifica.
+El fallo de 12 MiB además provocó el cierre del runtime instalado actual. G1 no debe depender de que el túnel rechace un payload: debe impedir localmente que se genere.
 
-## Tool propuesta - filesystem_view_image
+## Cap de imagen
 
-Read-only.
+Base64 agrega aproximadamente 4/3 sobre los bytes binarios.
+
+Una imagen binaria de 7 MiB produce aproximadamente 9,33 MiB de base64, dejando ~0,67 MiB para JSON/RPC/metadata bajo el límite de 10 MiB.
+
+Decisión G1:
+
+```text
+MaxImageBytes = 7 * 1024 * 1024
+```
+
+Aplica tanto a:
+
+- imagen local devuelta por `filesystem_view_image`;
+- PNG generado por `filesystem_render_pdf_page`.
+
+Si se excede, devolver error Loom antes de construir/enviar el `CallToolResult`.
+
+La validación final de G1.1/G1.3 debe repetir esto con un `ImageContentBlock` real por Secure MCP Tunnel.
+
+# 2. filesystem_view_image
+
+## Contrato
 
 Entrada:
 
 - `path`
 - `workId?`
 
-Salida estructurada:
+Resolución de path idéntica a Filesystem clásico.
 
-- requestedPath;
-- fullPath;
-- mimeType;
-- sizeBytes.
+Formatos G1:
+
+- PNG;
+- JPEG;
+- WebP.
+
+No confiar sólo en extensión. Validar magic bytes:
+
+- PNG: firma PNG;
+- JPEG: SOI/marker válido;
+- WebP: RIFF + WEBP.
+
+No decodificar ni recodificar si no es necesario.
+
+## Resultado estructurado
+
+DTO conceptual:
+
+```text
+VisualImageDto
+- requestedPath
+- fullPath
+- mimeType
+- sizeBytes
+```
 
 Content:
 
-- bloque de texto breve;
-- `ImageContentBlock` real.
+```text
+TextContentBlock breve
+ImageContentBlock.FromBytes(...)
+```
 
-Límite inicial a congelar antes de implementar. Debe ser conservador porque base64 aumenta el payload aproximadamente un tercio y Secure MCP Tunnel puede devolver `request_body_too_large` cuando una respuesta supera el límite del servicio. El límite numérico del servicio no está publicado en el contrato actual, por lo que hay que validarlo end-to-end antes de cerrar G1.
+## Robustez
 
-Candidato inicial: **16 MiB de archivo de imagen**, sujeto a prueba real por tunnel.
+Antes de leer:
 
-## Hallazgo 3 - PDF necesita dos caminos, no uno
+- archivo existente y regular;
+- tamaño <= 7 MiB;
+- formato soportado.
 
-Un PDF puede ser:
+Registrar length + lastWriteTimeUtc antes y después de la lectura. Si cambia, descartar bytes y devolver `conflict` con `reason=file_changed_during_read`.
 
-- principalmente texto;
-- principalmente gráfico;
-- una mezcla;
-- un scan sin capa de texto.
+# 3. PDF textual
 
-Mandar siempre las páginas como imágenes es caro y malo para documentos largos. Extraer sólo texto pierde diagramas, planos, tablas visuales y scans.
+## Parser elegido
 
-Por eso conviene separar:
+Usar **PdfPig 0.1.16**.
 
-1. `filesystem_read_pdf` para lectura textual eficiente;
-2. `filesystem_render_pdf_page` para visión de una página concreta.
+Razones:
 
-El agente decide cuál usar según la tarea y puede combinar ambos.
+- Apache-2.0;
+- managed .NET;
+- extracción de texto/layout;
+- funciona en `net10.0`;
+- `ContentOrderTextExtractor` da una representación de lectura mejor que depender sólo de `page.Text`;
+- la versión 0.1.16 es la release estable investigada y contiene fixes posteriores a 0.1.15, incluido #1347.
 
-## PDF textual - PdfPig
+`dotnet list package --vulnerable --include-transitive` no reportó vulnerabilidades conocidas para 0.1.16 usando NuGet.org durante esta investigación.
 
-Se investigó `PdfPig`:
+## Por qué NO debe ejecutarse dentro de LoomLCI.Host
 
-- open source;
-- licencia Apache-2.0;
-- compatible con .NET;
-- extracción de texto, palabras, posiciones, metadata e imágenes;
-- soporta documentos cifrados si se proporciona password;
-- la release actual investigada es 0.1.15.
+La investigación cambió esta decisión.
 
-Prueba local realizada fuera del repo:
+Con PdfPig 0.1.15, `issue_1347.pdf` del propio corpus upstream produjo stack overflow y terminó el proceso.
 
-- proyecto `net10.0`;
-- PdfPig 0.1.15;
-- PDF generado de una página;
-- `PdfDocument.Open` correcto;
-- page count correcto;
-- `ContentOrderTextExtractor.GetText(page)` devolvió correctamente el texto esperado.
+PdfPig 0.1.16 corrige #1347 y ese archivo pasó correctamente. Sin embargo, al recorrer el corpus upstream con 0.1.16 apareció **otro stack overflow**, esta vez dentro de la ejecución de una función PDF Type 4.
 
-Para Loom conviene usar `ContentOrderTextExtractor`, no confiar en `page.Text` como única representación, porque el orden interno del content stream no siempre coincide con el orden lógico de lectura.
+`StackOverflowException` no es recuperable de forma segura con un `try/catch` normal. Un parser in-process permitiría que un PDF patológico terminara `LoomLCI.Host`.
 
-Chequeo adicional local: `dotnet list package --vulnerable --include-transitive` no reportó paquetes vulnerables para el proyecto temporal con PdfPig 0.1.15 usando NuGet.org. Esto es sólo una fotografía actual y debe repetirse al fijar la dependencia.
+Decisión: **PdfPig no se ejecutará in-process en G1**.
 
-## Tool propuesta - filesystem_read_pdf
+## PdfWorker one-shot
 
-Read-only.
+Agregar un helper privado:
 
-Entrada provisional:
+```text
+LoomLCI.PdfWorker
+```
 
-- `path`
-- `workId?`
-- `startPage = 1`
-- `maxPages = 10`
+Responsabilidad única:
 
-Hard cap propuesto:
+```text
+PDF path + page range
+    -> PdfPig 0.1.16
+    -> ContentOrderTextExtractor
+    -> JSON acotado por stdout
+```
 
-- máximo 25 páginas por llamada;
-- máximo 64 MiB de PDF;
-- límite agregado de caracteres en la respuesta;
-- páginas 1-based públicamente.
+Características:
 
-Salida:
+- un proceso nuevo por llamada a `filesystem_read_pdf`;
+- no se registra como ProcessHandle público;
+- no entra al ResourceRegistry;
+- se lanza con la infraestructura nativa existente de Process;
+- usar Job Object / kill-on-close ya probado por `WindowsNativeProcessLauncher`;
+- pipes, no terminal;
+- timeout duro de **20 s**;
+- stdout acotado;
+- stderr sólo diagnóstico acotado;
+- al terminar/fallar se libera todo inmediatamente.
 
-- requestedPath;
-- fullPath;
-- pageCount;
-- startPage/endPage;
-- hasMoreAfter;
-- pages[] con pageNumber, text y textLength;
-- señal explícita cuando una página tiene texto nulo o muy escaso.
+Si el worker hace stack overflow, crash o salida anormal, muere sólo el worker.
 
-Si el resultado indica poco texto y la tarea requiere entender la página, la descripción de la tool debe orientar a usar `filesystem_render_pdf_page`.
+### Corpus dirigido
 
-No renderizar páginas automáticamente dentro de `read_pdf`: mantiene la llamada barata y evita payload visual inesperado.
+Se clonó temporalmente el repositorio upstream de PdfPig fuera del repo de LoomLCI. Contenía 251 PDFs de integración/benchmark.
 
-## PDF visual - Windows.Data.Pdf
+Con PdfPig 0.1.16 y aislamiento por proceso se probó un subconjunto dirigido de **54 PDFs**: casos problemáticos/issue reproductions + los más grandes.
 
-Para render se investigó la API nativa `Windows.Data.Pdf`.
+Resultado:
+
+- 51 OK;
+- 3 errores normales/capturables;
+- 0 crashes del worker.
+
+Errores normales:
+
+- 2 PDFs cifrados -> `PdfDocumentEncryptedException`;
+- 1 PDF inválido -> `PdfDocumentFormatException`.
+
+El mayor texto observado en las primeras 10 páginas del subconjunto fue **47.314 caracteres**.
+
+Esto valida 0.1.16 como parser, pero no justifica confiarle la estabilidad del Host. El worker sigue siendo obligatorio.
+
+# 4. filesystem_read_pdf
+
+## Entrada final v0.1
+
+```text
+path
+workId?
+startPage = 1
+maxPages = 10
+```
+
+Reglas:
+
+- páginas públicas 1-based;
+- `startPage >= 1`;
+- `maxPages` rango 1..25;
+- PDF máximo: **64 MiB**;
+- no password en G1.
+
+## Límites de texto
+
+Decisión:
+
+```text
+MaxPageTextCodePoints = 65_536
+MaxTotalTextCodePoints = 262_144
+```
+
+Motivos:
+
+- 10 páginas del corpus dirigido no superaron 47.314 caracteres agregados;
+- 64 Ki code points cubre con margen una lectura típica;
+- 256 Ki mantiene una llamada útil pero muy por debajo del límite del tunnel;
+- documentos largos se recorren por páginas, no con una respuesta gigante.
+
+Semántica:
+
+- `maxPages` limita páginas solicitadas;
+- cada página se limita a 65.536 code points y reporta `textTruncated`;
+- el resultado completo se limita a 262.144 code points;
+- si el agregado alcanzaría el límite antes de una nueva página, detener antes de esa página y devolver `nextPage`;
+- una página individual patológica puede quedar truncada; G1 no añade offset de caracteres dentro de una página;
+- si una página tiene texto vacío/muy corto y la tarea requiere comprenderla, usar `filesystem_render_pdf_page`.
+
+## Resultado estructurado
+
+```text
+PdfTextReadDto
+- requestedPath
+- fullPath
+- sizeBytes
+- pageCount
+- startPage
+- endPage
+- totalTextLength
+- outputLimitReached
+- hasMoreAfter
+- nextPage?
+- pages[]
+
+PdfTextPageDto
+- pageNumber
+- text
+- textLength
+- textTruncated
+```
+
+No renderizar páginas automáticamente dentro de esta tool.
+
+# 5. PDF visual
+
+## Renderer elegido
+
+Usar `Windows.Data.Pdf`.
 
 Ventajas:
 
-- viene con Windows;
+- API de Windows ya disponible en la plataforma objetivo;
 - no hay que redistribuir PDFium/Poppler/Ghostscript;
-- puede obtener page count;
-- soporta PDF protegido por password a nivel de API;
-- `PdfPage.RenderToStreamAsync` permite renderizar una página;
-- `PdfPageRenderOptions` permite limitar dimensiones y seleccionar encoder;
-- se puede forzar PNG mediante `BitmapEncoder.PngEncoderId`.
+- page count;
+- render de página;
+- control de dimensiones;
+- PNG mediante `BitmapEncoder.PngEncoderId`.
 
-Prueba local real:
+### Evidencia local
 
-- proyecto temporal `net10.0-windows10.0.19041.0`;
-- PDF de prueba de una página;
-- `PdfDocument.LoadFromFileAsync`;
-- render a width 600;
-- resultado de 4185 bytes;
-- magic PNG `89504E470D0A1A0A`;
-- ejecución correcta en esta PC.
+Con proyecto temporal `net10.0-windows10.0.19041.0`:
 
-## Consecuencia: Windows TFM pasa a G
+- `PdfDocument.LoadFromFileAsync` correcto;
+- render a stream;
+- PNG válido;
+- magic `89504E470D0A1A0A`.
 
-`Windows.Data.Pdf` requiere Windows TFM. La misma restricción ya había sido encontrada durante la investigación de Computer.
+Con inputs aleatorios/truncados devolvió errores COM rápidos en vez de colgar el proceso en las pruebas realizadas.
 
-Si adoptamos este renderer, el cambio:
+# 6. filesystem_render_pdf_page
 
-- `LoomLCI.Windows` -> `net10.0-windows10.0.19041.0`;
-- `LoomLCI.Host` -> mismo Windows TFM;
-- `LoomLCI.Windows.Tests` -> mismo Windows TFM;
-- `LoomLCI.IntegrationTests` -> mismo Windows TFM;
-- Core y MCP permanecen `net10.0`;
-- `SupportedOSPlatformVersion=10.0.19041.0`.
+## Entrada final v0.1
 
-debe realizarse en **G1**, no esperar a Computer H1.
+```text
+path
+workId?
+page
+maxWidth = 1800
+maxHeight = 2400
+```
 
-Esto no agrega una plataforma nueva: el deployment portable soportado ya es Windows x64. Además reduce riesgo futuro porque Computer reutilizará una migración ya validada.
+Reglas:
 
-## Tool propuesta - filesystem_render_pdf_page
-
-Read-only.
-
-Entrada provisional:
-
-- `path`
-- `workId?`
 - `page` 1-based;
-- `maxWidth` default 1800;
-- `maxHeight` default 2400.
+- `maxWidth` y `maxHeight`: 256..4096;
+- mantener aspect ratio dentro de ese bounding box;
+- PDF máximo 64 MiB;
+- PNG resultante máximo 7 MiB.
 
-Salida estructurada:
+Si el PNG excede 7 MiB:
 
-- requestedPath;
-- fullPath;
-- page;
-- pageCount;
-- width;
-- height;
-- format = png;
-- sizeBytes.
+- no enviarlo;
+- devolver `unsupported`;
+- `details.reason = rendered_image_too_large`;
+- sugerir repetir con dimensiones menores.
+
+## Resultado estructurado
+
+```text
+PdfPageRenderDto
+- requestedPath
+- fullPath
+- pdfSizeBytes
+- page
+- pageCount
+- width
+- height
+- mimeType = image/png
+- imageSizeBytes
+```
 
 Content:
 
-- PNG real mediante `ImageContentBlock.FromBytes`.
+```text
+TextContentBlock breve
+ImageContentBlock.FromBytes(png, "image/png")
+```
 
-Renderizar **una página por llamada** en G1. Permite al agente elegir únicamente las páginas necesarias y mantiene el payload acotado.
+Una sola página por llamada.
 
-## Arquitectura interna propuesta
+# 7. PDFs protegidos
 
-No conviene seguir agrandando `WindowsFilesystemProvider`, que ya concentra traversal/search/read/write.
+No agregar password a las tools G1.
 
-Mantener nombres públicos `filesystem_*`, porque desde la perspectiva del agente siguen siendo operaciones sobre archivos, pero separar internamente:
+Prueba local con PDF cifrado generado temporalmente:
+
+PdfPig:
+
+- sin password -> `PdfDocumentEncryptedException`;
+- password incorrecto -> la misma excepción;
+- password correcto -> OK.
+
+Windows.Data.Pdf:
+
+- sin password -> `COMException`, HRESULT `0x8007052B`;
+- password incorrecto -> mismo HRESULT;
+- password correcto -> OK.
+
+Como G1 no acepta password, ambos caminos deben mapear a:
+
+```text
+code = unsupported
+details.reason = password_protected_pdf
+```
+
+Mensaje: el PDF está protegido y passwords no están soportados por esta versión de la tool.
+
+# 8. Arquitectura interna final
+
+No agrandar `WindowsFilesystemProvider`.
 
 ```text
 MCP
@@ -274,34 +447,85 @@ MCP
       -> VisualFilesCapability
           -> IVisualFilesProvider
               -> WindowsVisualFilesProvider
-                  -> raw image bytes
-                  -> PdfPig text extraction
-                  -> Windows.Data.Pdf page rendering
+                  -> imagen raw
+                  -> PdfWorkerClient
+                      -> LoomLCI.PdfWorker / PdfPig 0.1.16
+                  -> Windows.Data.Pdf
 ```
 
-Core contendría contratos y validaciones; Windows las implementaciones concretas; MCP sólo mapea DTOs y contenido.
+Core:
 
-La resolución de paths debe compartir exactamente la semántica ya usada por Filesystem para:
+- contratos;
+- límites;
+- path resolution compartida;
+- mapping semántico;
+- ninguna dependencia Windows/PdfPig.
+
+Windows:
+
+- lectura binaria acotada;
+- detección de formatos;
+- PdfWorkerClient;
+- Windows.Data.Pdf;
+- proceso/Job Object.
+
+MCP:
+
+- DTOs;
+- schemas;
+- annotations;
+- mixed content;
+- mapping de `ToolEnvelope`.
+
+Host:
+
+- registrations;
+- localizar/deployar `LoomLCI.PdfWorker.exe`.
+
+## Path resolver
+
+`FilesystemCapability.ResolvePath` hoy es privado.
+
+G1 debe extraer una abstracción/helper Core compartido para conservar exactamente:
 
 - path absoluto;
 - path relativo a WorkSession;
-- errores de path;
-- Full Trust sin convertir baseDirectory en sandbox.
+- error si path relativo no tiene base directory;
+- Full Trust: baseDirectory sigue siendo contexto, no sandbox;
+- validación de paths inválidos.
 
-Antes de implementar conviene extraer/reutilizar el resolver actual en vez de copiar lógica.
+No duplicar esta lógica.
 
-No hay estado durable entre llamadas; estas tools no necesitan ResourceRegistry.
+# 9. Errores públicos
 
-## Helper MCP para resultados visuales
+No agregar códigos Loom top-level nuevos en G1.
 
-`McpToolResults` hoy genera:
+Usar los existentes con `details.reason` específico.
 
-- structuredContent;
-- un TextContentBlock.
+| Caso | Code | reason |
+|---|---|---|
+| path/input inválido | `invalid_argument` | específico cuando aporte |
+| archivo inexistente | `not_found` | - |
+| ACL/OS denial | `access_denied` | - |
+| formato de imagen no soportado | `unsupported` | `unsupported_image_format` |
+| imagen > 7 MiB | `unsupported` | `image_too_large` |
+| PDF > 64 MiB | `unsupported` | `pdf_too_large` |
+| PDF cifrado | `unsupported` | `password_protected_pdf` |
+| PDF inválido/malformado | `unsupported` | `invalid_pdf` |
+| PNG render > 7 MiB | `unsupported` | `rendered_image_too_large` |
+| page fuera de rango | `invalid_argument` | `page_out_of_range` |
+| archivo cambió durante lectura | `conflict` | `file_changed_during_read` |
+| worker agotó 20 s | `deadline_exceeded` | `pdf_worker_timeout` |
+| worker crash/salida anormal | `execution_failed` | `pdf_worker_crashed` |
+| fallo renderer no clasificable | `execution_failed` | `pdf_render_failed` |
 
-G1 necesita una variante que permita agregar bloques extra sin perder el envelope ni la semántica actual de error.
+El adapter MCP debe conservar estos errores dentro del `ToolEnvelope` igual que las tools actuales.
 
-Forma deseada:
+# 10. Helper MCP visual
+
+`McpToolResults` hoy produce structuredContent + un TextContentBlock.
+
+Agregar una ruta reutilizable:
 
 ```text
 ToolEnvelope<T>
@@ -310,158 +534,183 @@ ToolEnvelope<T>
  -> optional ImageContentBlock(s)
 ```
 
-El helper debe ser reutilizable por Computer H1.
+Reglas:
 
-Regla: crear imágenes únicamente mediante `ImageContentBlock.FromBytes`.
+- errores no incluyen image blocks;
+- image block sólo después de validar cap;
+- usar exclusivamente `ImageContentBlock.FromBytes`;
+- helper reutilizable por Computer H1.
 
-## Robustez
+# 11. Windows TFM pasa a G1
 
-### Imágenes
+`Windows.Data.Pdf` requiere Windows TFM.
 
-El camino PNG/JPEG/WebP puede mantenerse muy pequeño:
+G1 realizará:
 
-- verificar existencia y regular file;
-- cap de bytes antes de leer;
-- magic bytes;
-- MIME consistente;
-- lectura acotada;
-- no decodificar si no es necesario.
+- `LoomLCI.Core`: queda `net10.0`;
+- `LoomLCI.Mcp`: queda `net10.0`;
+- `LoomLCI.Windows`: `net10.0-windows10.0.19041.0`;
+- `LoomLCI.Host`: mismo Windows TFM;
+- `LoomLCI.Windows.Tests`: mismo Windows TFM;
+- `LoomLCI.IntegrationTests`: mismo Windows TFM;
+- `SupportedOSPlatformVersion=10.0.19041.0`.
 
-Esto reduce superficie frente a archivos maliciosos.
+La plataforma portable ya es Windows x64. Computer H reutilizará esta migración.
 
-### PDF
+# 12. Test strategy
 
-PDF sí implica parsing complejo.
+## MCP / imagen
 
-Controles mínimos:
+- serialize/deserialize de `ImageContentBlock.FromBytes`;
+- PNG/JPEG/WebP reales;
+- magic mismatch;
+- 7 MiB boundary;
+- >7 MiB rechazo local;
+- mixed structured + text + image;
+- Secure MCP Tunnel real;
+- ChatGPT ve la imagen.
 
-- cap de tamaño antes de abrir;
+## PDF worker
+
+- PDF normal;
+- PDF sin texto;
+- PDF de muchas páginas;
+- PDF >64 MiB;
+- corrupto/truncado;
+- encrypted;
+- issue reproductions del corpus upstream;
+- worker crash deliberado;
+- timeout deliberado;
+- Job cleanup;
+- stdout inválido/oversized;
+- archivo modificado mientras se procesa.
+
+## PDF render
+
+- página normal;
+- scan/visual;
 - page bounds;
-- page count razonable;
-- límites de páginas y caracteres por llamada;
-- errores de parser convertidos a errores Loom;
-- casos truncados/malformados en tests;
-- timeout de Invocation.
+- max dimensions;
+- preserving aspect ratio;
+- PNG >7 MiB;
+- encrypted;
+- corrupt/truncated.
 
-Riesgo residual: PdfPig es una librería managed in-process y una operación interna que no coopera con cancellation no puede ser interrumpida de forma dura por un CancellationToken.
+## Real-world
 
-Se hizo una primera prueba adversarial pequeña fuera del repo:
+Antes de cerrar G1:
 
-- PdfPig con 1 KiB de bytes aleatorios -> `PdfDocumentFormatException` en ~2 s;
-- PdfPig con PDF truncado -> `PdfDocumentFormatException` en milisegundos;
-- Windows.Data.Pdf con bytes aleatorios -> `COMException` en decenas de ms;
-- Windows.Data.Pdf con PDF truncado -> `COMException` en milisegundos.
+1. imagen local real visible en ChatGPT;
+2. PDF textual real;
+3. PDF con tablas/diagramas usando texto + render;
+4. PDF escaneado usando render;
+5. payload cercano al cap;
+6. PDF inválido;
+7. worker crash sin afectar Host;
+8. Secure MCP Tunnel;
+9. fresh-agent discoverability;
+10. publish portable.
 
-Esto es una señal inicial razonable, no una prueba de peor caso. No construir todavía un PDF worker aislado sólo por posibilidad teórica. Antes de decidirlo conviene ampliar el corpus con PDFs reales problemáticos/grandes. Si aparecen hangs o consumo no acotable, entonces sí justificar helper process + Job Object.
+# 13. Implementación por etapas
 
-## Password-protected PDFs
+## G1.0 - Binary/image foundation
 
-Las APIs investigadas soportan password, pero no conviene meter manejo de credenciales en G1 sin necesidad.
-
-Propuesta inicial:
-
-- detectar/error claro para PDF protegido;
-- no exponer `password` en el contrato v0.1;
-- agregarlo sólo si aparece un caso real que lo requiera.
-
-## Tool surface resultante
-
-Antes de G:
-
-- 19 tools.
-
-Después de G1 propuesto:
-
-- Work: 2
-- Filesystem clásico: 6
-- Visual Files con prefijo filesystem: 3
-- Process: 7
-- Python: 2
-- Work Plan: 2
-
-Total: **22 tools**.
-
-Después de Computer H1, si mantiene las seis tools diseñadas:
-
-Total: **28 tools**.
-
-## Implementación incremental propuesta
-
-### G1.0 - Binary/image foundation
-
-- mover Windows TFMs requeridos;
+- migrar Windows TFMs;
 - helper MCP mixed structured + image;
 - regression test `ImageContentBlock.FromBytes`;
-- build/tests/publish portable.
+- constants de payload;
+- revalidar build/tests/publish portable.
 
-Todavía sin PDF parser.
+Sin tools Visual Files públicas todavía.
 
-### G1.1 - Local image
+## G1.1 - Local image
 
+- path resolver compartido;
 - contratos Core;
+- `VisualFilesCapability`;
 - `IVisualFilesProvider`;
-- path resolution compartida;
 - PNG/JPEG/WebP;
 - `filesystem_view_image`;
-- tests de tipo/tamaño/magic bytes;
-- integration STDIO;
-- prueba real por Secure MCP Tunnel y ChatGPT.
+- límites/conflict;
+- STDIO + tunnel + ChatGPT.
 
-### G1.2 - PDF text
+## G1.2 - PDF text worker
 
-- PdfPig fijado;
-- page range;
-- ContentOrderTextExtractor;
-- caps y truncation;
+- proyecto privado `LoomLCI.PdfWorker`;
+- PdfPig 0.1.16;
+- PdfWorkerClient;
+- Job Object + 20 s;
+- page/text caps;
+- password/invalid/crash mapping;
 - `filesystem_read_pdf`;
-- PDFs normales, vacíos, corruptos y de muchas páginas.
+- corpus dirigido.
 
-### G1.3 - PDF render
+## G1.3 - PDF render
 
 - Windows.Data.Pdf;
-- PNG bounded;
+- bounding dimensions;
+- PNG cap;
 - `filesystem_render_pdf_page`;
-- PDF visual/scan;
-- page bounds;
-- integración MCP con ImageContentBlock.
+- visual/scan tests;
+- MCP image output.
 
-### G1.4 - Evaluation + portable
+## G1.4 - Evaluation + portable
 
-- suite completa;
+- suite completa Release;
 - publish self-contained;
+- incluir PdfWorker en payload;
 - Secure MCP Tunnel;
-- imagen real visible en ChatGPT;
-- PDF textual real;
-- PDF visual real;
-- PDF escaneado;
-- malformed/oversized;
-- fresh-agent discoverability;
-- actualizar deployment y documentación.
+- real-world/fresh-agent;
+- segunda PC si el cambio de packaging lo justifica;
+- actualizar deployment/documentación.
 
-## Impacto sobre Computer H
+# 14. Hallazgo lateral: filesystem_read_files vs tunnel
 
-Computer sigue siendo el bloque siguiente, pero hereda de G:
+La prueba de payload descubrió una inconsistencia preexistente:
 
-- Windows TFM ya migrado;
-- helper MCP de imágenes ya probado;
-- ImageContentBlock ya validado por tunnel/ChatGPT;
-- límites de payload con evidencia real.
+- `filesystem_read_files` puede producir resultados muy por encima de 10 MiB;
+- el Core permite hasta 64 MiB agregados;
+- Secure MCP Tunnel tiene hard limit de 10 MiB;
+- una respuesta de 12 MiB produjo HTTP 413 y terminó el runtime instalado de esa ejecución.
 
-Por eso H1.0 deberá simplificarse al cerrar G: Computer ya no tendrá que ser el primer consumidor de WinRT ni el primer productor de imágenes MCP.
+Esto **no bloquea G1** porque las nuevas tools quedan explícitamente por debajo del límite.
 
-## Pendientes de investigación antes de implementación
+No cambiar silenciosamente Filesystem dentro de G1. Registrar como hardening separado para decidir si conviene:
 
-1. congelar límite real de payload de imagen con prueba Secure MCP Tunnel;
-2. decidir límite agregado de texto para `filesystem_read_pdf`;
-3. ejecutar corpus pequeño de PDFs corruptos/grandes para decidir si PdfPig in-process es suficiente;
-4. comprobar comportamiento de PDF protegido y mapear error;
-5. definir DTOs/error codes exactos;
-6. reconciliar H1.0 una vez cerrado el diseño de G.
+- reducir caps públicos;
+- agregar guard de tamaño en el adapter MCP;
+- o introducir paginación/continuation más estricta para reads grandes.
+
+# 15. Impacto sobre Computer H
+
+Computer H1 hereda de G:
+
+- Windows TFM migrado;
+- helper MCP de imágenes probado;
+- `ImageContentBlock` validado por tunnel/ChatGPT;
+- cap binario con evidencia real;
+- patrón de contenido visual;
+- packaging de helper ejecutable ya ejercitado.
+
+H1.0 queda limitado a foundation específica de Computer.
+
+# Cierre de investigación
+
+Los cinco pendientes previos a implementación quedan cerrados:
+
+- límite real de payload: medido;
+- caps de texto PDF: fijados;
+- robustez de PdfPig: investigada y mitigada con worker;
+- PDFs protegidos: comportamiento probado y error fijado;
+- DTOs/error codes/tool contracts: definidos.
+
+No queda investigación arquitectónica bloqueante antes de G1.0.
 
 ## Fuentes
 
 - MCP C# SDK tools/content types: https://github.com/modelcontextprotocol/csharp-sdk/blob/main/docs/concepts/tools/tools.md
 - MCP C# SDK issue #1835: https://github.com/modelcontextprotocol/csharp-sdk/issues/1835
+- PdfPig releases: https://github.com/UglyToad/PdfPig/releases
 - PdfPig: https://github.com/UglyToad/PdfPig
 - Windows.Data.Pdf PdfDocument: https://learn.microsoft.com/windows/uwp/api/windows.data.pdf.pdfdocument
 - Windows.Data.Pdf RenderToStreamAsync: https://learn.microsoft.com/windows/uwp/api/windows.data.pdf.pdfpage.rendertostreamasync

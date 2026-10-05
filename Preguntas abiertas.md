@@ -43,7 +43,7 @@ Validación en segunda PC completada. Diferido/no bloqueante:
 
 ## Visual Files
 
-Investigación iniciada en [[Bloque G - Visual Files]]. Propuesta actual: tres tools read-only (`filesystem_view_image`, `filesystem_read_pdf`, `filesystem_render_pdf_page`), PdfPig para texto, Windows.Data.Pdf para render y `ImageContentBlock` para contenido visual. Pendientes principales: límite real por tunnel, caps finales y robustez de PDFs malformados.
+Investigación y diseño v0.1 cerrados en [[Bloque G - Visual Files]]. Quedan fijadas tres tools read-only (`filesystem_view_image`, `filesystem_read_pdf`, `filesystem_render_pdf_page`), `ImageContentBlock.FromBytes`, cap de 7 MiB para imágenes, PdfPig 0.1.16 aislado en `LoomLCI.PdfWorker`, Windows.Data.Pdf para render y contratos/errores finales. **No quedan preguntas arquitectónicas bloqueantes antes de G1.0.**
 
 ## Computer
 
@@ -71,6 +71,7 @@ Diferido después de H1:
 - WorkSession idle TTL, tombstone retention, ProcessHandle post-exit TTL y explicit release definidos en [[Bloque D0 - Resource lifetime y expiry]]; quedan futuras policies por nuevos resource kinds.
 - Ergonomía futura: evaluar si comandos CLI muy cortos justifican una superficie que reduzca el ciclo process_start -> process_read; no es bloqueo funcional actual.
 - Ergonomía futura: Work Plan CAS + IDs opacos es deliberadamente seguro pero verboso en workflows lineales; no simplificar sin preservar semántica de concurrencia.
+- Hardening separado de G1: `filesystem_read_files` puede producir hoy respuestas mayores que el límite real de 10 MiB del Secure MCP Tunnel; una prueba de 12 MiB devolvió HTTP 413 y terminó esa ejecución del runtime. Evaluar guard MCP/caps/paginación sin mezclarlo silenciosamente con Visual Files.
 - tamaños de buffers.
 - formato y retención del audit durable.
 - autenticación remota si se habilita HTTP fuera de localhost/tunnel.
