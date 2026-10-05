@@ -1,6 +1,6 @@
 # Bloque G - Visual Files
 
-> Estado: **G1.0, G1.1 y G1.2 implementados y validados técnicamente.** G1.1 conserva un bloqueo upstream de ChatGPT para materializar `ImageContentBlock` como visión. G1.2 PDF text worker está instalado y healthy/ready; su smoke directo desde ChatGPT sólo espera refrescar el catálogo cliente de 20 a 21 tools. El próximo bloque de implementación es G1.3 PDF render.
+> Estado: **G1.0, G1.1 y G1.2 implementados y validados.** G1.1 conserva un bloqueo upstream de ChatGPT para materializar `ImageContentBlock` como visión. G1.2 PDF text worker está instalado, healthy/ready y pasó el smoke directo desde ChatGPT con catálogo de 21 tools. El próximo bloque de implementación es G1.3 PDF render.
 
 ## Objetivo
 
@@ -783,7 +783,7 @@ Completado:
 
 ## G1.2 - PDF text worker
 
-> **Implementado en `b6e41fd`.** Ver [[G1.2 - PDF text worker]]. Suite final 235/235, Host publicado 11/11, paquete portable instalado y runtime final healthy/ready. El catálogo esperado es 21 tools con Work Plan; el smoke directo de `filesystem_read_pdf` queda pendiente sólo de refrescar las acciones del chat.
+> **Implementado en `b6e41fd`.** Ver [[G1.2 - PDF text worker]]. Suite final 235/235, Host publicado 11/11, paquete portable instalado y runtime final healthy/ready. El catálogo de 21 tools con Work Plan fue confirmado y el smoke directo de `filesystem_read_pdf` desde ChatGPT pasó correctamente.
 
 - proyecto privado `LoomLCI.PdfWorker` como class library;
 - PdfPig 0.1.16 estable + `ContentOrderTextExtractor`;
@@ -856,7 +856,7 @@ Los cinco pendientes previos a implementación quedan cerrados:
 - PDFs protegidos: comportamiento probado y error fijado;
 - DTOs/error codes/tool contracts: definidos.
 
-G1.0, G1.1 y G1.2 quedaron cerrados técnicamente. G1.1 mantiene un bloqueo visual upstream en ChatGPT y G1.2 sólo espera un chat con catálogo refrescado para el smoke directo de la tool nueva. No hay bloqueo arquitectónico conocido para iniciar G1.3.
+G1.0, G1.1 y G1.2 quedaron cerrados técnicamente. G1.1 mantiene un bloqueo visual upstream en ChatGPT; G1.2 completó también el smoke directo de la tool nueva desde ChatGPT con catálogo actualizado. No hay bloqueo arquitectónico conocido para iniciar G1.3.
 
 ## Fuentes
 

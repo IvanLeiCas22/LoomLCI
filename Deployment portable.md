@@ -399,7 +399,7 @@ Se validó e instaló un nuevo update side-by-side para G1.2:
 - tunnel id preservado;
 - smoke real desde ChatGPT sobre el runtime nuevo mediante `work_create` + `work_close`: **OK**.
 
-G1.2 lleva el catálogo del Host normal de 20 a **21 tools**. La conversación del upgrade conserva las 20 acciones cargadas antes del cutover, por lo que `filesystem_read_pdf` no puede invocarse directamente hasta refrescar el catálogo o abrir un chat nuevo. La ruta ChatGPT -> app -> tunnel -> runtime nuevo quedó verificada con una tool preexistente; el smoke directo de la tool 21 es el único pendiente operativo de este update.
+G1.2 lleva el catálogo del Host normal de 20 a **21 tools**. En un chat con catálogo actualizado se confirmó la presencia de `filesystem_read_pdf` y se ejecutó el smoke directo ChatGPT -> app -> tunnel -> runtime nuevo: un PDF textual real devolvió `Hello IvanSpace PDF` y un PDF sin capa textual devolvió éxito con texto vacío. El update queda operativo y validado end-to-end.
 
 ### Hallazgo durante rollback
 

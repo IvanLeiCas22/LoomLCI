@@ -94,7 +94,7 @@ La instalación final mantiene una única ruta de acceso: la app MCP conectada a
 
 El runtime activo final es `loomlci-installed`, actualmente en `0.1.0-dev-b6e41fd645d3`; el legacy `loomlci` permanece detenido como fallback. La misma instalación portable fue además validada desde cero en una segunda PC Windows x64: ChatGPT operó sobre la notebook, luego se detuvo ese runtime y se volvió a iniciar LoomLCI en la PC de escritorio sobre el mismo tunnel, confirmando el cambio de máquina correctamente.
 
-Visual Files G1.1 y G1.2 ya están instalados en el runtime portable. G1.1 confirmó que `filesystem_view_image` es invocable pero ChatGPT normal no materializa el `ImageContentBlock` como entrada visual; se registra como **BLOCKED_UPSTREAM / client compatibility**. G1.2 agregó `filesystem_read_pdf` con extracción textual aislada y el runtime nuevo pasó smoke real ChatGPT -> app -> tunnel mediante `work_create` + `work_close` después del cutover. Esta conversación conserva las 20 acciones cargadas antes del upgrade, por lo que el smoke directo de `filesystem_read_pdf` requiere refrescar acciones o abrir un chat nuevo; el catálogo nuevo esperado es 21 tools.
+Visual Files G1.1 y G1.2 ya están instalados en el runtime portable. G1.1 confirmó que `filesystem_view_image` es invocable pero ChatGPT normal no materializa el `ImageContentBlock` como entrada visual; se registra como **BLOCKED_UPSTREAM / client compatibility**. G1.2 agregó `filesystem_read_pdf` con extracción textual aislada y completó el smoke real ChatGPT -> app -> tunnel sobre el runtime instalado: el catálogo actualizado expuso 21 tools, un PDF textual real devolvió `Hello IvanSpace PDF` y un PDF sin capa textual devolvió éxito con texto vacío.
 
 ## Notas
 
