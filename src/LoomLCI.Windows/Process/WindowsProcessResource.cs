@@ -133,6 +133,15 @@ internal sealed class WindowsProcessResource : IProcessResource
         return _io.ResizeAsync(columns, rows, cancellationToken);
     }
 
+    internal async Task WaitForExitAndOutputAsync(CancellationToken cancellationToken)
+    {
+        await _exitObserver.WaitAsync(cancellationToken).ConfigureAwait(false);
+        if (_io is WindowsPipeProcessIo pipes)
+        {
+            await pipes.WaitForOutputCompletionAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     public async Task<LoomResult<Unit>> TerminateAsync(
         CancellationToken cancellationToken)
     {

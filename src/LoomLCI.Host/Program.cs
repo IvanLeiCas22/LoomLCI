@@ -1,3 +1,4 @@
+using System.Reflection;
 using LoomLCI.Core.AgentSupport;
 using LoomLCI.Core.Filesystem;
 using LoomLCI.Core.Invocations;
@@ -10,6 +11,7 @@ using LoomLCI.Core.Work;
 using LoomLCI.Core.VisualFiles;
 using LoomLCI.Host;
 using LoomLCI.Mcp;
+using LoomLCI.PdfWorker;
 using LoomLCI.Windows.Filesystem;
 using LoomLCI.Windows.Processes;
 using LoomLCI.Windows.Python;
@@ -17,6 +19,32 @@ using LoomLCI.Windows.VisualFiles;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+
+if (args.Length == 1 &&
+    string.Equals(args[0], "--internal-pdf-worker-v1", StringComparison.Ordinal))
+{
+    Environment.ExitCode = await PdfWorkerProgram.RunAsync(
+        Console.OpenStandardInput(),
+        Console.OpenStandardOutput(),
+        Console.OpenStandardError());
+    return;
+}
+
+var processPath = Environment.ProcessPath
+    ?? throw new InvalidOperationException("Could not resolve the current Host process path.");
+var entryAssemblyPath = Assembly.GetEntryAssembly()?.Location
+    ?? throw new InvalidOperationException("Could not resolve the current Host entry assembly.");
+var processName = Path.GetFileNameWithoutExtension(processPath);
+var workerArgumentsPrefix = string.Equals(
+        processName,
+        "dotnet",
+        StringComparison.OrdinalIgnoreCase)
+    ? new[] { entryAssemblyPath }
+    : Array.Empty<string>();
+var pdfWorkerLaunch = new PdfWorkerLaunchDescriptor(
+    processPath,
+    workerArgumentsPrefix,
+    AppContext.BaseDirectory);
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -39,7 +67,8 @@ builder.Services.AddSingleton<IPythonRuntimeProvider, WindowsPythonRuntimeProvid
 builder.Services.AddSingleton<PythonCapability>();
 builder.Services.AddSingleton<IFilesystemProvider, WindowsFilesystemProvider>();
 builder.Services.AddSingleton<FilesystemCapability>();
-builder.Services.AddSingleton<IVisualFilesProvider, WindowsVisualFilesProvider>();
+builder.Services.AddSingleton<IVisualFilesProvider>(
+    _ => new WindowsVisualFilesProvider(pdfWorkerLaunch));
 builder.Services.AddSingleton<VisualFilesCapability>();
 builder.Services.AddHostedService<LifetimeSweeperService>();
 

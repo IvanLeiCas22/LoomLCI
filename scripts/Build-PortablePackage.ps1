@@ -54,6 +54,12 @@ if ($LASTEXITCODE -ne 0) {
     throw 'Falló publish de LoomLCI.Host.'
 }
 
+$pdfWorkerAssembly = Join-Path $hostOut 'LoomLCI.PdfWorker.dll'
+$pdfPigAssembly = Join-Path $hostOut 'UglyToad.PdfPig.dll'
+if (-not (Test-Path $pdfWorkerAssembly) -or -not (Test-Path $pdfPigAssembly)) {
+    throw 'El Host publicado no contiene LoomLCI.PdfWorker y/o PdfPig requeridos por G1.2.'
+}
+
 Write-Host 'Publishing single-file LoomLCI.Launcher...'
 $launcherArgs = @(
     'publish',

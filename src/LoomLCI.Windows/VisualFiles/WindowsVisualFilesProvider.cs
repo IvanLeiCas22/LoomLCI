@@ -6,6 +6,17 @@ namespace LoomLCI.Windows.VisualFiles;
 
 public sealed class WindowsVisualFilesProvider : IVisualFilesProvider
 {
+    private readonly PdfWorkerClient? _pdfWorker;
+
+    public WindowsVisualFilesProvider()
+    {
+    }
+
+    public WindowsVisualFilesProvider(PdfWorkerLaunchDescriptor pdfWorkerLaunch)
+    {
+        _pdfWorker = new PdfWorkerClient(pdfWorkerLaunch);
+    }
+
     public async Task<LoomResult<VisualImageResult>> ReadImageAsync(
         VisualImageRequest request,
         CancellationToken cancellationToken)
@@ -81,6 +92,77 @@ public sealed class WindowsVisualFilesProvider : IVisualFilesProvider
         catch (IOException ex)
         {
             return LoomResult<VisualImageResult>.Failure(LoomErrors.ExecutionFailed(ex.Message));
+        }
+    }
+
+    public async Task<LoomResult<PdfTextReadResult>> ReadPdfTextAsync(
+        PdfTextReadRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!File.Exists(request.FullPath))
+            {
+                return LoomResult<PdfTextReadResult>.Failure(
+                    LoomErrors.NotFound($"File '{request.FullPath}' was not found."));
+            }
+
+            await using var stableHandle = new FileStream(
+                request.FullPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 8192,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+
+            if (stableHandle.Length > VisualFilesLimits.MaxPdfBytes)
+            {
+                return LoomResult<PdfTextReadResult>.Failure(
+                    Unsupported(
+                        $"PDF '{request.FullPath}' exceeds the 64 MiB PDF limit.",
+                        "pdf_too_large"));
+            }
+
+            if (_pdfWorker is null)
+            {
+                return LoomResult<PdfTextReadResult>.Failure(
+                    LoomErrors.ExecutionFailed("PDF worker carrier is not configured."));
+            }
+
+            return await _pdfWorker.ReadAsync(
+                    request,
+                    stableHandle.Length,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (IOException ex) when (IsSharingViolation(ex))
+        {
+            return LoomResult<PdfTextReadResult>.Failure(
+                new LoomError(
+                    "busy",
+                    $"File '{request.FullPath}' is currently open for writing. Retry when it is stable.",
+                    true,
+                    new Dictionary<string, object?> { ["reason"] = "file_busy" }));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return LoomResult<PdfTextReadResult>.Failure(LoomErrors.AccessDenied(ex.Message));
+        }
+        catch (FileNotFoundException ex)
+        {
+            return LoomResult<PdfTextReadResult>.Failure(LoomErrors.NotFound(ex.Message));
+        }
+        catch (DirectoryNotFoundException ex)
+        {
+            return LoomResult<PdfTextReadResult>.Failure(LoomErrors.NotFound(ex.Message));
+        }
+        catch (IOException ex)
+        {
+            return LoomResult<PdfTextReadResult>.Failure(LoomErrors.ExecutionFailed(ex.Message));
         }
     }
 

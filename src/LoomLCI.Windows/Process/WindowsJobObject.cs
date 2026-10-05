@@ -20,8 +20,13 @@ internal sealed class WindowsJobObject : IDisposable
 
     internal SafeFileHandle Handle => _handle;
 
-    public static WindowsJobObject Create()
+    public static WindowsJobObject Create(long? processMemoryLimitBytes = null)
     {
+        if (processMemoryLimitBytes is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(processMemoryLimitBytes));
+        }
+
         var handle = PInvoke.CreateJobObject(lpJobAttributes: null, lpName: null);
         if (handle.IsInvalid)
         {
@@ -38,6 +43,13 @@ internal sealed class WindowsJobObject : IDisposable
                     LimitFlags = JOB_OBJECT_LIMIT.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
                 }
             };
+
+            if (processMemoryLimitBytes is { } memoryLimit)
+            {
+                limits.BasicLimitInformation.LimitFlags |=
+                    JOB_OBJECT_LIMIT.JOB_OBJECT_LIMIT_PROCESS_MEMORY;
+                limits.ProcessMemoryLimit = checked((nuint)memoryLimit);
+            }
 
             var bytes = MemoryMarshal.AsBytes(
                 MemoryMarshal.CreateReadOnlySpan(ref limits, 1));

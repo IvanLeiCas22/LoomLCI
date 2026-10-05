@@ -132,6 +132,70 @@ public sealed class VisualFilesCapabilityTests
     }
 
     [Fact]
+    public async Task PdfInputValidationHappensBeforeWorkerLaunch()
+    {
+        await using var fixture = new VisualFilesFixture();
+
+        var invalidStart = await fixture.VisualFiles.ReadPdfTextAsync("sample.pdf", startPage: 0);
+        Assert.False(invalidStart.IsSuccess);
+        Assert.Equal("invalid_argument", invalidStart.Error?.Code);
+
+        var invalidMax = await fixture.VisualFiles.ReadPdfTextAsync("sample.pdf", maxPages: 26);
+        Assert.False(invalidMax.IsSuccess);
+        Assert.Equal("invalid_argument", invalidMax.Error?.Code);
+    }
+
+    [Fact]
+    public async Task OversizedPdfIsRejectedBeforeWorkerLaunch()
+    {
+        await using var fixture = new VisualFilesFixture();
+        var path = Path.Combine(fixture.Root, "large.pdf");
+        await using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            stream.SetLength(VisualFilesLimits.MaxPdfBytes + 1L);
+        }
+
+        var result = await fixture.VisualFiles.ReadPdfTextAsync(path);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("unsupported", result.Error?.Code);
+        Assert.Equal("pdf_too_large", result.Error?.Details?["reason"]);
+    }
+
+    [Fact]
+    public async Task ActivePdfWriterReturnsRetryableBusyBeforeWorkerLaunch()
+    {
+        await using var fixture = new VisualFilesFixture();
+        var path = Path.Combine(fixture.Root, "busy.pdf");
+        await File.WriteAllTextAsync(path, "%PDF-1.4");
+
+        await using var writer = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Write,
+            FileShare.ReadWrite | FileShare.Delete);
+
+        var result = await fixture.VisualFiles.ReadPdfTextAsync(path);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("busy", result.Error?.Code);
+        Assert.True(result.Error?.Retryable);
+        Assert.Equal("file_busy", result.Error?.Details?["reason"]);
+    }
+
+    [Fact]
+    public async Task MissingPdfReturnsNotFoundBeforeWorkerLaunch()
+    {
+        await using var fixture = new VisualFilesFixture();
+        var path = Path.Combine(fixture.Root, "missing.pdf");
+
+        var result = await fixture.VisualFiles.ReadPdfTextAsync(path);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("not_found", result.Error?.Code);
+    }
+
+    [Fact]
     public async Task MissingImageReturnsNotFound()
     {
         await using var fixture = new VisualFilesFixture();

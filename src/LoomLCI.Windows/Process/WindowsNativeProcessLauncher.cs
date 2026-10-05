@@ -22,7 +22,8 @@ internal static class WindowsNativeProcessLauncher
     public static WindowsProcessResource Launch(
         ProcessLaunchSpec spec,
         bool disableReleasePseudoConsole = false,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        long? processMemoryLimitBytes = null)
     {
         timeProvider ??= TimeProvider.System;
         var commandLine = WindowsCommandLine.Build(
@@ -43,13 +44,15 @@ internal static class WindowsNativeProcessLauncher
                 spec,
                 commandLineBuffer,
                 environment,
-                timeProvider),
+                timeProvider,
+                processMemoryLimitBytes),
             ProcessIoMode.Terminal => LaunchTerminal(
                 spec,
                 commandLineBuffer,
                 environment,
                 disableReleasePseudoConsole,
-                timeProvider),
+                timeProvider,
+                processMemoryLimitBytes),
             _ => throw new NotSupportedException(
                 $"Unsupported process I/O mode '{spec.IoMode}'.")
         };
@@ -59,7 +62,8 @@ internal static class WindowsNativeProcessLauncher
         ProcessLaunchSpec spec,
         char[] commandLineBuffer,
         WindowsEnvironmentBlock environment,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        long? processMemoryLimitBytes)
     {
         WindowsJobObject? job = null;
         AnonymousPipeServerStream? stdin = null;
@@ -70,7 +74,7 @@ internal static class WindowsNativeProcessLauncher
 
         try
         {
-            job = WindowsJobObject.Create();
+            job = WindowsJobObject.Create(processMemoryLimitBytes);
 
             stdin = new AnonymousPipeServerStream(
                 PipeDirection.Out,
@@ -145,7 +149,8 @@ internal static class WindowsNativeProcessLauncher
         char[] commandLineBuffer,
         WindowsEnvironmentBlock environment,
         bool disableReleasePseudoConsole,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        long? processMemoryLimitBytes)
     {
         if (spec.TerminalColumns is not { } columns ||
             spec.TerminalRows is not { } rows)
@@ -163,7 +168,7 @@ internal static class WindowsNativeProcessLauncher
 
         try
         {
-            job = WindowsJobObject.Create();
+            job = WindowsJobObject.Create(processMemoryLimitBytes);
 
             input = new AnonymousPipeServerStream(
                 PipeDirection.Out,

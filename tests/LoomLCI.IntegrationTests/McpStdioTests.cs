@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using LoomLCI.Mcp;
 using Microsoft.Extensions.DependencyInjection;
@@ -24,8 +25,8 @@ public sealed class McpStdioTests
         var enabledToolRegistrations = enabledServices.Count(
             descriptor => descriptor.ServiceType == typeof(McpServerTool));
 
-        Assert.Equal(18, disabledToolRegistrations);
-        Assert.Equal(20, enabledToolRegistrations);
+        Assert.Equal(19, disabledToolRegistrations);
+        Assert.Equal(21, enabledToolRegistrations);
     }
 
     [Fact]
@@ -66,6 +67,7 @@ public sealed class McpStdioTests
             Assert.Contains("not a sandbox", instructions, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("Prefer structured LoomLCI filesystem capabilities", instructions, StringComparison.Ordinal);
             Assert.Contains("filesystem_view_image", instructions, StringComparison.Ordinal);
+            Assert.Contains("filesystem_read_pdf", instructions, StringComparison.Ordinal);
             Assert.Contains("python_execute", instructions, StringComparison.Ordinal);
             Assert.Contains("Process capabilities", instructions, StringComparison.Ordinal);
             Assert.Contains("opaque values", instructions, StringComparison.OrdinalIgnoreCase);
@@ -183,6 +185,23 @@ public sealed class McpStdioTests
             .ToHashSet(StringComparer.Ordinal);
         Assert.Contains("path", viewImageRequired);
         Assert.DoesNotContain("workId", viewImageRequired);
+
+        var readPdf = Assert.Single(tools, tool => tool.Name == "filesystem_read_pdf");
+        Assert.Equal("Read PDF text", readPdf.ProtocolTool.Title);
+        Assert.Contains("crash-isolated worker", readPdf.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("64 MiB", readPdf.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("does not perform OCR", readPdf.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.True(readPdf.ProtocolTool.Annotations?.ReadOnlyHint ?? false);
+        Assert.False(readPdf.ProtocolTool.Annotations?.DestructiveHint ?? true);
+        Assert.True(readPdf.ProtocolTool.Annotations?.IdempotentHint ?? false);
+        Assert.False(readPdf.ProtocolTool.Annotations?.OpenWorldHint ?? true);
+        var readPdfProperties = GetRequiredProperty(readPdf.JsonSchema, "properties");
+        GetRequiredProperty(readPdfProperties, "path");
+        GetRequiredProperty(readPdfProperties, "workId");
+        AssertSchemaRange(GetRequiredProperty(readPdfProperties, "startPage"), 1, int.MaxValue);
+        AssertSchemaRange(GetRequiredProperty(readPdfProperties, "maxPages"), 1, 25);
+        Assert.Equal(1, GetRequiredProperty(GetRequiredProperty(readPdfProperties, "startPage"), "default").GetInt32());
+        Assert.Equal(10, GetRequiredProperty(GetRequiredProperty(readPdfProperties, "maxPages"), "default").GetInt32());
 
         var applyPatch = Assert.Single(tools, tool => tool.Name == "filesystem_apply_patch");
         Assert.Equal("Apply file changes", applyPatch.ProtocolTool.Title);
@@ -1191,6 +1210,126 @@ public sealed class McpStdioTests
     }
 
     [Fact]
+    public async Task StdioAdapterCanReadPdfTextThroughIsolatedWorker()
+    {
+        var repoRoot = FindRepoRoot();
+        var hostDll = GetHostDll(repoRoot);
+        Assert.True(File.Exists(hostDll), $"Host was not built: {hostDll}");
+
+        var scratch = Path.Combine(
+            Path.GetTempPath(),
+            "LoomLCI.PdfIntegration",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(scratch);
+
+        try
+        {
+            var pdfPath = Path.Combine(scratch, "sample.pdf");
+            CreateSimplePdf(pdfPath, "Page one alpha", "Page two beta", "Page three gamma");
+            await File.WriteAllTextAsync(
+                Path.Combine(scratch, "invalid.pdf"),
+                "%PDF-1.4\nthis is not a valid PDF");
+
+            var transport = new StdioClientTransport(new StdioClientTransportOptions
+            {
+                Name = "LoomLCI PDF integration test",
+                Command = "dotnet",
+                Arguments = [hostDll],
+                WorkingDirectory = repoRoot,
+                ShutdownTimeout = TimeSpan.FromSeconds(5)
+            });
+
+            await using var client = await McpClient.CreateAsync(transport);
+            var create = await client.CallToolAsync(
+                "work_create",
+                new Dictionary<string, object?>
+                {
+                    ["baseDirectory"] = scratch,
+                    ["label"] = "pdf-integration-test"
+                });
+            var workId = GetRequiredProperty(
+                GetRequiredProperty(GetStructured(create.StructuredContent), "result"),
+                "workId").GetString();
+            Assert.False(string.IsNullOrWhiteSpace(workId));
+
+            var read = await client.CallToolAsync(
+                "filesystem_read_pdf",
+                new Dictionary<string, object?>
+                {
+                    ["path"] = "sample.pdf",
+                    ["workId"] = workId,
+                    ["startPage"] = 2,
+                    ["maxPages"] = 1
+                });
+
+            Assert.False(read.IsError ?? false);
+            var root = GetStructured(read.StructuredContent);
+            Assert.True(GetRequiredProperty(root, "ok").GetBoolean());
+            var result = GetRequiredProperty(root, "result");
+            Assert.Equal("sample.pdf", GetRequiredProperty(result, "requestedPath").GetString());
+            Assert.Equal(3, GetRequiredProperty(result, "pageCount").GetInt32());
+            Assert.Equal(2, GetRequiredProperty(result, "startPage").GetInt32());
+            Assert.Equal(2, GetRequiredProperty(result, "endPage").GetInt32());
+            Assert.True(GetRequiredProperty(result, "hasMoreAfter").GetBoolean());
+            Assert.Equal(3, GetRequiredProperty(result, "nextPage").GetInt32());
+            var pages = GetRequiredProperty(result, "pages").EnumerateArray().ToArray();
+            var page = Assert.Single(pages);
+            Assert.Equal(2, GetRequiredProperty(page, "pageNumber").GetInt32());
+            Assert.Contains("Page two beta", GetRequiredProperty(page, "text").GetString());
+            Assert.False(GetRequiredProperty(page, "textTruncated").GetBoolean());
+
+            var outOfRange = await client.CallToolAsync(
+                "filesystem_read_pdf",
+                new Dictionary<string, object?>
+                {
+                    ["path"] = "sample.pdf",
+                    ["workId"] = workId,
+                    ["startPage"] = 99
+                });
+            Assert.True(outOfRange.IsError);
+            var outOfRangeError = GetRequiredProperty(
+                GetStructured(outOfRange.StructuredContent),
+                "error");
+            Assert.Equal("invalid_argument", GetRequiredProperty(outOfRangeError, "code").GetString());
+            Assert.Equal(
+                "page_out_of_range",
+                GetRequiredProperty(
+                    GetRequiredProperty(outOfRangeError, "details"),
+                    "reason").GetString());
+
+            var invalid = await client.CallToolAsync(
+                "filesystem_read_pdf",
+                new Dictionary<string, object?>
+                {
+                    ["path"] = "invalid.pdf",
+                    ["workId"] = workId
+                });
+            Assert.True(invalid.IsError);
+            var invalidError = GetRequiredProperty(
+                GetStructured(invalid.StructuredContent),
+                "error");
+            Assert.Equal("unsupported", GetRequiredProperty(invalidError, "code").GetString());
+            Assert.Equal(
+                "invalid_pdf",
+                GetRequiredProperty(
+                    GetRequiredProperty(invalidError, "details"),
+                    "reason").GetString());
+
+            var close = await client.CallToolAsync(
+                "work_close",
+                new Dictionary<string, object?> { ["workId"] = workId });
+            Assert.True(GetRequiredProperty(GetStructured(close.StructuredContent), "ok").GetBoolean());
+        }
+        finally
+        {
+            if (Directory.Exists(scratch))
+            {
+                Directory.Delete(scratch, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task StdioAdapterCanRoundTripWorkPlanAndRecoverFromConflict()
     {
         var repoRoot = FindRepoRoot();
@@ -1639,6 +1778,72 @@ public sealed class McpStdioTests
             {
             }
         }
+    }
+
+    private static void CreateSimplePdf(string path, params string[] pageTexts)
+    {
+        if (pageTexts.Length == 0)
+        {
+            throw new ArgumentException("At least one page is required.", nameof(pageTexts));
+        }
+
+        var objects = new List<(int Number, string Body)>();
+        objects.Add((1, "<< /Type /Catalog /Pages 2 0 R >>"));
+
+        var pageNumbers = Enumerable.Range(0, pageTexts.Length)
+            .Select(index => 4 + (index * 2))
+            .ToArray();
+        objects.Add((2,
+            $"<< /Type /Pages /Kids [{string.Join(" ", pageNumbers.Select(number => $"{number} 0 R"))}] /Count {pageTexts.Length} >>"));
+        objects.Add((3, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"));
+
+        for (var index = 0; index < pageTexts.Length; index++)
+        {
+            var pageNumber = pageNumbers[index];
+            var contentNumber = pageNumber + 1;
+            var escaped = pageTexts[index]
+                .Replace("\\", "\\\\", StringComparison.Ordinal)
+                .Replace("(", "\\(", StringComparison.Ordinal)
+                .Replace(")", "\\)", StringComparison.Ordinal);
+            var stream = $"BT\n/F1 12 Tf\n72 720 Td\n({escaped}) Tj\nET\n";
+
+            objects.Add((pageNumber,
+                $"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents {contentNumber} 0 R >>"));
+            objects.Add((contentNumber,
+                $"<< /Length {Encoding.ASCII.GetByteCount(stream)} >>\nstream\n{stream}endstream"));
+        }
+
+        objects.Sort((left, right) => left.Number.CompareTo(right.Number));
+        using var memory = new MemoryStream();
+        using var writer = new StreamWriter(memory, Encoding.ASCII, 1024, leaveOpen: true)
+        {
+            NewLine = "\n"
+        };
+
+        writer.Write("%PDF-1.4\n");
+        writer.Flush();
+        var offsets = new Dictionary<int, long>();
+        foreach (var (number, body) in objects)
+        {
+            offsets[number] = memory.Position;
+            writer.Write($"{number} 0 obj\n{body}\nendobj\n");
+            writer.Flush();
+        }
+
+        var xref = memory.Position;
+        var maxObject = objects.Max(item => item.Number);
+        writer.Write($"xref\n0 {maxObject + 1}\n");
+        writer.Write("0000000000 65535 f \n");
+        for (var number = 1; number <= maxObject; number++)
+        {
+            writer.Write(offsets.TryGetValue(number, out var offset)
+                ? $"{offset:0000000000} 00000 n \n"
+                : "0000000000 00000 f \n");
+        }
+        writer.Write($"trailer\n<< /Size {maxObject + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
+        writer.Flush();
+
+        File.WriteAllBytes(path, memory.ToArray());
     }
 
     private static string GetHostDll(string repoRoot)

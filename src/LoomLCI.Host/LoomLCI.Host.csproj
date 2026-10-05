@@ -4,6 +4,7 @@
     <ProjectReference Include="..\LoomLCI.Core\LoomLCI.Core.csproj" />
     <ProjectReference Include="..\LoomLCI.Windows\LoomLCI.Windows.csproj" />
     <ProjectReference Include="..\LoomLCI.Mcp\LoomLCI.Mcp.csproj" />
+    <ProjectReference Include="..\LoomLCI.PdfWorker\LoomLCI.PdfWorker.csproj" />
   </ItemGroup>
 
   <ItemGroup>

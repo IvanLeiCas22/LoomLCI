@@ -152,6 +152,9 @@ internal sealed class WindowsPipeProcessIo : IWindowsProcessIo
     public Task CloseSessionAsync()
         => Task.CompletedTask;
 
+    internal Task WaitForOutputCompletionAsync(CancellationToken cancellationToken)
+        => Task.WhenAll(_stdoutPump, _stderrPump).WaitAsync(cancellationToken);
+
     public async ValueTask DisposeAsync()
     {
         if (_disposed)

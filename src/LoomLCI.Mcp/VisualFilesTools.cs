@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
 using LoomLCI.Core;
 using LoomLCI.Core.VisualFiles;
 using ModelContextProtocol.Protocol;
@@ -11,6 +12,25 @@ public sealed record VisualImageDto(
     string FullPath,
     string MimeType,
     long SizeBytes);
+
+public sealed record PdfTextPageDto(
+    int PageNumber,
+    string Text,
+    int TextLength,
+    bool TextTruncated);
+
+public sealed record PdfTextReadDto(
+    string RequestedPath,
+    string FullPath,
+    long SizeBytes,
+    int PageCount,
+    int StartPage,
+    int EndPage,
+    int TotalTextLength,
+    bool OutputLimitReached,
+    bool HasMoreAfter,
+    int? NextPage,
+    IReadOnlyList<PdfTextPageDto> Pages);
 
 [McpServerToolType]
 public sealed class VisualFilesTools
@@ -90,5 +110,67 @@ public sealed class VisualFilesTools
         return McpToolResults.From(
             envelope,
             ImageContentBlock.FromBytes(image.Bytes, image.MimeType));
+    }
+
+    [McpServerTool(
+        Name = "filesystem_read_pdf",
+        Title = "Read PDF text",
+        UseStructuredContent = true,
+        OutputSchemaType = typeof(ToolEnvelope<PdfTextReadDto>),
+        ReadOnly = true,
+        Destructive = false,
+        Idempotent = true,
+        OpenWorld = false)]
+    [Description(
+        "Extracts bounded text from a known local PDF using a crash-isolated worker. " +
+        "Pages are 1-based and results are paginated by page. PDFs over 64 MiB are rejected. " +
+        "This tool does not perform OCR or render pages, so scanned/image-only PDFs may return little or no text.")]
+    public async Task<CallToolResult> ReadPdf(
+        [Description("PDF path. May be absolute or relative to the work session base directory.")]
+        string path,
+        [Description("Optional work session handle used to resolve relative paths.")]
+        string? workId = null,
+        [Description("1-based first page to read.")][Range(1, int.MaxValue)]
+        int startPage = 1,
+        [Description("Maximum number of pages to read in this call.")]
+        [Range(1, VisualFilesLimits.MaxPdfPagesPerRead)]
+        int maxPages = 10,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _visualFiles.ReadPdfTextAsync(
+            path,
+            string.IsNullOrWhiteSpace(workId) ? null : new WorkId(workId),
+            startPage,
+            maxPages,
+            cancellationToken).ConfigureAwait(false);
+
+        if (!result.IsSuccess)
+        {
+            return McpToolResults.From(
+                ToolEnvelope<PdfTextReadDto>.From(
+                    LoomResult<PdfTextReadDto>.Failure(result.Error!)));
+        }
+
+        var pdf = result.Value!;
+        var dto = new PdfTextReadDto(
+            pdf.RequestedPath,
+            pdf.FullPath,
+            pdf.SizeBytes,
+            pdf.PageCount,
+            pdf.StartPage,
+            pdf.EndPage,
+            pdf.TotalTextLength,
+            pdf.OutputLimitReached,
+            pdf.HasMoreAfter,
+            pdf.NextPage,
+            pdf.Pages.Select(page => new PdfTextPageDto(
+                page.PageNumber,
+                page.Text,
+                page.TextLength,
+                page.TextTruncated)).ToArray());
+
+        return McpToolResults.From(
+            ToolEnvelope<PdfTextReadDto>.From(
+                LoomResult<PdfTextReadDto>.Success(dto)));
     }
 }
