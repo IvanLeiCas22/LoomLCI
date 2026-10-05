@@ -1,6 +1,6 @@
 # Bloque G - Visual Files
 
-> Estado: **G1.0 y G1.1 implementados y validados técnicamente; G1.1 sólo espera refresh del catálogo de ChatGPT para el smoke visual directo.** El próximo bloque funcional es G1.2 PDF text worker.
+> Estado: **G1.0 y G1.1 implementados y validados técnicamente.** El smoke visual de G1.1 confirmó un bloqueo upstream de ChatGPT: la tool MCP devuelve correctamente `ImageContentBlock`, pero el cliente no lo materializa como entrada visual del modelo. Esto no bloquea G1.2 PDF text worker.
 
 ## Objetivo
 
@@ -769,7 +769,7 @@ Completado:
 
 ## G1.1 - Local image
 
-> **Implementado en `a9f50fb`.** Ver [[G1.1 - Local image]]. Validación local/STDIO/portable/tunnel operativo completa; queda sólo el smoke visual directo tras refrescar el catálogo cliente.
+> **Implementado en `a9f50fb`.** Ver [[G1.1 - Local image]]. Validación local/STDIO/portable/tunnel completa. El smoke visual directo confirmó que ChatGPT descubre e invoca la tool, pero actualmente pierde/no materializa `ImageContentBlock` como visión del modelo; estado de aceptación visual: **BLOCKED_UPSTREAM / client compatibility**.
 
 - path resolver compartido;
 - contratos Core;
@@ -783,14 +783,19 @@ Completado:
 
 ## G1.2 - PDF text worker
 
-- proyecto privado `LoomLCI.PdfWorker`;
-- PdfPig 0.1.16;
-- PdfWorkerClient;
-- Job Object + 20 s + 256 MiB process-memory cap;
-- page/text caps;
-- password/invalid/crash mapping;
-- `filesystem_read_pdf`;
-- corpus dirigido.
+> **Investigación específica completamente cerrada.** Ver [[G1.2 - PDF text worker]]. Carrier Host dev/publish/tests y semántica real del memory cap quedaron verificados; no quedan pendientes técnicos conocidos antes de implementación.
+
+- proyecto privado `LoomLCI.PdfWorker` como class library;
+- PdfPig 0.1.16 estable + `ContentOrderTextExtractor`;
+- aislamiento mediante una segunda instancia de `LoomLCI.Host` en modo `--internal-pdf-worker-v1`, evitando duplicar un runtime self-contained;
+- `PdfWorkerClient` privado sobre la infraestructura nativa de Process, sin ResourceRegistry/ProcessHandle;
+- Job Object con kill-on-close + 256 MiB process-memory cap;
+- timeout propio 20 s;
+- handle estable `FileShare.Read` durante todo el parseo;
+- JSON one-shot por stdin/stdout con respuesta acotada;
+- límites 64 MiB PDF, 65.536 code points/página y 262.144 agregados;
+- password/invalid/OOM/timeout/crash mapping;
+- `filesystem_read_pdf` agrega la tool 21 con Work Plan.
 
 ## G1.3 - PDF render
 
@@ -805,7 +810,7 @@ Completado:
 
 - suite completa Release;
 - publish self-contained;
-- incluir PdfWorker en payload;
+- verificar que Host publicado incluye `LoomLCI.PdfWorker` + PdfPig sin duplicar un segundo runtime .NET;
 - Secure MCP Tunnel;
 - real-world/fresh-agent;
 - segunda PC si el cambio de packaging lo justifica;
@@ -851,7 +856,7 @@ Los cinco pendientes previos a implementación quedan cerrados:
 - PDFs protegidos: comportamiento probado y error fijado;
 - DTOs/error codes/tool contracts: definidos.
 
-G1.0 y la implementación de G1.1 quedaron cerrados técnicamente. No hay bloqueo arquitectónico conocido para iniciar G1.2; el único pendiente de G1.1 es el smoke visual directo tras refrescar el catálogo de ChatGPT.
+G1.0 y G1.1 quedaron cerrados técnicamente. El único faltante de G1.1 es externo: ChatGPT normal no materializa actualmente el `ImageContentBlock` MCP como visión del modelo. No hay bloqueo arquitectónico conocido para iniciar G1.2.
 
 ## Fuentes
 

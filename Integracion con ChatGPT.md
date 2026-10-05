@@ -94,7 +94,7 @@ La instalación final mantiene una única ruta de acceso: la app MCP conectada a
 
 El runtime activo final es `loomlci-installed`, actualmente en `0.1.0-dev-a9f50fb8fbe3`; el legacy `loomlci` permanece detenido como fallback. La misma instalación portable fue además validada desde cero en una segunda PC Windows x64: ChatGPT operó sobre la notebook, luego se detuvo ese runtime y se volvió a iniciar LoomLCI en la PC de escritorio sobre el mismo tunnel, confirmando el cambio de máquina correctamente.
 
-Visual Files G1.1 ya está instalado en el runtime portable. El smoke real de una tool preexistente (`work_create`/`work_close`) pasó desde ChatGPT sobre el runtime final; esta conversación conserva el catálogo de 19 acciones cargado antes del upgrade, por lo que el smoke visual de `filesystem_view_image` requiere refrescar las acciones de la app o abrir un chat nuevo. G1.2 PDF text worker es el próximo bloque funcional; Computer continúa después como H1.
+Visual Files G1.1 ya está instalado en el runtime portable. En un chat con catálogo refrescado se confirmaron las 20 tools y `filesystem_view_image` fue invocado correctamente con PNG/JPEG/WebP. LoomLCI y el round-trip MCP STDIO entregan `TextContentBlock + ImageContentBlock` con bytes correctos, pero ChatGPT normal expone al modelo sólo el resultado estructurado y no materializa el bloque de imagen como entrada visual. Se registra como **BLOCKED_UPSTREAM / client compatibility**, no como fallo conocido del runtime ni del Secure MCP Tunnel. G1.2 PDF text worker puede continuar porque su camino principal es textual.
 
 ## Notas
 
