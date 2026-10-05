@@ -1,6 +1,6 @@
 # Bloque G - Visual Files
 
-> Estado: **G1.0 implementado y validado; próximo paso G1.1 Local image**. El diseño general G1 permanece cerrado y este bloque queda antes de [[Bloque H - Computer]].
+> Estado: **G1.0 implementado y validado; investigación específica de G1.1 cerrada y lista para implementación**. El diseño general G1 permanece cerrado y este bloque queda antes de [[Bloque H - Computer]].
 
 ## Objetivo
 
@@ -207,7 +207,7 @@ Antes de leer:
 - tamaño <= 6 MiB;
 - formato soportado.
 
-Registrar length + lastWriteTimeUtc antes y después de la lectura. Si cambia, descartar bytes y devolver `conflict` con `reason=file_changed_during_read`.
+G1.1 reemplaza la propuesta de comparar timestamps por una lectura estable con `FileShare.Read`; si ya existe un writer/lock incompatible, devolver `busy` retryable con `reason=file_busy`. Ver [[G1.1 - Local image]].
 
 # 3. PDF textual
 
@@ -551,12 +551,13 @@ Usar los existentes con `details.reason` específico.
 | ACL/OS denial | `access_denied` | - |
 | formato de imagen no soportado | `unsupported` | `unsupported_image_format` |
 | imagen > 6 MiB | `unsupported` | `image_too_large` |
+| imagen bloqueada por writer/lock | `busy` | `file_busy` |
 | PDF > 64 MiB | `unsupported` | `pdf_too_large` |
 | PDF cifrado | `unsupported` | `password_protected_pdf` |
 | PDF inválido/malformado | `unsupported` | `invalid_pdf` |
 | PNG render > 6 MiB o payload MCP >9 MiB | `unsupported` | `rendered_image_too_large` |
 | page fuera de rango | `invalid_argument` | `page_out_of_range` |
-| archivo cambió durante lectura | `conflict` | `file_changed_during_read` |
+| PDF/archivo futuro cambia durante una lectura que no use lock estable | `conflict` | `file_changed_during_read` |
 | worker agotó 20 s | `deadline_exceeded` | `pdf_worker_timeout` |
 | worker alcanza límite de memoria/OOM controlado | `unsupported` | `pdf_resource_limit` |
 | worker crash/salida anormal | `execution_failed` | `pdf_worker_crashed` |
@@ -768,13 +769,16 @@ Completado:
 
 ## G1.1 - Local image
 
+> Investigación específica cerrada en [[G1.1 - Local image]]. **Listo para implementación.**
+
 - path resolver compartido;
 - contratos Core;
 - `VisualFilesCapability`;
 - `IVisualFilesProvider`;
-- PNG/JPEG/WebP;
+- PNG/JPEG/WebP con validación estructural ligera;
+- lectura estable con `FileShare.Read` y `busy/file_busy` ante writer activo;
 - `filesystem_view_image`;
-- límites/conflict;
+- guard 6 MiB binarios + 9 MiB MCP;
 - STDIO + tunnel + ChatGPT.
 
 ## G1.2 - PDF text worker

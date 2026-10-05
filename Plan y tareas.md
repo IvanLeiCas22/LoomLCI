@@ -103,7 +103,7 @@ Superficie v0.1 fijada:
 Implementación incremental propuesta:
 
 1. **G1.0 Binary/image foundation — CERRADO**: Windows TFM, helper MCP mixed structured + image, guard 6/9 MiB, 4 MCP tests, harness Release y portable validados; suite total 207/207.
-2. **G1.1 Local image — PRÓXIMO**: provider/capability + `filesystem_view_image` + prueba real por tunnel.
+2. **G1.1 Local image — INVESTIGACIÓN CERRADA / LISTO PARA IMPLEMENTAR**: provider/capability separados, resolver compartido, validación estructural PNG/JPEG/WebP, lectura estable `FileShare.Read`, `filesystem_view_image` y smoke real por tunnel.
 3. **G1.2 PDF text worker**: `LoomLCI.PdfWorker` one-shot, PdfPig 0.1.16, Job Object/timeout, rangos/límites y `filesystem_read_pdf`.
 4. **G1.3 PDF render**: Windows.Data.Pdf y `filesystem_render_pdf_page`.
 5. **G1.4 Evaluation + portable**: corpus real, malformed/oversized, tunnel/ChatGPT, fresh-agent y deployment.
