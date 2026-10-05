@@ -380,7 +380,26 @@ Se validó un update side-by-side del deployment existente para G1.1:
 - tunnel id preservado;
 - smoke real desde ChatGPT sobre el runtime final con `work_create` + `work_close`: OK.
 
-La conversación donde se hizo el upgrade conservó el catálogo de 19 acciones cargado antes del update. Por eso el smoke visual de la nueva `filesystem_view_image` requiere refrescar las acciones de la app o abrir un chat nuevo; no es un fallo del runtime. Los fixtures preparados para esa comprobación están en `artifacts/g11-smoke/visual-smoke.{png,jpg,webp}`.
+La conversación donde se hizo el upgrade conservó el catálogo de 19 acciones cargado antes del update. Por eso el smoke visual de la nueva `filesystem_view_image` requirió refrescar las acciones de la app. En un chat refrescado se confirmó posteriormente la tool, pero ChatGPT no materializó su `ImageContentBlock` como visión del modelo; quedó documentado como bloqueo upstream del cliente.
+
+### Update G1.2 - PDF text worker (2026-10-05)
+
+Se validó e instaló un nuevo update side-by-side para G1.2:
+
+- commit de producto: `b6e41fd feat: implement G1.2 PDF text worker`;
+- build Release: **0 warnings / 0 errors**;
+- suite completa: **235/235** = 84 Core + 126 Windows + 4 MCP + 11 Integration + 6 Launcher + 4 PdfWorker;
+- builder portable de validación: Launcher **6/6** + IntegrationTests contra Host publicado **11/11**;
+- el Host publicado contiene `LoomLCI.PdfWorker.dll` + PdfPig y relanza su propio `LoomLCI.Host.exe` como child worker; no existe un segundo runtime .NET self-contained;
+- paquete final: `LoomLCI-0.1.0-dev-b6e41fd645d3-win-x64.zip`;
+- SHA-256: `73b2e7095c13334541da571f35e0b04760a4ee12c3771d87d36f1ce5a248fa23`;
+- setup side-by-side: OK;
+- cutover del alias `loomlci-installed`: stop/start OK;
+- runtime activo final: `0.1.0-dev-b6e41fd645d3`, healthy/ready;
+- tunnel id preservado;
+- smoke real desde ChatGPT sobre el runtime nuevo mediante `work_create` + `work_close`: **OK**.
+
+G1.2 lleva el catálogo del Host normal de 20 a **21 tools**. La conversación del upgrade conserva las 20 acciones cargadas antes del cutover, por lo que `filesystem_read_pdf` no puede invocarse directamente hasta refrescar el catálogo o abrir un chat nuevo. La ruta ChatGPT -> app -> tunnel -> runtime nuevo quedó verificada con una tool preexistente; el smoke directo de la tool 21 es el único pendiente operativo de este update.
 
 ### Hallazgo durante rollback
 

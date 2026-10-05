@@ -92,7 +92,7 @@ Validación multi-PC cerrada: el mismo paquete se instaló desde cero en una not
 
 ## Próximo bloque de capability - Visual Files G1
 
-Investigación y diseño v0.1 cerrados en [[Bloque G - Visual Files]]. **G1.0 y G1.1 ya están implementados.** El smoke de G1.1 confirmó un bloqueo upstream de ChatGPT al convertir `ImageContentBlock` MCP en entrada visual; LoomLCI/STDIO funcionan correctamente. El próximo bloque es G1.2 PDF text worker.
+Investigación y diseño v0.1 cerrados en [[Bloque G - Visual Files]]. **G1.0, G1.1 y G1.2 ya están implementados.** G1.1 conserva un bloqueo upstream visual de ChatGPT; G1.2 está instalado/healthy y sólo espera refresh del catálogo para su smoke directo. El próximo bloque de implementación es G1.3 PDF render.
 
 Superficie v0.1 fijada:
 
@@ -104,8 +104,8 @@ Implementación incremental propuesta:
 
 1. **G1.0 Binary/image foundation — CERRADO**: Windows TFM, helper MCP mixed structured + image, guard 6/9 MiB, 4 MCP tests, harness Release y portable validados; suite total 207/207.
 2. **G1.1 Local image — IMPLEMENTADO / VISUAL ACCEPTANCE BLOCKED_UPSTREAM**: `filesystem_view_image`, provider/capability separados, resolver compartido, PNG/JPEG/WebP, `FileShare.Read`, 223/223 tests y runtime portable final healthy/ready. ChatGPT descubre/invoca la tool pero no entrega su `ImageContentBlock` a la visión del modelo.
-3. **G1.2 PDF text worker — INVESTIGACIÓN COMPLETAMENTE CERRADA / LISTO PARA IMPLEMENTACIÓN**: ver [[G1.2 - PDF text worker]]. Carrier Host verificado en `dotnet Host.dll` y self-contained `Host.exe`; memory cap real validado; PdfPig 0.1.16 en proceso hijo aislado, Job Object 256 MiB, timeout 20 s, stable file lock, JSON one-shot, rangos/límites y `filesystem_read_pdf`.
-4. **G1.3 PDF render**: Windows.Data.Pdf y `filesystem_render_pdf_page`.
+3. **G1.2 PDF text worker — IMPLEMENTADO (`b6e41fd`)**: ver [[G1.2 - PDF text worker]]. PdfPig 0.1.16 aislado en child Host, Job Object 256 MiB, timeout 20 s, stable file lock, JSON one-shot y `filesystem_read_pdf`; **235/235 tests**, Host publicado **11/11**, runtime `0.1.0-dev-b6e41fd645d3` healthy/ready. Smoke directo pendiente sólo de refresh de catálogo a 21 tools.
+4. **G1.3 PDF render — PRÓXIMO**: Windows.Data.Pdf y `filesystem_render_pdf_page`.
 5. **G1.4 Evaluation + portable**: corpus real, malformed/oversized, tunnel/ChatGPT, fresh-agent y deployment.
 
 Decisiones cerradas: tunnel 10 MiB real, imágenes/PNG <=6 MiB + payload MCP visual <=9 MiB, PDF <=64 MiB, texto PDF <=65.536 code points por página y <=262.144 agregados, PdfPig 0.1.16 aislado en worker privado con 256 MiB/20 s, y PDFs protegidos reportados como `unsupported`. La investigación específica de G1.0 también cerró TFM, helper MCP, tests MCP, harness Release y publish portable.
