@@ -1,6 +1,6 @@
 # Plan y tareas
 
-> Estado: **F1.1 Core + F1.2 MCP cerrados; F1.3 provisional**. Smoke y A/B de regresión pasaron. Benchmark real-world final congelado en [[F1.3 - Benchmark real-world Work Plan]]: 4 positivos sobre aplicaciones reales, 3 controles y 1 escalada por follow-up; skill 0.2.1 queda congelada hasta terminar las corridas.
+> Estado: **Agent Support F1 cerrado**. F1.1 Core + F1.2 MCP + F1.3 conducta real-world están validados. El benchmark final de [[F1.3 - Benchmark real-world Work Plan]] cerró 4/4 positivos, 3/3 controles y escalada 8A sin plan -> 8B con plan. Skill 0.2.1 no requiere más ajuste. Próximo bloque propuesto: **Computer**.
 
 ## Distinciones necesarias
 
@@ -65,6 +65,28 @@ Debe poder activarse/desactivarse por adapter/perfil:
 - Codex / Claude Code u otros harnesses con planificación propia: desactivado para no duplicar herramientas.
 
 La implementación F1.1 mantiene el Work Plan directamente dentro de WorkSession y no usa Resource Registry. El formato exacto de la tool y la política de exposición se cierran en F1.2.
+
+## Cierre F1.3
+
+El holdout real-world confirmó que la política de selección es suficientemente discriminante:
+
+- workflows con creación/diagnóstico/corrección/validación: 4/4 usaron Work Plan de forma útil;
+- lookups simples: 3/3 omitieron Work Plan;
+- una misma WorkSession escaló correctamente de lookup simple sin plan a workflow multi-fase con plan.
+
+No continuar optimizando prompting ni contrato de Work Plan sin evidencia nueva.
+
+## Próximo bloque
+
+**Computer** es el siguiente bloque de arquitectura. Antes de implementar conviene hacer una investigación específica que cierre, como mínimo:
+
+- contrato de Observation y stale detection;
+- captura de ventana/escritorio, multi-monitor y DPI;
+- enumeración/identidad/lifecycle de ventanas;
+- frontera entre UI Automation semántica e input físico;
+- serialización de input global;
+- integración con WorkSession/ResourceRegistry y cleanup;
+- relación con Python Runtime/PyAutoGUI sin introducir todavía un bridge innecesariamente complejo.
 
 ## Fuentes
 

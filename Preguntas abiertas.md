@@ -26,12 +26,14 @@ Preguntas deliberadamente diferidas:
 
 - F1.1 Core implementado/validado: estado Work Plan dentro de WorkSession, revision/CAS, límites y lifecycle.
 - F1.2 implementado/validado: `work_plan_get`/`work_plan_update`, schema/annotations y opt-in estático por adapter.
-- F1.3 provisional: smoke y A/B de regresión aprobados. Benchmark real-world final congelado en [[F1.3 - Benchmark real-world Work Plan]] con Blender, Godot, AutoCAD e Inkscape; skill 0.2.1 congelada hasta terminar las corridas.
+- F1.3 cerrado: benchmark real-world [[F1.3 - Benchmark real-world Work Plan]] aprobado con 4/4 positivos, 3/3 controles y escalada 8A sin plan -> 8B con plan.
 - Evaluar más adelante si hacen falta dependencias explícitas/DAG; no incluirlas en v0.1 sin evidencia.
 
 ## Operación
 
 - WorkSession idle TTL, tombstone retention, ProcessHandle post-exit TTL y explicit release definidos en [[Bloque D0 - Resource lifetime y expiry]]; quedan futuras policies por nuevos resource kinds.
+- Ergonomía futura: evaluar si comandos CLI muy cortos justifican una superficie que reduzca el ciclo process_start -> process_read; no es bloqueo funcional actual.
+- Ergonomía futura: Work Plan CAS + IDs opacos es deliberadamente seguro pero verboso en workflows lineales; no simplificar sin preservar semántica de concurrencia.
 - tamaños de buffers.
 - formato y retención del audit durable.
 - autenticación remota si se habilita HTTP fuera de localhost/tunnel.

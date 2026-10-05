@@ -2,7 +2,7 @@
 
 ## Estado
 
-**F1.1 Core + F1.2 MCP cerrados. F1.3 pasó smoke y un A/B de regresión (2/3 positivos + 2/2 negativos), pero el cierre conductual queda provisional hasta completar un holdout independiente de selección de Work Plan con casos claros y de frontera.**
+**F1 cerrado. F1.1 Core + F1.2 MCP + F1.3 conducta real-world están implementados y validados. El holdout final cerró 4/4 positivos claros, 3/3 controles sin overplanning y escalada 8A sin plan -> 8B con plan.**
 
 Este bloque propone una primera capability opcional de Agent Support para mantener una checklist estructurada del trabajo lógico de un agente dentro de una WorkSession. No es un scheduler, no ejecuta pasos y no reemplaza Process, Python, MCP Tasks ni la planificación propia del host.
 
@@ -1440,9 +1440,9 @@ F1 queda cerrado cuando:
 
 ## Recomendación
 
-Continuar con F1 antes de Computer, pero mantenerlo deliberadamente pequeño. Su valor principal no es “hacer un gestor de tareas”, sino validar una capa Agent Support opcional y robusta sobre WorkSession antes de entrar al bloque Computer, que agregará estado observable, input global y mucha más complejidad de Windows.
+F1 queda cerrado sin más cambios de prompting, Core/API ni cantidad de tools. El siguiente bloque es **Computer**, que agregará estado observable, captura/UIA, input global y bastante más complejidad de Windows.
 
-Si la evaluación fresh-agent muestra que ChatGPT no usa Work Plan de forma útil o que genera fricción, la feature debe poder quedar deshabilitada sin afectar Core execution.
+La propiedad importante que se conserva es que Work Plan sigue siendo opcional por adapter/perfil y puede deshabilitarse sin afectar Core execution.
 
 ## Fuentes
 
