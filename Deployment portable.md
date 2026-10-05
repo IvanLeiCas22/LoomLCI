@@ -1,6 +1,6 @@
 # Deployment portable
 
-> Estado: **diseño cerrado para implementación inicial**. No reemplaza todavía la integración actual. El objetivo es instalar LoomLCI side-by-side como aplicación por usuario, arrancable con doble clic y transferible a otra PC Windows x64, conservando rollback inmediato al runtime actual.
+> Estado: **implementado y validado end-to-end en la PC principal**. LoomLCI ya funciona desde una instalación Release side-by-side, arrancable con doble clic e independiente del repo/IvanSpace. Falta validar el mismo paquete en una segunda PC Windows x64.
 
 ## Objetivo
 
@@ -21,7 +21,7 @@ Computer sigue siendo la próxima capability grande. Este bloque es infraestruct
 - soportar rutas de usuario con espacios;
 - separar binarios instalados de estado/config/secrets por máquina.
 
-## Layout propuesto
+## Layout implementado
 
 ```text
 %LOCALAPPDATA%\Programs\LoomLCI\
@@ -33,14 +33,13 @@ Computer sigue siendo la próxima capability grande. Este bloque es infraestruct
     tools\
         tunnel-client.exe
 
-%LOCALAPPDATA%\LoomLCI\
+%LOCALAPPDATA%\LoomLCI\deployment\
     config\
         machine.json
     secrets\
         runtime-api-key.txt
     tunnel-profiles\
     tunnel-state\
-    runtimes\
     logs\
 ```
 
@@ -158,18 +157,18 @@ Para v1, key de scope reducido + ACL user-only es más simple y coincide con el 
 
 Mantener separados:
 
-- `TUNNEL_CLIENT_PROFILE_DIR=%LOCALAPPDATA%\LoomLCI\tunnel-profiles`;
-- `TUNNEL_CLIENT_STATE_DIR=%LOCALAPPDATA%\LoomLCI\tunnel-state`.
+- `TUNNEL_CLIENT_PROFILE_DIR=%LOCALAPPDATA%\LoomLCI\deployment\tunnel-profiles`;
+- `TUNNEL_CLIENT_STATE_DIR=%LOCALAPPDATA%\LoomLCI\deployment\tunnel-state`.
 
 La documentación oficial distingue explícitamente profile, runtime alias y state dir. El nuevo deployment no debe reutilizar el state root legacy durante la fase side-by-side.
 
-Alias inicial recomendado para la prueba de migración:
+Alias instalado:
 
 ```text
 loomlci-installed
 ```
 
-El alias actual `loomlci` permanece intacto hasta completar el cutover.
+El alias legacy `loomlci` se conservó intacto durante el cutover y actualmente permanece detenido como fallback.
 
 ## Rutas con espacios
 
@@ -188,7 +187,7 @@ Decisión:
 
 ## LoomLCI.Launcher
 
-Superficie inicial:
+Superficie implementada:
 
 ```text
 LoomLCI.Launcher.exe start
@@ -233,7 +232,7 @@ Ejecutar `runtimes stop <alias>`. Esta operación detiene el runtime local y dej
 
 ## Setup inicial
 
-Secuencia propuesta:
+Secuencia implementada:
 
 1. validar Windows x64 y ubicación de Known Folders;
 2. copiar Launcher y Host Release a una nueva carpeta versionada;
@@ -249,7 +248,7 @@ Secuencia propuesta:
 12. crear acceso directo de escritorio mediante Shell Link de Windows;
 13. **no** iniciar ni detener todavía el runtime legacy durante la instalación side-by-side.
 
-Setup debe ser transaccional en lo posible: escribir primero en staging y publicar la instalación sólo después de pasar validaciones locales.
+La implementación usa staging para publicar la carpeta versionada del Host y escritura temporal para `machine.json`. No es todavía un instalador transaccional completo: un fallo tardío de Setup puede dejar archivos instalados sin activar ningún runtime, pero no modifica ni detiene el legacy.
 
 ## Criterio de instalación sana
 
@@ -277,13 +276,13 @@ Después de start:
 
 La primera migración se hace manualmente y de forma reversible:
 
-1. capturar `runtimes status loomlci --json` del runtime legacy y conservar su `repair_command`/profile como evidencia de rollback;
+1. capturar `runtimes status loomlci --json` del runtime legacy y conservar tunnel id, profile, target y referencia runtime-only además del `repair_command`;
 2. confirmar que el nuevo deployment pasó Setup + doctor;
 3. detener **sólo** el runtime legacy;
 4. iniciar `loomlci-installed`;
 5. validar status completo;
 6. hacer smoke real desde ChatGPT;
-7. si falla cualquier punto, detener `loomlci-installed` y relanzar el runtime legacy con su configuración original, que nunca fue modificada.
+7. si falla cualquier punto, detener `loomlci-installed` y relanzar el runtime legacy con `runtimes connect` + tunnel id + referencia `--runtime-api-key file:...`; no depender ciegamente de un `repair_command` que requiera admin key.
 
 No ejecutar simultáneamente los dos runtimes sobre el mismo tunnel durante esta prueba STDIO.
 
@@ -316,6 +315,62 @@ Si falla:
 4. verificar health.
 
 No implementar auto-update en la primera versión; sólo dejar la estructura preparada.
+
+## Implementación y validación en PC principal
+
+Implementado en commit `9db4f61`:
+
+- nuevo proyecto `src/LoomLCI.Launcher`;
+- comandos `start`, `stop`, `status`, `setup`;
+- primer arranque desde paquete dispara setup si todavía no existe `machine.json`;
+- build portable mediante `scripts/Build-PortablePackage.ps1`;
+- Host Release self-contained `win-x64`;
+- Launcher self-contained single-file;
+- descarga fijada de tunnel-client v0.0.14 con verificación SHA-256 del ZIP y del EXE;
+- runtime key en archivo con ACL user-only;
+- profile/state aislados bajo `%LOCALAPPDATA%\LoomLCI\deployment`;
+- acceso directo `LoomLCI.lnk` con argumento `start`;
+- `PATH` modificado sólo para el child tunnel-client para resolver `LoomLCI.Host.exe`.
+
+Validaciones realizadas:
+
+- build de solución: **0 warnings / 0 errors**;
+- suite completa: **203/203 tests** = 84 Core + 104 Windows + 9 Integration + 6 Launcher;
+- build portable contra Host publicado: Launcher **6/6** + MCP Integration **9/9**;
+- setup aislado en rutas con espacios: OK; profile sin secreto literal; ACL protegida; hash de tunnel-client correcto;
+- setup real side-by-side: OK;
+- acceso directo real creado y verificado;
+- cutover legacy -> instalado: OK;
+- runtime instalado: `process_running=true`, `healthy=true`, `ready=true`, sin issues;
+- smoke real desde ChatGPT mediante `work_create` + `work_close`: OK;
+- rollback instalado -> legacy: OK usando reconnect runtime-only;
+- smoke real desde ChatGPT sobre legacy restaurado: OK;
+- segundo cutover legacy -> instalado: OK;
+- smoke final desde ChatGPT sobre la instalación portable: OK.
+
+Paquete validado:
+
+```text
+LoomLCI-0.1.0-dev-9db4f61eafde-win-x64.zip
+size: 69,255,594 bytes
+SHA-256:
+5a7056536384982ad7ef33f8af6bf53beba89144977984d96b9c8aa0cd8cf8f7
+```
+
+Estado operativo final en esta PC:
+
+- runtime activo: `loomlci-installed`;
+- Host: instalación Release bajo `%LOCALAPPDATA%\Programs\LoomLCI`;
+- runtime legacy `loomlci`: detenido pero conservado para rollback;
+- ChatGPT continúa usando el mismo tunnel remoto.
+
+### Hallazgo durante rollback
+
+El `repair_command` emitido por el runtime legacy incluía `--admin-profile default` y, al ejecutarlo literalmente, falló porque `OPENAI_ADMIN_KEY` no estaba definido.
+
+El rollback correcto no necesita admin key: se validó usando `runtimes connect` con el tunnel id conocido y una referencia `--runtime-api-key file:...`. Esa ruta dejó el legacy nuevamente healthy/ready y pasó smoke desde ChatGPT.
+
+Por lo tanto, para rollback de un runtime existente **no se debe asumir que `repair_command` es ejecutable en el entorno actual**. Debe conservarse también el tunnel id, el profile/target y la referencia runtime-only necesaria para reconectar.
 
 ## Segunda PC Windows
 

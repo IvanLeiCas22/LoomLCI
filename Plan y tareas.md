@@ -76,20 +76,19 @@ El holdout real-world confirmó que la política de selección es suficientement
 
 No continuar optimizando prompting ni contrato de Work Plan sin evidencia nueva.
 
-## Próximo trabajo operativo - Deployment portable
+## Deployment portable
 
-Diseño cerrado en [[Deployment portable]]. Implementar primero una instalación side-by-side sin reemplazar el runtime actual:
+[[Deployment portable]] quedó implementado y validado en la PC principal:
 
-- `LoomLCI.Launcher` con `start` / `stop` / `status` / `setup`;
+- Launcher `start` / `stop` / `status` / `setup`;
 - Host Release self-contained `win-x64`;
-- tunnel-client v0.0.14 oficial fijado por SHA-256;
+- tunnel-client v0.0.14 fijado y verificado;
 - profile/state/secrets aislados por máquina;
-- runtime key con DACL user-only;
 - acceso directo de escritorio;
-- cutover y rollback controlados;
-- prueba real posterior en una segunda PC Windows.
+- cutover y rollback reales;
+- smoke end-to-end desde ChatGPT.
 
-No tocar capabilities Core para resolver este bloque. No actualizar tunnel-client ni plugin en la misma iteración.
+Pendiente operativo: **probar el paquete desde cero en una segunda PC Windows x64**. No cambiar Core, tunnel-client ni plugin sólo para esa prueba.
 
 ## Próximo bloque de capability
 

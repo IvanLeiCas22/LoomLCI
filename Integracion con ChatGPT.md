@@ -20,16 +20,19 @@ LoomLCI sigue exponiendo MCP por STDIO local. El túnel es sólo el transporte s
 
 - nombre remoto: `LoomLCI`
 - tunnel id: `tunnel_6ac0b25408088191bd552887eda2a0f7`
-- runtime local administrado: alias `loomlci`
-- perfil local: `loomlci`
+- runtime activo instalado: alias `loomlci-installed`
+- profile/state: `%LOCALAPPDATA%\LoomLCI\deployment`
+- tunnel-client instalado: `%LOCALAPPDATA%\Programs\LoomLCI\tools\tunnel-client.exe`
+- runtime legacy `loomlci`: conservado pero detenido para rollback
 
-El runtime se gestiona con `tunnel-client runtimes connect`, no como un proceso temporal de una sesión de agente.
+El runtime instalado se opera normalmente mediante `LoomLCI.Launcher`, que delega el lifecycle local en `tunnel-client runtimes ...`.
 
 Comandos útiles:
 
 ```powershell
-tunnel-client runtimes status loomlci --json
-tunnel-client runtimes stop loomlci
+& "$env:LOCALAPPDATA\Programs\LoomLCI\LoomLCI.Launcher.exe" status
+& "$env:LOCALAPPDATA\Programs\LoomLCI\LoomLCI.Launcher.exe" start
+& "$env:LOCALAPPDATA\Programs\LoomLCI\LoomLCI.Launcher.exe" stop
 ```
 
 ## App en ChatGPT
@@ -49,7 +52,7 @@ No se necesita un plugin local `loomlci@personal`, un plugin cloud adicional ni 
 
 La integración fue validada primero con smoke tests y finalmente con una prueba fresh-agent integral en un chat nuevo.
 
-La validación fresh-agent de la baseline descubrió y ejercitó las **15 capabilities públicas** de Work, Filesystem y Process. Python Runtime E1 agregó `python_execute` y `python_reset`, llevando el catálogo a **17 tools**. Agent Support agregó `work_plan_get` y `work_plan_update`, llevando el catálogo a **19 tools**. F1.3 pasó smoke por Secure MCP Tunnel. La adopción natural evolucionó de 0/3 a 1/3 tras reforzar ServerInstructions/descriptions y finalmente a **2/3 positivos con 2/2 controles negativos** tras actualizar la skill del plugin a 0.2.1; Agent Support quedó cerrado sin cambios adicionales de Core/API.
+La validación fresh-agent de la baseline descubrió y ejercitó las **15 capabilities públicas** de Work, Filesystem y Process. Python Runtime E1 agregó `python_execute` y `python_reset`, llevando el catálogo a **17 tools**. Agent Support agregó `work_plan_get` y `work_plan_update`, llevando el catálogo a **19 tools**. F1.3 cerró con el benchmark real-world final: **4/4 positivos**, **3/3 controles simples** y escalada correcta 8A sin plan -> 8B con plan usando la skill 0.2.1; Agent Support quedó cerrado sin cambios adicionales de Core/API.
 
 Ver [[Validacion final fresh-agent]], [[Bloque E - Python Runtime]] y [[Bloque F - Agent Support]].
 
@@ -76,17 +79,20 @@ Esas rutas producían registros duplicados o no exponían las tools a Chat norma
 
 La instalación final mantiene una única ruta de acceso: la app MCP conectada al Secure MCP Tunnel.
 
-## Evolución prevista - deployment portable
+## Deployment portable activo
 
-La conexión actual sigue siendo la baseline validada y **no se reemplaza todavía**. El diseño de [[Deployment portable]] agrega en paralelo:
+[[Deployment portable]] quedó implementado y validado end-to-end en esta PC:
 
 - Host Release self-contained instalado fuera del repo;
-- `LoomLCI.Launcher` para iniciar/detener/verificar con doble clic;
-- copia oficial fijada de tunnel-client independiente de IvanSpace;
-- profile/state/secrets por máquina bajo `%LOCALAPPDATA%`;
-- acceso directo de escritorio y posibilidad de mover LoomLCI a otra PC Windows x64.
+- `LoomLCI.Launcher` con Start/Stop/Status/Setup y acceso directo de escritorio;
+- tunnel-client v0.0.14 oficial, fijado y verificado por hash, independiente de IvanSpace;
+- profile/state/secrets aislados por máquina bajo `%LOCALAPPDATA%\LoomLCI\deployment`;
+- cutover legacy -> instalado validado;
+- rollback instalado -> legacy validado;
+- segundo cutover al instalado validado;
+- smoke real desde ChatGPT en ambos caminos validado.
 
-La primera migración será side-by-side: Setup + `doctor` con el runtime legacy aún activo; luego stop legacy, start instalado, health completo y smoke desde ChatGPT. Ante fallo se detiene el nuevo y se relanza el legacy sin modificar su profile original.
+El runtime activo final es `loomlci-installed`; el legacy `loomlci` permanece detenido como fallback. La prueba todavía pendiente es llevar el paquete a una segunda PC Windows x64 y ejecutar el setup desde cero.
 
 Computer sigue siendo la próxima capability funcional; el deployment portable es una capa operativa, no una nueva capability MCP.
 

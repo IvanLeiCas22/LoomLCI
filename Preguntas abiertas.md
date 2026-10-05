@@ -18,7 +18,7 @@ Preguntas deliberadamente diferidas:
 
 ## Deployment portable
 
-Cerrado para la primera implementación en [[Deployment portable]]:
+Implementado y validado en la PC principal en [[Deployment portable]]:
 
 - instalación side-by-side por usuario;
 - Host Release self-contained `win-x64`;
@@ -27,9 +27,9 @@ Cerrado para la primera implementación en [[Deployment portable]]:
 - secrets por máquina con DACL user-only y referencia `file:`;
 - profile/state dirs aislados;
 - acceso directo de escritorio;
-- cutover y rollback sin tocar el runtime legacy hasta la prueba final.
+- cutover y rollback reales validados; el legacy queda preservado y detenido como fallback.
 
-Diferido hasta tener evidencia real del deployment:
+Pendiente de evidencia en una segunda PC / diferido:
 
 - DPAPI;
 - autoarranque al login;
