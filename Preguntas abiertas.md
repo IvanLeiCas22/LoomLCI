@@ -43,9 +43,17 @@ Validación en segunda PC completada. Diferido/no bloqueante:
 
 ## Computer
 
-- Contrato de Observation y stale detection.
-- Captura multi-monitor/DPI.
-- Relación exacta entre UIA actions, input físico y Python/PyAutoGUI.
+Diseño G1 cerrado en [[Bloque G - Computer]]: observations session-owned con TTL corto, stale validation, WGC, DPI físico PMv2, DesktopInputGate + SendInput, UIA en MTA dedicado, seis tools MCP y Python/PyAutoGUI fuera del backend autoritativo.
+
+Diferido después de G1:
+
+- HDR/tone mapping;
+- UIAccess/elevated UI;
+- OCR/computer vision propio;
+- eventos UIA;
+- PyAutoGUI bridge;
+- video/streaming;
+- policy engine general.
 
 ## Agent Support
 

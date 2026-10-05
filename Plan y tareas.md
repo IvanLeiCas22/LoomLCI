@@ -1,6 +1,6 @@
 # Plan y tareas
 
-> Estado: **Agent Support F1 cerrado**. F1.1 Core + F1.2 MCP + F1.3 conducta real-world están validados. El benchmark final de [[F1.3 - Benchmark real-world Work Plan]] cerró 4/4 positivos, 3/3 controles y escalada 8A sin plan -> 8B con plan. Skill 0.2.1 no requiere más ajuste. Antes de Computer se prioriza implementar [[Deployment portable]] de forma side-by-side y reversible. **Computer sigue siendo la próxima capability grande.**
+> Estado: **Agent Support F1 y Deployment portable cerrados**. El deployment está validado end-to-end en dos PCs Windows x64. La investigación de [[Bloque G - Computer]] cerró arquitectura, observations/stale, captura, UIA, input, DPI, multi-monitor y retorno de imágenes MCP. **Computer G1 está listo para implementación incremental empezando por G1.0.**
 
 ## Distinciones necesarias
 
@@ -90,17 +90,18 @@ No continuar optimizando prompting ni contrato de Work Plan sin evidencia nueva.
 
 Validación multi-PC cerrada: el mismo paquete se instaló desde cero en una notebook Windows x64, ChatGPT operó correctamente sobre ella y luego se volvió a la PC de escritorio deteniendo/iniciando el launcher correspondiente. Quedan como UX futura la confirmación visible al finalizar y un acceso directo de stop; no bloquean el roadmap.
 
-## Próximo bloque de capability
+## Próximo bloque de capability - Computer G1
 
-**Computer** sigue siendo el siguiente bloque de arquitectura funcional. Antes de implementarlo conviene hacer una investigación específica que cierre, como mínimo:
+Investigación cerrada en [[Bloque G - Computer]]. Implementar por etapas y validar cada una antes de continuar:
 
-- contrato de Observation y stale detection;
-- captura de ventana/escritorio, multi-monitor y DPI;
-- enumeración/identidad/lifecycle de ventanas;
-- frontera entre UI Automation semántica e input físico;
-- serialización de input global;
-- integración con WorkSession/ResourceRegistry y cleanup;
-- relación con Python Runtime/PyAutoGUI sin introducir todavía un bridge innecesariamente complejo.
+1. **G1.0 Windows foundation**: Windows TFM, interop base, mixed MCP image result y revalidación portable.
+2. **G1.1 Observation + topology**: lifecycle, stale semantics, monitores/ventanas y `computer_observe`.
+3. **G1.2 Capture**: WGC window/monitor, desktop stitch, PNG y `computer_capture`.
+4. **G1.3 Native input**: DesktopInputGate, activate, SendInput y `computer_input`.
+5. **G1.4 UI Automation**: MTA dispatcher, bounded inspect y semantic actions.
+6. **G1.5 Evaluation + deployment**: tunnel, real-world, fresh-agent y actualización portable.
+
+No agregar PyAutoGUI bridge, UIAccess, OCR, video, HDR ni policy engine general dentro de G1.
 
 ## Fuentes
 

@@ -23,6 +23,7 @@ Arquitectura v0.1 reconciliada y baseline cerrada. Milestone 1 (Process), Milest
 - [[Python Runtime]]
 - [[Bloque E - Python Runtime]]
 - [[Bloque F - Agent Support]]
+- [[Bloque G - Computer]]
 - [[F1.3 - Benchmark real-world Work Plan]]
 - [[Plan y tareas]]
 - [[Programmatic Tool Calling]]

@@ -13,7 +13,7 @@ Implementado actualmente:
 - Python Runtime E1 cerrado: contratos Core, worker persistente, provisioning privado, backend Windows/provider, tools MCP públicas `python_execute`/`python_reset` y validación final por Secure MCP Tunnel + fresh-agent;
 - Agent Support F1.1 Core: Work Plan efímero por WorkSession, snapshots read-only, revision/CAS, lifecycle close/expiry, validaciones y eventos;
 - Agent Support F1.2 MCP: tools opcionales `work_plan_get`/`work_plan_update`, schema/annotations, opt-in estático y Host objetivo con catálogo de 19 tools;
-- Agent Support F1.3 cerrado: smoke por Secure MCP Tunnel + A/B fresh-agent final 2/3 positivos y 2/2 negativos con skill del plugin 0.2.1;
+- Agent Support F1.3 cerrado: benchmark real-world final 4/4 positivos, 3/3 controles simples y escalada correcta 8A sin plan -> 8B con plan usando skill del plugin 0.2.1;
 - adapter MCP por STDIO y acceso de ChatGPT normal mediante Secure MCP Tunnel externo.
 
 Diferido; **no debe interpretarse como implementado hoy**:
@@ -532,14 +532,20 @@ El adapter/perfil puede decidir no exponer Work Plan a hosts que ya tengan plann
 
 ## 14. Computer relation with Core
 
-El detalle de Computer se especificará después, pero v0.1 fija:
+El diseño G1 está detallado en [[Bloque G - Computer]]. v0.1 fija:
 
-- acciones nativas en provider Windows
-- UIA + captura + input nativo
-- DesktopInputGate global
-- observaciones referenciables mediante ID/handle efímero
-- validación de contexto para detectar observaciones stale
-- Python Runtime puede usar PyAutoGUI, pero PyAutoGUI no es el backend autoritativo
+- acciones nativas en provider Windows;
+- UIA + Windows.Graphics.Capture + SendInput;
+- DesktopInputGate global para batches de input;
+- observations session-owned mediante `ObservationHandle` efímero;
+- TopologyObservation, CaptureObservation y UiaObservation;
+- retention de observations corta (2 min) más stale validation contextual;
+- input visual sólo desde capture desktop/monitor reciente (máximo 15 s), no desde window capture ocluida;
+- UIA en thread MTA dedicado con caching, límites y timeouts;
+- coordenadas físicas Per-Monitor-V2;
+- retorno PNG por MCP mediante ImageContentBlock + structuredContent;
+- Python Runtime puede usar PyAutoGUI en el futuro, pero PyAutoGUI no es el backend autoritativo;
+- LoomLCI permanece asInvoker, sin UIAccess ni automatización del secure desktop/UAC.
 
 ## 15. Adapter contract
 
