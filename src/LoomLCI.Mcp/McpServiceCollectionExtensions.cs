@@ -12,6 +12,7 @@ public static class McpServiceCollectionExtensions
         var serverInstructions =
             "LoomLCI operates the user's local Windows environment with the user's normal permissions; it is not a sandbox. " +
             "Prefer structured LoomLCI filesystem capabilities over shell commands when an equivalent operation exists. " +
+            "Use filesystem_view_image when visual inspection of a known local PNG, JPEG, or WebP is needed instead of reading or encoding the file manually. " +
             "Use python_execute for persistent in-session calculations, parsing, and transformations; use Process capabilities for independent executables, terminal semantics, subprocess workflows, or large retained output. " +
             "Use a work session when calls need a shared base directory or session-owned resources. " +
             "Treat work and process handles as opaque values and pass them back unchanged. Close work sessions when their task is complete.";
@@ -35,6 +36,7 @@ public static class McpServiceCollectionExtensions
             .WithTools<WorkTools>()
             .WithTools<ProcessTools>()
             .WithTools<FilesystemTools>()
+            .WithTools<VisualFilesTools>()
             .WithTools<PythonTools>();
 
         if (enableWorkPlan)

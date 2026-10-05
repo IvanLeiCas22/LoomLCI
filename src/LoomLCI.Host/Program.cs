@@ -7,11 +7,13 @@ using LoomLCI.Core.Processes;
 using LoomLCI.Core.Python;
 using LoomLCI.Core.Resources;
 using LoomLCI.Core.Work;
+using LoomLCI.Core.VisualFiles;
 using LoomLCI.Host;
 using LoomLCI.Mcp;
 using LoomLCI.Windows.Filesystem;
 using LoomLCI.Windows.Processes;
 using LoomLCI.Windows.Python;
+using LoomLCI.Windows.VisualFiles;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -37,6 +39,8 @@ builder.Services.AddSingleton<IPythonRuntimeProvider, WindowsPythonRuntimeProvid
 builder.Services.AddSingleton<PythonCapability>();
 builder.Services.AddSingleton<IFilesystemProvider, WindowsFilesystemProvider>();
 builder.Services.AddSingleton<FilesystemCapability>();
+builder.Services.AddSingleton<IVisualFilesProvider, WindowsVisualFilesProvider>();
+builder.Services.AddSingleton<VisualFilesCapability>();
 builder.Services.AddHostedService<LifetimeSweeperService>();
 
 builder.Services.AddLoomMcpStdio(enableWorkPlan: true);

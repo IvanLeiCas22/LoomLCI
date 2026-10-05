@@ -24,8 +24,8 @@ public sealed class McpStdioTests
         var enabledToolRegistrations = enabledServices.Count(
             descriptor => descriptor.ServiceType == typeof(McpServerTool));
 
-        Assert.Equal(17, disabledToolRegistrations);
-        Assert.Equal(19, enabledToolRegistrations);
+        Assert.Equal(18, disabledToolRegistrations);
+        Assert.Equal(20, enabledToolRegistrations);
     }
 
     [Fact]
@@ -65,6 +65,7 @@ public sealed class McpStdioTests
             Assert.NotNull(instructions);
             Assert.Contains("not a sandbox", instructions, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("Prefer structured LoomLCI filesystem capabilities", instructions, StringComparison.Ordinal);
+            Assert.Contains("filesystem_view_image", instructions, StringComparison.Ordinal);
             Assert.Contains("python_execute", instructions, StringComparison.Ordinal);
             Assert.Contains("Process capabilities", instructions, StringComparison.Ordinal);
             Assert.Contains("opaque values", instructions, StringComparison.OrdinalIgnoreCase);
@@ -164,6 +165,24 @@ public sealed class McpStdioTests
         var filesSchema = GetRequiredProperty(readProperties, "files");
         Assert.Equal(1, GetRequiredProperty(filesSchema, "minItems").GetInt32());
         Assert.Equal(32, GetRequiredProperty(filesSchema, "maxItems").GetInt32());
+
+        var viewImage = Assert.Single(tools, tool => tool.Name == "filesystem_view_image");
+        Assert.Equal("View local image", viewImage.ProtocolTool.Title);
+        Assert.Contains("PNG, JPEG, or WebP", viewImage.Description, StringComparison.Ordinal);
+        Assert.Contains("does not resize, convert, edit, or OCR", viewImage.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.True(viewImage.ProtocolTool.Annotations?.ReadOnlyHint ?? false);
+        Assert.False(viewImage.ProtocolTool.Annotations?.DestructiveHint ?? true);
+        Assert.True(viewImage.ProtocolTool.Annotations?.IdempotentHint ?? false);
+        Assert.False(viewImage.ProtocolTool.Annotations?.OpenWorldHint ?? true);
+        var viewImageProperties = GetRequiredProperty(viewImage.JsonSchema, "properties");
+        GetRequiredProperty(viewImageProperties, "path");
+        GetRequiredProperty(viewImageProperties, "workId");
+        var viewImageRequired = GetRequiredProperty(viewImage.JsonSchema, "required")
+            .EnumerateArray()
+            .Select(value => value.GetString())
+            .ToHashSet(StringComparer.Ordinal);
+        Assert.Contains("path", viewImageRequired);
+        Assert.DoesNotContain("workId", viewImageRequired);
 
         var applyPatch = Assert.Single(tools, tool => tool.Name == "filesystem_apply_patch");
         Assert.Equal("Apply file changes", applyPatch.ProtocolTool.Title);
@@ -1041,6 +1060,121 @@ public sealed class McpStdioTests
                 });
             Assert.True(GetRequiredProperty(GetStructured(replace.StructuredContent), "ok").GetBoolean());
             Assert.Equal("beta needle", await File.ReadAllTextAsync(Path.Combine(scratch, "notes", "note.txt")));
+
+            var close = await client.CallToolAsync(
+                "work_close",
+                new Dictionary<string, object?> { ["workId"] = workId });
+            Assert.True(GetRequiredProperty(GetStructured(close.StructuredContent), "ok").GetBoolean());
+        }
+        finally
+        {
+            if (Directory.Exists(scratch))
+            {
+                Directory.Delete(scratch, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task StdioAdapterCanViewLocalImage()
+    {
+        var repoRoot = FindRepoRoot();
+        var hostDll = GetHostDll(repoRoot);
+        Assert.True(File.Exists(hostDll), $"Host was not built: {hostDll}");
+
+        var scratch = Path.Combine(
+            Path.GetTempPath(),
+            "LoomLCI.VisualIntegration",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(scratch);
+
+        try
+        {
+            var imageBytes = Convert.FromBase64String(
+                "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGPkqrjDwMDAxMDAwMDAAAAPwAFizZEe6AAAAABJRU5ErkJggg==");
+            await File.WriteAllBytesAsync(
+                Path.Combine(scratch, "sample.bin"),
+                imageBytes);
+            await File.WriteAllBytesAsync(
+                Path.Combine(scratch, "fake.png"),
+                [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3, 4]);
+
+            var transport = new StdioClientTransport(new StdioClientTransportOptions
+            {
+                Name = "LoomLCI visual image integration test",
+                Command = "dotnet",
+                Arguments = [hostDll],
+                WorkingDirectory = repoRoot,
+                ShutdownTimeout = TimeSpan.FromSeconds(5)
+            });
+
+            await using var client = await McpClient.CreateAsync(transport);
+
+            var create = await client.CallToolAsync(
+                "work_create",
+                new Dictionary<string, object?>
+                {
+                    ["baseDirectory"] = scratch,
+                    ["label"] = "visual-image-integration-test"
+                });
+            var createRoot = GetStructured(create.StructuredContent);
+            var workId = GetRequiredProperty(
+                GetRequiredProperty(createRoot, "result"),
+                "workId").GetString();
+            Assert.False(string.IsNullOrWhiteSpace(workId));
+
+            var viewed = await client.CallToolAsync(
+                "filesystem_view_image",
+                new Dictionary<string, object?>
+                {
+                    ["path"] = "sample.bin",
+                    ["workId"] = workId
+                });
+
+            Assert.False(viewed.IsError ?? false);
+            Assert.Collection(
+                viewed.Content,
+                block => Assert.Equal(
+                    "Tool completed successfully. Structured result attached.",
+                    Assert.IsType<TextContentBlock>(block).Text),
+                block =>
+                {
+                    var image = Assert.IsType<ImageContentBlock>(block);
+                    Assert.Equal("image/png", image.MimeType);
+                    Assert.True(image.DecodedData.Span.SequenceEqual(imageBytes));
+                });
+
+            var viewedRoot = GetStructured(viewed.StructuredContent);
+            Assert.True(GetRequiredProperty(viewedRoot, "ok").GetBoolean());
+            var viewedResult = GetRequiredProperty(viewedRoot, "result");
+            Assert.Equal("sample.bin", GetRequiredProperty(viewedResult, "requestedPath").GetString());
+            Assert.Equal(
+                Path.Combine(scratch, "sample.bin"),
+                GetRequiredProperty(viewedResult, "fullPath").GetString());
+            Assert.Equal("image/png", GetRequiredProperty(viewedResult, "mimeType").GetString());
+            Assert.Equal(imageBytes.Length, GetRequiredProperty(viewedResult, "sizeBytes").GetInt64());
+
+            var invalid = await client.CallToolAsync(
+                "filesystem_view_image",
+                new Dictionary<string, object?>
+                {
+                    ["path"] = "fake.png",
+                    ["workId"] = workId
+                });
+
+            Assert.True(invalid.IsError);
+            Assert.DoesNotContain(invalid.Content, block => block is ImageContentBlock);
+            var invalidError = GetRequiredProperty(
+                GetStructured(invalid.StructuredContent),
+                "error");
+            Assert.Equal(
+                "unsupported",
+                GetRequiredProperty(invalidError, "code").GetString());
+            Assert.Equal(
+                "unsupported_image_format",
+                GetRequiredProperty(
+                    GetRequiredProperty(invalidError, "details"),
+                    "reason").GetString());
 
             var close = await client.CallToolAsync(
                 "work_close",

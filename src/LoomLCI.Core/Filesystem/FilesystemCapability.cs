@@ -51,7 +51,7 @@ public sealed class FilesystemCapability
                     return LoomResult<FilesystemListTreeResult>.Failure(traversal.Error!);
                 }
 
-                var resolved = ResolvePath(path, context.WorkSession?.BaseDirectory);
+                var resolved = FilesystemPathResolver.Resolve(path, context.WorkSession?.BaseDirectory);
                 return resolved.IsSuccess
                     ? await _provider.ListTreeAsync(
                         resolved.Value!,
@@ -99,7 +99,7 @@ public sealed class FilesystemCapability
                     return LoomResult<FilesystemFindPathsResult>.Failure(traversal.Error!);
                 }
 
-                var resolved = ResolvePath(path, context.WorkSession?.BaseDirectory);
+                var resolved = FilesystemPathResolver.Resolve(path, context.WorkSession?.BaseDirectory);
                 return resolved.IsSuccess
                     ? await _provider.FindPathsAsync(
                         resolved.Value!,
@@ -154,7 +154,7 @@ public sealed class FilesystemCapability
                     return LoomResult<FilesystemSearchTextResult>.Failure(traversal.Error!);
                 }
 
-                var resolved = ResolvePath(path, context.WorkSession?.BaseDirectory);
+                var resolved = FilesystemPathResolver.Resolve(path, context.WorkSession?.BaseDirectory);
                 return resolved.IsSuccess
                     ? await _provider.SearchTextAsync(
                         resolved.Value!,
@@ -194,7 +194,7 @@ public sealed class FilesystemCapability
                             LoomErrors.InvalidArgument("offset must be >= 1 and limit must be 1..10000."));
                     }
 
-                    var resolved = ResolvePath(file.Path, context.WorkSession?.BaseDirectory);
+                    var resolved = FilesystemPathResolver.Resolve(file.Path, context.WorkSession?.BaseDirectory);
                     if (!resolved.IsSuccess)
                     {
                         return LoomResult<FilesystemReadFilesResult>.Failure(resolved.Error!);
@@ -276,7 +276,7 @@ public sealed class FilesystemCapability
             workId,
             async (context, token) =>
             {
-                var resolved = ResolvePath(path, context.WorkSession?.BaseDirectory);
+                var resolved = FilesystemPathResolver.Resolve(path, context.WorkSession?.BaseDirectory);
                 if (!resolved.IsSuccess)
                 {
                     return LoomResult<FilesystemDirectoryResult>.Failure(resolved.Error!);
@@ -311,7 +311,7 @@ public sealed class FilesystemCapability
                 return LoomResult<string>.Failure(LoomErrors.InvalidArgument($"{label} is required."));
             }
 
-            var resolved = ResolvePath(value, baseDirectory);
+            var resolved = FilesystemPathResolver.Resolve(value, baseDirectory);
             return resolved.IsSuccess
                 ? LoomResult<string>.Success(resolved.Value!)
                 : LoomResult<string>.Failure(resolved.Error!);
@@ -416,32 +416,4 @@ public sealed class FilesystemCapability
             new FilesystemTraversalOptions(includeGenerated, excludeDirectories));
     }
 
-    private static LoomResult<string> ResolvePath(string? requested, string? baseDirectory)
-    {
-        if (string.IsNullOrWhiteSpace(requested))
-        {
-            return LoomResult<string>.Failure(LoomErrors.InvalidArgument("path is required."));
-        }
-
-        try
-        {
-            if (Path.IsPathFullyQualified(requested))
-            {
-                return LoomResult<string>.Success(Path.GetFullPath(requested));
-            }
-
-            if (string.IsNullOrWhiteSpace(baseDirectory))
-            {
-                return LoomResult<string>.Failure(
-                    LoomErrors.InvalidArgument(
-                        "A relative path requires a work session with base_directory."));
-            }
-
-            return LoomResult<string>.Success(Path.GetFullPath(Path.Combine(baseDirectory, requested)));
-        }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-        {
-            return LoomResult<string>.Failure(LoomErrors.InvalidArgument($"Invalid path: {ex.Message}"));
-        }
-    }
 }
