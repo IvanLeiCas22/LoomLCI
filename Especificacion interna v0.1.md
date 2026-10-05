@@ -14,6 +14,7 @@ Implementado actualmente:
 - Agent Support F1.1 Core: Work Plan efímero por WorkSession, snapshots read-only, revision/CAS, lifecycle close/expiry, validaciones y eventos;
 - Agent Support F1.2 MCP: tools opcionales `work_plan_get`/`work_plan_update`, schema/annotations, opt-in estático y Host objetivo con catálogo de 19 tools;
 - Agent Support F1.3 cerrado: benchmark real-world final 4/4 positivos, 3/3 controles simples y escalada correcta 8A sin plan -> 8B con plan usando skill del plugin 0.2.1;
+- Visual Files G1.0/G1.1: foundation MCP binaria, `VisualFilesCapability`/provider, PNG/JPEG/WebP y tool pública `filesystem_view_image`; Host objetivo con catálogo de 20 tools cuando Work Plan está habilitado;
 - adapter MCP por STDIO y acceso de ChatGPT normal mediante Secure MCP Tunnel externo.
 
 Diferido; **no debe interpretarse como implementado hoy**:

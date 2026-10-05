@@ -52,7 +52,7 @@ No se necesita un plugin local `loomlci@personal`, un plugin cloud adicional ni 
 
 La integración fue validada primero con smoke tests y finalmente con una prueba fresh-agent integral en un chat nuevo.
 
-La validación fresh-agent de la baseline descubrió y ejercitó las **15 capabilities públicas** de Work, Filesystem y Process. Python Runtime E1 agregó `python_execute` y `python_reset`, llevando el catálogo a **17 tools**. Agent Support agregó `work_plan_get` y `work_plan_update`, llevando el catálogo a **19 tools**. F1.3 cerró con el benchmark real-world final: **4/4 positivos**, **3/3 controles simples** y escalada correcta 8A sin plan -> 8B con plan usando la skill 0.2.1; Agent Support quedó cerrado sin cambios adicionales de Core/API.
+La validación fresh-agent de la baseline descubrió y ejercitó las **15 capabilities públicas** de Work, Filesystem y Process. Python Runtime E1 llevó el catálogo a **17 tools** y Agent Support a **19 tools**. Visual Files G1.1 agregó `filesystem_view_image`, por lo que el Host actual expone **20 tools** con Work Plan habilitado. F1.3 cerró previamente con el benchmark real-world final 4/4 positivos, 3/3 controles simples y escalada correcta 8A sin plan -> 8B con plan.
 
 Ver [[Validacion final fresh-agent]], [[Bloque E - Python Runtime]] y [[Bloque F - Agent Support]].
 
@@ -92,9 +92,9 @@ La instalación final mantiene una única ruta de acceso: la app MCP conectada a
 - segundo cutover al instalado validado;
 - smoke real desde ChatGPT en ambos caminos validado.
 
-El runtime activo final es `loomlci-installed`; el legacy `loomlci` permanece detenido como fallback. La misma instalación portable fue además validada desde cero en una segunda PC Windows x64: ChatGPT operó sobre la notebook, luego se detuvo ese runtime y se volvió a iniciar LoomLCI en la PC de escritorio sobre el mismo tunnel, confirmando el cambio de máquina correctamente.
+El runtime activo final es `loomlci-installed`, actualmente en `0.1.0-dev-a9f50fb8fbe3`; el legacy `loomlci` permanece detenido como fallback. La misma instalación portable fue además validada desde cero en una segunda PC Windows x64: ChatGPT operó sobre la notebook, luego se detuvo ese runtime y se volvió a iniciar LoomLCI en la PC de escritorio sobre el mismo tunnel, confirmando el cambio de máquina correctamente.
 
-Visual Files G1 pasa a ser la próxima capability funcional y Computer continúa después como H1; el deployment portable es una capa operativa, no una nueva capability MCP.
+Visual Files G1.1 ya está instalado en el runtime portable. El smoke real de una tool preexistente (`work_create`/`work_close`) pasó desde ChatGPT sobre el runtime final; esta conversación conserva el catálogo de 19 acciones cargado antes del upgrade, por lo que el smoke visual de `filesystem_view_image` requiere refrescar las acciones de la app o abrir un chat nuevo. G1.2 PDF text worker es el próximo bloque funcional; Computer continúa después como H1.
 
 ## Notas
 

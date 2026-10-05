@@ -43,7 +43,7 @@ Validación en segunda PC completada. Diferido/no bloqueante:
 
 ## Visual Files
 
-Investigación y diseño v0.1 cerrados en [[Bloque G - Visual Files]]. Quedan fijadas tres tools read-only (`filesystem_view_image`, `filesystem_read_pdf`, `filesystem_render_pdf_page`), `ImageContentBlock.FromBytes`, cap de 6 MiB binarios + 9 MiB MCP serializados para resultados visuales, PdfPig 0.1.16 aislado en `LoomLCI.PdfWorker`, Windows.Data.Pdf para render y contratos/errores finales. La investigación específica de G1.0 cerró además TFM, harness Release, helper MCP, regression tests y publish portable. **G1.0 quedó implementado y validado. La investigación específica de G1.1 quedó cerrada en [[G1.1 - Local image]] y no quedan preguntas bloqueantes antes de implementarlo.**
+Investigación y diseño v0.1 cerrados en [[Bloque G - Visual Files]]. Quedan fijadas tres tools read-only (`filesystem_view_image`, `filesystem_read_pdf`, `filesystem_render_pdf_page`), `ImageContentBlock.FromBytes`, cap de 6 MiB binarios + 9 MiB MCP serializados para resultados visuales, PdfPig 0.1.16 aislado en `LoomLCI.PdfWorker`, Windows.Data.Pdf para render y contratos/errores finales. La investigación específica de G1.0 cerró además TFM, harness Release, helper MCP, regression tests y publish portable. **G1.0 y G1.1 están implementados. G1.1 queda técnicamente validado en 223/223 tests y portable/tunnel operativo; sólo falta refrescar el catálogo de ChatGPT y ejecutar el smoke visual directo. No hay pregunta arquitectónica bloqueante para G1.2.**
 
 ## Computer
 

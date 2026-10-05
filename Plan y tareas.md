@@ -92,7 +92,7 @@ Validación multi-PC cerrada: el mismo paquete se instaló desde cero en una not
 
 ## Próximo bloque de capability - Visual Files G1
 
-Investigación y diseño v0.1 cerrados en [[Bloque G - Visual Files]]. **G1.0 Binary/image foundation quedó implementado y validado; el próximo paso es G1.1 Local image.** Objetivo: que el agente pueda consumir archivos visuales sin depender de Computer ni de abrirlos en una GUI.
+Investigación y diseño v0.1 cerrados en [[Bloque G - Visual Files]]. **G1.0 y G1.1 ya están implementados; G1.1 sólo espera refresh del catálogo cliente para su smoke visual directo.** El próximo bloque de implementación es G1.2 PDF text worker.
 
 Superficie v0.1 fijada:
 
@@ -103,7 +103,7 @@ Superficie v0.1 fijada:
 Implementación incremental propuesta:
 
 1. **G1.0 Binary/image foundation — CERRADO**: Windows TFM, helper MCP mixed structured + image, guard 6/9 MiB, 4 MCP tests, harness Release y portable validados; suite total 207/207.
-2. **G1.1 Local image — INVESTIGACIÓN CERRADA / LISTO PARA IMPLEMENTAR**: provider/capability separados, resolver compartido, validación estructural PNG/JPEG/WebP, lectura estable `FileShare.Read`, `filesystem_view_image` y smoke real por tunnel.
+2. **G1.1 Local image — IMPLEMENTADO**: `filesystem_view_image`, provider/capability separados, resolver compartido, PNG/JPEG/WebP, `FileShare.Read`, 223/223 tests y runtime portable final healthy/ready. Pendiente sólo refresh de acciones + smoke visual directo.
 3. **G1.2 PDF text worker**: `LoomLCI.PdfWorker` one-shot, PdfPig 0.1.16, Job Object/timeout, rangos/límites y `filesystem_read_pdf`.
 4. **G1.3 PDF render**: Windows.Data.Pdf y `filesystem_render_pdf_page`.
 5. **G1.4 Evaluation + portable**: corpus real, malformed/oversized, tunnel/ChatGPT, fresh-agent y deployment.

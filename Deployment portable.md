@@ -364,6 +364,24 @@ Estado operativo final en esta PC:
 - runtime legacy `loomlci`: detenido pero conservado para rollback;
 - ChatGPT continúa usando el mismo tunnel remoto.
 
+### Update G1.1 - Local image (2026-10-05)
+
+Se validó un update side-by-side del deployment existente para G1.1:
+
+- commit de producto: `a9f50fb feat: implement G1.1 local image`;
+- build Release: **0 warnings / 0 errors**;
+- suite completa: **223/223** = 84 Core + 119 Windows + 4 MCP + 10 Integration + 6 Launcher;
+- builder portable final: Launcher **6/6** + IntegrationTests contra Host publicado **10/10**;
+- paquete: `LoomLCI-0.1.0-dev-a9f50fb8fbe3-win-x64.zip`;
+- SHA-256: `030ec622e66496bb0b3887beccc49d165380fd32bad577abbdc790f57ff82513`;
+- setup side-by-side: OK;
+- runtime activo final: `0.1.0-dev-a9f50fb8fbe3`, alias `loomlci-installed`;
+- `process_running=true`, `healthy=true`, `ready=true`;
+- tunnel id preservado;
+- smoke real desde ChatGPT sobre el runtime final con `work_create` + `work_close`: OK.
+
+La conversación donde se hizo el upgrade conservó el catálogo de 19 acciones cargado antes del update. Por eso el smoke visual de la nueva `filesystem_view_image` requiere refrescar las acciones de la app o abrir un chat nuevo; no es un fallo del runtime. Los fixtures preparados para esa comprobación están en `artifacts/g11-smoke/visual-smoke.{png,jpg,webp}`.
+
 ### Hallazgo durante rollback
 
 El `repair_command` emitido por el runtime legacy incluía `--admin-profile default` y, al ejecutarlo literalmente, falló porque `OPENAI_ADMIN_KEY` no estaba definido.

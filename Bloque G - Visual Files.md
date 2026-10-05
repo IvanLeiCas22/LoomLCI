@@ -1,6 +1,6 @@
 # Bloque G - Visual Files
 
-> Estado: **G1.0 implementado y validado; investigación específica de G1.1 cerrada y lista para implementación**. El diseño general G1 permanece cerrado y este bloque queda antes de [[Bloque H - Computer]].
+> Estado: **G1.0 y G1.1 implementados y validados técnicamente; G1.1 sólo espera refresh del catálogo de ChatGPT para el smoke visual directo.** El próximo bloque funcional es G1.2 PDF text worker.
 
 ## Objetivo
 
@@ -22,8 +22,8 @@ Agregar tres tools read-only:
 
 Catálogo:
 
-- actual: 19 tools;
-- después de G1: 22 tools;
+- actual tras G1.1: 20 tools;
+- después de G1 completo: 22 tools;
 - después de Computer H1, si mantiene sus seis tools: 28 tools.
 
 Todas las tools G1 serán:
@@ -769,7 +769,7 @@ Completado:
 
 ## G1.1 - Local image
 
-> Investigación específica cerrada en [[G1.1 - Local image]]. **Listo para implementación.**
+> **Implementado en `a9f50fb`.** Ver [[G1.1 - Local image]]. Validación local/STDIO/portable/tunnel operativo completa; queda sólo el smoke visual directo tras refrescar el catálogo cliente.
 
 - path resolver compartido;
 - contratos Core;
@@ -834,7 +834,7 @@ Computer H1 hereda de G:
 
 - Windows TFM migrado;
 - helper MCP de imágenes probado;
-- `ImageContentBlock` validado por tunnel/ChatGPT;
+- `ImageContentBlock` validado por STDIO/Host publicado; el smoke visual directo por ChatGPT queda pendiente sólo de refrescar el catálogo cliente;
 - cap binario con evidencia real;
 - patrón de contenido visual;
 - packaging de helper ejecutable ya ejercitado.
@@ -851,7 +851,7 @@ Los cinco pendientes previos a implementación quedan cerrados:
 - PDFs protegidos: comportamiento probado y error fijado;
 - DTOs/error codes/tool contracts: definidos.
 
-G1.0 quedó cerrado. No hay bloqueo arquitectónico conocido para iniciar la investigación/implementación de G1.1.
+G1.0 y la implementación de G1.1 quedaron cerrados técnicamente. No hay bloqueo arquitectónico conocido para iniciar G1.2; el único pendiente de G1.1 es el smoke visual directo tras refrescar el catálogo de ChatGPT.
 
 ## Fuentes
 
