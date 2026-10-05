@@ -8,20 +8,31 @@ internal static class McpToolResults
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public static CallToolResult From<T>(ToolEnvelope<T> envelope)
+        => From(envelope, Array.Empty<ContentBlock>());
+
+    public static CallToolResult From<T>(
+        ToolEnvelope<T> envelope,
+        params ContentBlock[] successContent)
     {
         var structured = JsonSerializer.SerializeToElement(envelope, JsonOptions);
+        List<ContentBlock> content =
+        [
+            new TextContentBlock
+            {
+                Text = ToTextContent(envelope)
+            }
+        ];
+
+        if (envelope.Ok && successContent.Length > 0)
+        {
+            content.AddRange(successContent);
+        }
 
         return new CallToolResult
         {
             IsError = !envelope.Ok,
             StructuredContent = structured,
-            Content =
-            [
-                new TextContentBlock
-                {
-                    Text = ToTextContent(envelope)
-                }
-            ]
+            Content = content
         };
     }
 

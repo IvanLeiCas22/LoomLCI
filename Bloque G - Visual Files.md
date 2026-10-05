@@ -1,6 +1,6 @@
 # Bloque G - Visual Files
 
-> Estado: **investigación y diseño v0.1 cerrados; listo para implementación incremental empezando por G1.0**. No se modificó código de producto durante esta investigación. Este bloque queda antes de [[Bloque H - Computer]].
+> Estado: **G1.0 implementado y validado; próximo paso G1.1 Local image**. El diseño general G1 permanece cerrado y este bloque queda antes de [[Bloque H - Computer]].
 
 ## Objetivo
 
@@ -661,7 +661,7 @@ Antes de cerrar G1:
 
 ## G1.0 - Binary/image foundation
 
-> Investigación específica cerrada. El diseño fue prototipado fuera del repo y no requiere cambios de arquitectura adicionales.
+> **Implementado y validado.** Windows TFM, harness Release, helper MCP mixto, guard de payload y tests MCP quedaron incorporados sin exponer todavía tools Visual Files.
 
 ### TFM / WinRT
 
@@ -753,16 +753,18 @@ El prototipo completo con Windows TFM se validó mediante `Build-PortablePackage
 
 No hace falta cambiar el formato del paquete en G1.0.
 
-### Definition of done G1.0
+### Cierre G1.0
 
-- cambios TFM aplicados;
-- harness IntegrationTests corregido;
-- `LoomLCI.Mcp.Tests` agregado;
-- helper mixed/image + payload sizer implementados;
-- ninguna tool Visual Files pública todavía;
-- suite Release completa verde;
-- portable publish + published-host integration verde;
-- repo/documentación coherentes.
+Completado:
+
+- Windows/Host/Windows.Tests/IntegrationTests migrados a `net10.0-windows10.0.19041.0` con `SupportedOSPlatformVersion=10.0.19041.0`;
+- IntegrationTests ahora construye Host mediante `ProjectReference` de build y deriva Configuration/TFM dinámicamente, conservando `LOOMLCI_TEST_HOST_DLL` para published-host tests;
+- `McpToolResults` admite success content adicional sin alterar `ToolEnvelope` ni los errores;
+- `McpVisualPayloadLimits` implementa 6 MiB binarios, 9 MiB MCP y estimación exacta de base64 escapado;
+- nuevo `LoomLCI.Mcp.Tests`: 4/4 tests verdes;
+- suite Release completa: **207/207 tests verdes**;
+- portable real: Host self-contained win-x64, Launcher 6/6, IntegrationTests contra Host publicado 9/9, ZIP + SHA-256 OK;
+- el catálogo público sigue igual: **no se agregó ninguna tool Visual Files en G1.0**.
 
 ## G1.1 - Local image
 
@@ -845,7 +847,7 @@ Los cinco pendientes previos a implementación quedan cerrados:
 - PDFs protegidos: comportamiento probado y error fijado;
 - DTOs/error codes/tool contracts: definidos.
 
-No queda investigación arquitectónica bloqueante antes de G1.0.
+G1.0 quedó cerrado. No hay bloqueo arquitectónico conocido para iniciar la investigación/implementación de G1.1.
 
 ## Fuentes
 

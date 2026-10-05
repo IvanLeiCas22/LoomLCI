@@ -1510,16 +1510,43 @@ public sealed class McpStdioTests
     private static string GetHostDll(string repoRoot)
     {
         var hostDll = Environment.GetEnvironmentVariable("LOOMLCI_TEST_HOST_DLL");
-        return string.IsNullOrWhiteSpace(hostDll)
-            ? Path.Combine(
-                repoRoot,
-                "src",
-                "LoomLCI.Host",
-                "bin",
-                "Debug",
-                "net10.0",
-                "LoomLCI.Host.dll")
-            : hostDll;
+        if (!string.IsNullOrWhiteSpace(hostDll))
+        {
+            return hostDll;
+        }
+
+        var outputDirectory = new DirectoryInfo(AppContext.BaseDirectory);
+        var configurationDirectory = outputDirectory;
+        while (configurationDirectory.Parent is not null &&
+               !string.Equals(
+                   configurationDirectory.Parent.Name,
+                   "bin",
+                   StringComparison.OrdinalIgnoreCase))
+        {
+            configurationDirectory = configurationDirectory.Parent;
+        }
+
+        if (configurationDirectory.Parent is null)
+        {
+            throw new DirectoryNotFoundException(
+                "Could not infer test build configuration from AppContext.BaseDirectory.");
+        }
+
+        var relativeOutput = Path.GetRelativePath(
+            configurationDirectory.FullName,
+            outputDirectory.FullName);
+        var targetFramework = relativeOutput.Split(
+            Path.DirectorySeparatorChar,
+            Path.AltDirectorySeparatorChar)[0];
+
+        return Path.Combine(
+            repoRoot,
+            "src",
+            "LoomLCI.Host",
+            "bin",
+            configurationDirectory.Name,
+            targetFramework,
+            "LoomLCI.Host.dll");
     }
 
     private static string GetSingleTextContent(CallToolResult result)

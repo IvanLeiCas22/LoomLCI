@@ -37,13 +37,14 @@ Regla principal:
     │     └─ README.md
     ├─ tests/
     │  ├─ LoomLCI.Core.Tests/
+    │  ├─ LoomLCI.Mcp.Tests/
     │  ├─ LoomLCI.Windows.Tests/
     │  └─ LoomLCI.IntegrationTests/
     ├─ .obsidian/
     ├─ *.md
     └─ ...
 
-`LoomLCI.Core/Python` contiene contratos/capability E1.1. `LoomLCI.Windows/Python` contiene protocolo E1.2 y assets/provisioner/provider/resource E1.3. `LoomLCI.Mcp/PythonTools.cs` expone `python_execute`/`python_reset` desde E1.4. `runtime/python` conserva las fuentes versionadas del worker y manifiesto. `LoomLCI.Core/AgentSupport` contiene contratos/capability Work Plan F1.1 y `WorkSession.WorkPlan.cs` conserva su estado session-local; `LoomLCI.Mcp/WorkPlanTools.cs` expone F1.2 de forma opt-in. F1.3 quedó validado por túnel/fresh-agent; Computer sigue pendiente.
+`LoomLCI.Core/Python` contiene contratos/capability E1.1. `LoomLCI.Windows/Python` contiene protocolo E1.2 y assets/provisioner/provider/resource E1.3. `LoomLCI.Mcp/PythonTools.cs` expone `python_execute`/`python_reset` desde E1.4. `runtime/python` conserva las fuentes versionadas del worker y manifiesto. `LoomLCI.Core/AgentSupport` contiene contratos/capability Work Plan F1.1 y `WorkSession.WorkPlan.cs` conserva su estado session-local; `LoomLCI.Mcp/WorkPlanTools.cs` expone F1.2 de forma opt-in. `LoomLCI.Mcp.Tests` cubre desde G1.0 el resultado MCP mixto y sus límites visuales. F1.3 quedó validado por túnel/fresh-agent; Visual Files continúa en G1.1 y Computer sigue pendiente.
 
 ## LoomLCI.Core
 
