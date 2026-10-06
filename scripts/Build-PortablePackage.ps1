@@ -111,24 +111,17 @@ $manifest = [ordered]@{
 }
 $manifest | ConvertTo-Json | Set-Content (Join-Path $packageDir 'package.json') -Encoding UTF8
 
-$readme = @"
-LoomLCI portable - $Version
-
-Primera PC / primera instalación:
-1. Extraer todo el ZIP.
-2. Ejecutar LoomLCI.Launcher.exe.
-3. En la primera ejecución pedirá Tunnel ID y Runtime API key.
-4. Setup instala LoomLCI por usuario y crea el acceso directo del escritorio.
-5. Setup NO detiene ni reemplaza automáticamente un runtime legacy.
-
-Después de configurar:
-- doble clic en el acceso directo LoomLCI -> start
-- LoomLCI.Launcher.exe status
-- LoomLCI.Launcher.exe stop
-
-Plataforma inicial: Windows x64.
-"@
-$readme | Set-Content (Join-Path $packageDir 'README.txt') -Encoding UTF8
+$readmeTemplatePath = Join-Path $PSScriptRoot 'PortableReadme.template.txt'
+if (-not (Test-Path $readmeTemplatePath)) {
+    throw "Falta template README portable: $readmeTemplatePath"
+}
+$readme = [System.IO.File]::ReadAllText(
+    $readmeTemplatePath,
+    [System.Text.Encoding]::UTF8).Replace('{{VERSION}}', $Version)
+[System.IO.File]::WriteAllText(
+    (Join-Path $packageDir 'README.txt'),
+    $readme,
+    [System.Text.Encoding]::UTF8)
 
 if (-not $SkipTests) {
     Write-Host 'Running Launcher tests...'

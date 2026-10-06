@@ -34,3 +34,4 @@
 - `python_execute`/`python_reset` serán la superficie MCP pública inicial. Una excepción Python ordinaria será un resultado exitoso (`ok=true`, `status=exception`); sólo fallos de Loom/infraestructura serán tool errors.
 - El código enviado a Python se limita a 256 KiB en UTF-8 estricto y se valida en Core antes de crear/tocar worker.
 - `maxOutputChars` y los límites de metadata Python se interpretan como Unicode code points, no unidades UTF-16.
+- Launcher seguirá siendo CLI en esta etapa: la UX de escritorio se resuelve con `--pause` opt-in y accesos directos de iniciar/detener, sin introducir todavía WinForms/WPF/tray. La CLI normal permanece no interactiva para automatización, y el packaging del README usa template UTF-8 leído/escrito explícitamente para no depender del encoding implícito de Windows PowerShell 5.1.

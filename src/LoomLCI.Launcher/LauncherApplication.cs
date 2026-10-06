@@ -5,6 +5,7 @@ public sealed class LauncherApplication
     private readonly AppPaths _paths;
     private readonly TunnelClient _tunnelClient;
     private readonly SetupService _setup;
+    private readonly TextReader _input;
     private readonly TextWriter _output;
     private readonly TextWriter _error;
 
@@ -12,12 +13,14 @@ public sealed class LauncherApplication
         AppPaths paths,
         TunnelClient tunnelClient,
         SetupService setup,
+        TextReader input,
         TextWriter output,
         TextWriter error)
     {
         _paths = paths;
         _tunnelClient = tunnelClient;
         _setup = setup;
+        _input = input;
         _output = output;
         _error = error;
     }
@@ -26,10 +29,19 @@ public sealed class LauncherApplication
         string[] args,
         CancellationToken cancellationToken)
     {
-        var command = args.Length == 0
+        var pause = args.Any(arg =>
+            string.Equals(arg, "--pause", StringComparison.OrdinalIgnoreCase));
+        var effectiveArgs = args
+            .Where(arg => !string.Equals(
+                arg,
+                "--pause",
+                StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        var command = effectiveArgs.Length == 0
             ? "start"
-            : args[0].ToLowerInvariant();
+            : effectiveArgs[0].ToLowerInvariant();
 
+        int exitCode;
         try
         {
             if (command == "start" &&
@@ -37,18 +49,20 @@ public sealed class LauncherApplication
                 File.Exists(Path.Combine(AppContext.BaseDirectory, "package.json")))
             {
                 _output.WriteLine("Primera ejecución: iniciando setup de LoomLCI.");
-                return await SetupAsync([], cancellationToken);
+                exitCode = await SetupAsync([], cancellationToken);
             }
-
-            return command switch
+            else
             {
-                "start" => await StartAsync(cancellationToken),
-                "stop" => await StopAsync(cancellationToken),
-                "status" => await StatusAsync(cancellationToken),
-                "setup" => await SetupAsync(args[1..], cancellationToken),
-                "help" or "--help" or "-h" => PrintHelp(),
-                _ => UnknownCommand(command)
-            };
+                exitCode = command switch
+                {
+                    "start" => await StartAsync(cancellationToken),
+                    "stop" => await StopAsync(cancellationToken),
+                    "status" => await StatusAsync(cancellationToken),
+                    "setup" => await SetupAsync(effectiveArgs[1..], cancellationToken),
+                    "help" or "--help" or "-h" => PrintHelp(),
+                    _ => UnknownCommand(command)
+                };
+            }
         }
         catch (Exception ex) when (
             ex is ArgumentException or
@@ -60,8 +74,15 @@ public sealed class LauncherApplication
             HttpRequestException)
         {
             _error.WriteLine($"Error: {ex.Message}");
-            return 1;
+            exitCode = 1;
         }
+
+        if (pause)
+        {
+            await PauseBeforeExitAsync(cancellationToken);
+        }
+
+        return exitCode;
     }
 
     private async Task<int> StartAsync(CancellationToken cancellationToken)
@@ -204,19 +225,24 @@ public sealed class LauncherApplication
         var result = await _setup.RunAsync(
             _paths,
             options,
-            Console.In,
+            _input,
             _output,
             cancellationToken);
 
+        _output.WriteLine("Instalación completada.");
         _output.WriteLine($"Instalado en: {result.Paths.InstallRoot}");
         _output.WriteLine($"Datos locales: {result.Paths.DataRoot}");
-        if (result.ShortcutPath is not null)
+        if (result.StartShortcutPath is not null)
         {
-            _output.WriteLine($"Acceso directo: {result.ShortcutPath}");
+            _output.WriteLine($"Acceso directo para iniciar: {result.StartShortcutPath}");
+        }
+        if (result.StopShortcutPath is not null)
+        {
+            _output.WriteLine($"Acceso directo para detener: {result.StopShortcutPath}");
         }
 
         _output.WriteLine(
-            "El próximo paso es un cutover controlado; setup no detuvo el runtime legacy.");
+            "La instalación quedó preparada. Si había otro runtime de LoomLCI en uso, no fue detenido automáticamente.");
         return 0;
     }
 
@@ -267,7 +293,10 @@ public sealed class LauncherApplication
         _output.WriteLine("  start   Inicia LoomLCI y verifica health/ready.");
         _output.WriteLine("  stop    Detiene sólo el runtime local.");
         _output.WriteLine("  status  Muestra el estado del runtime instalado.");
-        _output.WriteLine("  setup   Instala/configura el paquete portable sin hacer cutover.");
+        _output.WriteLine("  setup   Instala/configura el paquete portable sin detener otro runtime.");
+        _output.WriteLine();
+        _output.WriteLine("opciones generales:");
+        _output.WriteLine("  --pause  Espera Enter antes de cerrar; pensado para accesos directos.");
         _output.WriteLine();
         _output.WriteLine("setup options:");
         _output.WriteLine("  --tunnel-id <id>");
@@ -275,6 +304,14 @@ public sealed class LauncherApplication
         _output.WriteLine("  --alias <name>");
         _output.WriteLine("  --no-shortcut");
         return 0;
+    }
+
+    private async Task PauseBeforeExitAsync(CancellationToken cancellationToken)
+    {
+        _output.WriteLine();
+        _output.Write("Presione Enter para cerrar...");
+        await _output.FlushAsync(cancellationToken);
+        await _input.ReadLineAsync(cancellationToken);
     }
 
     private int UnknownCommand(string command)

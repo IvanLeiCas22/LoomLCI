@@ -19,7 +19,7 @@ Motivo para ir primero: son cambios acotados, de bajo riesgo y se pueden dogfood
 
 Orden preliminar:
 
-1. mejorar UX del Launcher;
+1. mejorar UX del Launcher — **CERRADO end-to-end**: modo `--pause` opt-in para accesos directos, shortcuts de iniciar/detener, mensajes simplificados, salida UTF-8 y README portable con encoding estable;
 2. instalador Windows convencional;
 3. base de auto-update con validación y rollback;
 4. mecanismo de generación/verificación de metadata y skill del plugin.
@@ -60,6 +60,6 @@ Es un tema transversal:
 
 ## Próxima acción
 
-**Producto / Deployment 1: mejorar UX del Launcher.**
+**Producto / Deployment 2: instalador Windows convencional.**
 
-Ergonomía 2 quedó cerrada end-to-end: `work_plan_patch` está implementado, validado, publicado e instalado en `0.1.0-dev-work-plan-patch`, y el smoke directo desde ChatGPT con catálogo refrescado confirmó `update + add`, preservación de IDs, rechazo por CAS stale, atomicidad ante error y `remove + update`.
+Launcher UX quedó cerrada end-to-end en `0.1.0-dev-launcher-ux`: suite Release 272/272, portable validado, instalación side-by-side, shortcuts `LoomLCI` / `Detener LoomLCI`, cutover healthy/ready y smoke directo desde ChatGPT mediante LoomLCI.

@@ -1,9 +1,14 @@
+using System.Text;
+
 namespace LoomLCI.Launcher;
 
 internal static class Program
 {
     public static async Task<int> Main(string[] args)
     {
+        Console.OutputEncoding = new UTF8Encoding(
+            encoderShouldEmitUTF8Identifier: false);
+
         if (!OperatingSystem.IsWindows())
         {
             Console.Error.WriteLine("LoomLCI Launcher sólo es compatible con Windows.");
@@ -20,6 +25,7 @@ internal static class Program
                 paths,
                 tunnelClient,
                 setup,
+                Console.In,
                 Console.Out,
                 Console.Error);
 

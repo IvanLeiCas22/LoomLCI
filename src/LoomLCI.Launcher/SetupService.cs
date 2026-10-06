@@ -7,7 +7,8 @@ namespace LoomLCI.Launcher;
 public sealed record SetupResult(
     AppPaths Paths,
     MachineConfig Config,
-    string? ShortcutPath);
+    string? StartShortcutPath,
+    string? StopShortcutPath);
 
 public sealed class SetupService
 {
@@ -95,15 +96,22 @@ public sealed class SetupService
 
         MachineConfigStore.Save(paths.MachineConfigPath, config);
 
-        string? shortcutPath = null;
+        string? startShortcutPath = null;
+        string? stopShortcutPath = null;
         if (!options.NoShortcut)
         {
-            shortcutPath = ShortcutCreator.CreateDesktopShortcut(
+            var shortcuts = ShortcutCreator.CreateDesktopShortcuts(
                 paths.LauncherPath);
+            startShortcutPath = shortcuts.StartPath;
+            stopShortcutPath = shortcuts.StopPath;
         }
 
-        output.WriteLine("Setup completo. El runtime actual no fue detenido ni reemplazado.");
-        return new SetupResult(paths, config, shortcutPath);
+        output.WriteLine("Setup completo. La instalación quedó preparada sin detener otro runtime.");
+        return new SetupResult(
+            paths,
+            config,
+            startShortcutPath,
+            stopShortcutPath);
     }
 
     private static void ValidatePlatform()

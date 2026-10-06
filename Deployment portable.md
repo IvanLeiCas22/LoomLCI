@@ -552,6 +552,32 @@ Primera plataforma soportada: **Windows x64**. El primer uso de Python sigue req
 
 Con el mismo tunnel remoto, las PCs se usan alternativamente: se detiene LoomLCI en una antes de iniciar la otra. Para operación simultánea se mantiene la recomendación de un tunnel distinto por PC.
 
+## Follow-up Launcher UX (2026-10-06)
+
+La UX de escritorio del Launcher quedó cerrada sin introducir todavía una GUI completa:
+
+- nueva opción global `--pause`: espera Enter antes de cerrar y está pensada para invocaciones desde accesos directos;
+- la CLI normal (`start`, `stop`, `status`, `setup`) mantiene el comportamiento no interactivo anterior cuando no se pasa `--pause`;
+- `LoomLCI.lnk` ejecuta `start --pause`;
+- nuevo `Detener LoomLCI.lnk` ejecuta `stop --pause`;
+- Setup informa ambos shortcuts y reemplaza terminología interna de cutover/legacy por mensajes más simples;
+- Launcher fija stdout/stderr en UTF-8 para que automatización y captura por LoomLCI preserven acentos;
+- el README portable se movió a `scripts/PortableReadme.template.txt` y el builder lo lee/escribe con UTF-8 explícito, eliminando el mojibake observado bajo Windows PowerShell 5.1.
+
+Validación final:
+
+- suite Release completa: **272/272** = Core 96 + Windows 141 + MCP 5 + PdfWorker 6 + Launcher 9 + Integration 15;
+- tests Launcher: **9/9**;
+- builder portable: Launcher **9/9** + IntegrationTests contra Host publicado **15/15**;
+- paquete: `LoomLCI-0.1.0-dev-launcher-ux-win-x64.zip`;
+- SHA-256: `032dfcf31fb3dff4a7ed1fa1453a7dbd6513ee166b03c016b45c060111fddd2e`;
+- README generado verificado con tildes correctas;
+- smoke del ejecutable publicado con `help --pause`: el proceso permaneció vivo hasta recibir Enter y luego salió con code 0;
+- setup side-by-side sobre la instalación real: OK, creando ambos shortcuts;
+- cutover realizado con IvanSpace sólo para el stop/start;
+- runtime activo final: `0.1.0-dev-launcher-ux`, `process_running=true`, `healthy=true`, `ready=true`;
+- smoke posterior al cutover desde ChatGPT mediante LoomLCI: **OK**.
+
 ## Fuera de alcance inicial
 
 - autoarranque al login;
@@ -564,7 +590,7 @@ Con el mismo tunnel remoto, las PCs se usan alternativamente: se detiene LoomLCI
 - DPAPI;
 - migración automática de la skill/plugin de ChatGPT.
 
-Estas mejoras ya pueden evaluarse por separado ahora que el deployment portable real quedó validado en dos PCs. UX detectada durante la prueba: las ventanas de Setup/Start se cierran apenas termina la operación, por lo que conviene más adelante agregar confirmación visible/pause controlado o una UI mínima; también sería útil un acceso directo `Detener LoomLCI`. No bloquea Computer.
+Estas mejoras ya pueden evaluarse por separado ahora que el deployment portable real quedó validado en dos PCs. La aspereza original de ventanas que se cerraban sin confirmación y la falta de un acceso directo de stop quedaron resueltas en el follow-up Launcher UX sin introducir todavía una GUI completa.
 
 ## Fuentes
 

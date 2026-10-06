@@ -1,6 +1,6 @@
 # Plan y tareas
 
-> Estado: **Agent Support F1, Deployment portable, Visual Files G1, hardening de `filesystem_read_files`, `process_run` y [[Ergonomía - Work Plan patch]] cerrados end-to-end**. Computer H1 queda deliberadamente pausado. [[Roadmap post-G1]] continúa por Producto/Deployment -> Python.
+> Estado: **Agent Support F1, Deployment portable, Launcher UX, Visual Files G1, hardening de `filesystem_read_files`, `process_run` y [[Ergonomía - Work Plan patch]] cerrados end-to-end**. Computer H1 queda deliberadamente pausado. [[Roadmap post-G1]] continúa por Producto/Deployment -> Python.
 
 ## Distinciones necesarias
 
@@ -100,7 +100,7 @@ El smoke directo final desde un chat con catálogo MCP refrescado pasó correcta
 - cutover y rollback reales;
 - smoke end-to-end desde ChatGPT.
 
-Validación multi-PC cerrada: el mismo paquete se instaló desde cero en una notebook Windows x64, ChatGPT operó correctamente sobre ella y luego se volvió a la PC de escritorio deteniendo/iniciando el launcher correspondiente. Quedan como UX futura la confirmación visible al finalizar y un acceso directo de stop; no bloquean el roadmap.
+Validación multi-PC cerrada: el mismo paquete se instaló desde cero en una notebook Windows x64, ChatGPT operó correctamente sobre ella y luego se volvió a la PC de escritorio deteniendo/iniciando el launcher correspondiente. El follow-up de Launcher UX quedó cerrado: los accesos directos usan pausa visible, existe `Detener LoomLCI`, la CLI automatizable conserva su comportamiento sin pausa y el README portable ya no depende del encoding implícito de Windows PowerShell 5.1.
 
 ## Visual Files G1 - CERRADO
 

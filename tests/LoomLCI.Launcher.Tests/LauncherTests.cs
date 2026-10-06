@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using LoomLCI.Launcher;
@@ -167,6 +168,165 @@ public sealed class LauncherTests
         finally
         {
             Directory.Delete(root, recursive: true);
+        }
+    }
+
+
+    [Fact]
+    public async Task PauseOptionPromptsBeforeExit()
+    {
+        var root = CreateScratch();
+        try
+        {
+            var output = new StringWriter();
+            var error = new StringWriter();
+            var input = new StringReader(Environment.NewLine);
+            var app = CreateApplication(root, input, output, error);
+
+            var exitCode = await app.RunAsync(
+                ["help", "--pause"],
+                CancellationToken.None);
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains(
+                "Presione Enter para cerrar...",
+                output.ToString(),
+                StringComparison.Ordinal);
+            Assert.Equal(string.Empty, error.ToString());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task NormalCliInvocationDoesNotPause()
+    {
+        var root = CreateScratch();
+        try
+        {
+            var output = new StringWriter();
+            var error = new StringWriter();
+            var input = new StringReader(string.Empty);
+            var app = CreateApplication(root, input, output, error);
+
+            var exitCode = await app.RunAsync(
+                ["help"],
+                CancellationToken.None);
+
+            Assert.Equal(0, exitCode);
+            Assert.DoesNotContain(
+                "Presione Enter para cerrar...",
+                output.ToString(),
+                StringComparison.Ordinal);
+            Assert.Equal(string.Empty, error.ToString());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void DesktopShortcutsUseInteractiveStartAndStop()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var root = CreateScratch();
+        try
+        {
+            var launcherPath = Path.Combine(root, "LoomLCI.Launcher.exe");
+            File.WriteAllBytes(launcherPath, []);
+
+            var shortcuts = ShortcutCreator.CreateDesktopShortcuts(
+                launcherPath,
+                root);
+
+            Assert.Equal(
+                Path.Combine(root, "LoomLCI.lnk"),
+                shortcuts.StartPath);
+            Assert.Equal(
+                Path.Combine(root, "Detener LoomLCI.lnk"),
+                shortcuts.StopPath);
+
+            var start = ReadShortcut(shortcuts.StartPath);
+            Assert.Equal(launcherPath, start.TargetPath);
+            Assert.Equal("start --pause", start.Arguments);
+            Assert.Equal("Iniciar LoomLCI", start.Description);
+
+            var stop = ReadShortcut(shortcuts.StopPath);
+            Assert.Equal(launcherPath, stop.TargetPath);
+            Assert.Equal("stop --pause", stop.Arguments);
+            Assert.Equal("Detener LoomLCI", stop.Description);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static LauncherApplication CreateApplication(
+        string root,
+        TextReader input,
+        TextWriter output,
+        TextWriter error)
+    {
+        var paths = new AppPaths(
+            Path.Combine(root, "install"),
+            Path.Combine(root, "data"));
+        var client = new TunnelClient(new ProcessRunner());
+        var setup = new SetupService(client);
+
+        return new LauncherApplication(
+            paths,
+            client,
+            setup,
+            input,
+            output,
+            error);
+    }
+
+    private static (
+        string TargetPath,
+        string Arguments,
+        string Description) ReadShortcut(string path)
+    {
+        var shellType = Type.GetTypeFromProgID("WScript.Shell")
+            ?? throw new InvalidOperationException(
+                "Windows Script Host no está disponible.");
+
+        object? shell = null;
+        object? shortcut = null;
+        try
+        {
+            shell = Activator.CreateInstance(shellType)
+                ?? throw new InvalidOperationException(
+                    "No se pudo crear WScript.Shell.");
+
+            dynamic dynamicShell = shell;
+            shortcut = dynamicShell.CreateShortcut(path);
+            dynamic dynamicShortcut = shortcut;
+
+            return (
+                (string)dynamicShortcut.TargetPath,
+                (string)dynamicShortcut.Arguments,
+                (string)dynamicShortcut.Description);
+        }
+        finally
+        {
+            if (shortcut is not null && Marshal.IsComObject(shortcut))
+            {
+                Marshal.FinalReleaseComObject(shortcut);
+            }
+
+            if (shell is not null && Marshal.IsComObject(shell))
+            {
+                Marshal.FinalReleaseComObject(shell);
+            }
         }
     }
 
