@@ -1,6 +1,6 @@
 # Plan y tareas
 
-> Estado: **Agent Support F1, Deployment portable, Visual Files G1 y hardening de `filesystem_read_files` cerrados**. El deployment general está validado end-to-end en dos PCs Windows x64 y Visual Files tiene visión directa confirmada en ChatGPT. Computer H1 queda deliberadamente pausado por ahora; no hay otro bloque funcional activo.
+> Estado: **Agent Support F1, Deployment portable, Visual Files G1, hardening de `filesystem_read_files` y `process_run` cerrados**. Computer H1 queda deliberadamente pausado. El trabajo futuro seleccionado se organiza en [[Roadmap post-G1]]: Ergonomía -> Producto/Deployment -> Python. El siguiente objetivo es simplificar la ergonomía de Work Plan.
 
 ## Distinciones necesarias
 

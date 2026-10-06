@@ -29,6 +29,15 @@ public sealed record ProcessStartRequest(
     int? TerminalColumns = null,
     int? TerminalRows = null);
 
+public sealed record ProcessRunRequest(
+    string Executable,
+    IReadOnlyList<string>? Arguments = null,
+    string? WorkingDirectory = null,
+    IReadOnlyDictionary<string, string?>? Environment = null,
+    WorkId? WorkId = null,
+    TimeSpan? Timeout = null,
+    int MaxOutputChars = 65_536);
+
 public sealed record ProcessLaunchSpec(
     string Executable,
     IReadOnlyList<string> Arguments,
@@ -45,6 +54,18 @@ public sealed record ProcessStartResult(
     ManagedProcessState State,
     ProcessIoMode IoMode,
     TimeSpan PostExitRetention);
+
+public sealed record ProcessRunResult(
+    int ProcessId,
+    int ExitCode,
+    DateTimeOffset StartedAt,
+    DateTimeOffset ExitedAt,
+    string Stdout,
+    string Stderr,
+    bool StdoutTruncated,
+    bool StderrTruncated,
+    long StdoutObservedChars,
+    long StderrObservedChars);
 
 public sealed record ProcessStatusResult(
     ProcessHandle Handle,
@@ -87,6 +108,7 @@ public interface IProcessResource : IAsyncDisposable
         long stderrCursor,
         long terminalCursor,
         int maxChars);
+    Task WaitForExitAndOutputAsync(CancellationToken cancellationToken);
     Task<LoomResult<Unit>> WriteAsync(string text, CancellationToken cancellationToken);
     Task<LoomResult<Unit>> ResizeAsync(int columns, int rows, CancellationToken cancellationToken);
     Task<LoomResult<Unit>> TerminateAsync(CancellationToken cancellationToken);

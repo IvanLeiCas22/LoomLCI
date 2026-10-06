@@ -486,6 +486,24 @@ Se cerró el hallazgo lateral detectado durante G1 sin reducir la capacidad inte
 - runtime instalado: `0.1.0-dev-readfiles-payload-hardening`, healthy/ready;
 - smoke real por Secure MCP Tunnel: una lectura de **9 MiB + 1 byte** fue rechazada localmente y una lectura pequeña inmediatamente posterior funcionó, confirmando que el runtime permaneció operativo.
 
+### Ergonomía Process: `process_run` (2026-10-06)
+
+Se agregó una tool one-shot para comandos cortos sin cambiar el lifecycle durable de `process_start`:
+
+- `ProcessCapability.RunAsync` usa `IProcessProvider` directamente y no registra `ProcessHandle`;
+- espera exit + drain de stdout/stderr, devuelve exit code y output bounded, y dispone siempre el recurso;
+- timeout/cancelación terminan el Job Object durante cleanup;
+- exit codes no cero siguen siendo resultados normales de la tool;
+- catálogo normal con Work Plan: **23 tools**;
+- suite Release: **259/259** = Core 87 + Windows 141 + MCP 5 + PdfWorker 6 + Launcher 6 + Integration 14;
+- builder portable: Launcher **6/6** + IntegrationTests contra Host publicado **14/14**;
+- paquete: `LoomLCI-0.1.0-dev-process-run-win-x64.zip`;
+- SHA-256: `aaa67eb47ab056e0bd206147cd4e346f8212491a63512be05ca8d310f9726e09`;
+- runtime instalado: `0.1.0-dev-process-run`, `process_running=true`, `healthy=true`, `ready=true`;
+- cutover realizado con IvanSpace; las tools ya conocidas por la conversación siguieron funcionando por el tunnel inmediatamente después.
+
+Smoke directo final desde ChatGPT: **OK** en un chat nuevo con catálogo refrescado. `process_run` ejecutó `git status --short` con `exitCode=0`, stderr vacío, stdout completo/no truncado y sin `processHandle`; sólo devolvió `processId` como metadata. La capability queda cerrada end-to-end.
+
 ### Hallazgo durante rollback
 
 El `repair_command` emitido por el runtime legacy incluía `--admin-profile default` y, al ejecutarlo literalmente, falló porque `OPENAI_ADMIN_KEY` no estaba definido.

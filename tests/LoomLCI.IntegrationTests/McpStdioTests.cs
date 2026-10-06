@@ -26,8 +26,8 @@ public sealed class McpStdioTests
         var enabledToolRegistrations = enabledServices.Count(
             descriptor => descriptor.ServiceType == typeof(McpServerTool));
 
-        Assert.Equal(20, disabledToolRegistrations);
-        Assert.Equal(22, enabledToolRegistrations);
+        Assert.Equal(21, disabledToolRegistrations);
+        Assert.Equal(23, enabledToolRegistrations);
     }
 
     [Fact]
@@ -262,6 +262,21 @@ public sealed class McpStdioTests
         AssertSchemaRange(GetRequiredProperty(processStartProperties, "terminalColumns"), 1, short.MaxValue);
         AssertSchemaRange(GetRequiredProperty(processStartProperties, "terminalRows"), 1, short.MaxValue);
 
+        var runProcess = Assert.Single(tools, tool => tool.Name == "process_run");
+        Assert.Equal("Run short process", runProcess.ProtocolTool.Title);
+        Assert.Contains("non-interactive", runProcess.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("non-zero exit code", runProcess.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("does not return a process handle", runProcess.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.False(runProcess.ProtocolTool.Annotations?.ReadOnlyHint ?? true);
+        Assert.True(runProcess.ProtocolTool.Annotations?.DestructiveHint ?? false);
+        Assert.False(runProcess.ProtocolTool.Annotations?.IdempotentHint ?? true);
+        Assert.False(runProcess.ProtocolTool.Annotations?.OpenWorldHint ?? true);
+        var processRunProperties = GetRequiredProperty(runProcess.JsonSchema, "properties");
+        AssertSchemaRange(GetRequiredProperty(processRunProperties, "timeoutSeconds"), 1, 600);
+        AssertSchemaRange(GetRequiredProperty(processRunProperties, "maxOutputChars"), 1, 1048576);
+        Assert.False(processRunProperties.TryGetProperty("ioMode", out _));
+        Assert.False(processRunProperties.TryGetProperty("independent", out _));
+
         var writeProcess = Assert.Single(tools, tool => tool.Name == "process_write");
         Assert.Contains("Ctrl+C", writeProcess.Description, StringComparison.Ordinal);
         Assert.Contains("\\u0003", writeProcess.Description, StringComparison.Ordinal);
@@ -426,6 +441,7 @@ public sealed class McpStdioTests
         Assert.Contains("work_create", toolNames);
         Assert.Contains("work_close", toolNames);
         Assert.Contains("process_start", toolNames);
+        Assert.Contains("process_run", toolNames);
         Assert.Contains("process_status", toolNames);
         Assert.Contains("process_read", toolNames);
         Assert.Contains("process_write", toolNames);
@@ -613,6 +629,58 @@ public sealed class McpStdioTests
         Assert.True(GetRequiredProperty(closeRoot, "ok").GetBoolean());
     }
 
+
+    [Fact]
+    public async Task StdioAdapterCanRunShortProcessInOneCall()
+    {
+        var repoRoot = FindRepoRoot();
+        var hostDll = GetHostDll(repoRoot);
+        Assert.True(File.Exists(hostDll), $"Host was not built: {hostDll}");
+
+        var transport = new StdioClientTransport(new StdioClientTransportOptions
+        {
+            Name = "LoomLCI process_run integration test",
+            Command = "dotnet",
+            Arguments = [hostDll],
+            WorkingDirectory = repoRoot,
+            ShutdownTimeout = TimeSpan.FromSeconds(5)
+        });
+
+        await using var client = await McpClient.CreateAsync(transport);
+
+        var result = await client.CallToolAsync(
+            "process_run",
+            new Dictionary<string, object?>
+            {
+                ["executable"] = "cmd.exe",
+                ["arguments"] = new[]
+                {
+                    "/d",
+                    "/s",
+                    "/c",
+                    "echo mcp-run-out & echo mcp-run-err 1>&2 & exit /b 7"
+                },
+                ["timeoutSeconds"] = 5,
+                ["maxOutputChars"] = 4096
+            });
+
+        var root = GetStructured(result.StructuredContent);
+        Assert.True(GetRequiredProperty(root, "ok").GetBoolean());
+        var payload = GetRequiredProperty(root, "result");
+        Assert.Equal(7, GetRequiredProperty(payload, "exitCode").GetInt32());
+        Assert.Contains(
+            "mcp-run-out",
+            GetRequiredProperty(payload, "stdout").GetString(),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "mcp-run-err",
+            GetRequiredProperty(payload, "stderr").GetString(),
+            StringComparison.Ordinal);
+        Assert.False(
+            GetRequiredProperty(payload, "stdoutTruncated").GetBoolean());
+        Assert.False(
+            GetRequiredProperty(payload, "stderrTruncated").GetBoolean());
+    }
 
     [Fact]
     public async Task StdioAdapterCanTerminateRunningProcess()

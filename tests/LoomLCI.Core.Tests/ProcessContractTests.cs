@@ -181,6 +181,51 @@ public sealed class ProcessContractTests
         Assert.Equal("invalid_argument", invalidResize.Error?.Code);
     }
 
+    [Fact]
+    public async Task RunAsyncUsesPipeModeAndDoesNotRegisterDurableResource()
+    {
+        await using var fixture = new ProcessFixture();
+        var work = fixture.Sessions.Create(Environment.CurrentDirectory);
+        Assert.True(work.IsSuccess);
+
+        var result = await fixture.Processes.RunAsync(
+            new ProcessRunRequest(
+                "fake.exe",
+                ["--version"],
+                WorkId: work.Value!.Id,
+                Timeout: TimeSpan.FromSeconds(5),
+                MaxOutputChars: 128));
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(4242, result.Value!.ProcessId);
+        Assert.Equal(0, result.Value.ExitCode);
+        Assert.Equal(ProcessIoMode.Pipes, fixture.Provider.LastSpec!.IoMode);
+        Assert.Null(fixture.Provider.LastSpec.TerminalColumns);
+        Assert.Null(fixture.Provider.LastSpec.TerminalRows);
+        Assert.Equal(0, fixture.Resources.ActiveCount);
+
+        var resource = Assert.IsType<FakeProcessResource>(
+            Assert.Single(fixture.Provider.Resources));
+        Assert.Equal(1, resource.DisposeCount);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(601)]
+    public async Task RunAsyncRejectsInvalidTimeoutSeconds(int seconds)
+    {
+        await using var fixture = new ProcessFixture();
+
+        var result = await fixture.Processes.RunAsync(
+            new ProcessRunRequest(
+                "fake.exe",
+                Timeout: TimeSpan.FromSeconds(seconds)));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("invalid_argument", result.Error?.Code);
+        Assert.Equal(0, fixture.Provider.StartCount);
+    }
+
     private sealed class ProcessFixture : IAsyncDisposable
     {
         public ProcessFixture()
@@ -232,19 +277,24 @@ public sealed class ProcessContractTests
 
     private sealed class FakeProcessResource(ProcessIoMode ioMode) : IProcessResource
     {
+        private ManagedProcessState _state = ManagedProcessState.Running;
+        private int? _exitCode;
+        private DateTimeOffset? _exitedAt;
+
         public int ProcessId { get; } = 4242;
         public DateTimeOffset StartedAt { get; } = DateTimeOffset.UtcNow;
         public ProcessIoMode IoMode { get; } = ioMode;
         public (int Columns, int Rows)? LastResize { get; private set; }
+        public int DisposeCount { get; private set; }
 
         public ProcessStatusResult Snapshot(ProcessHandle handle)
             => new(
                 handle,
                 ProcessId,
-                ManagedProcessState.Running,
-                null,
+                _state,
+                _exitCode,
                 StartedAt,
-                null,
+                _exitedAt,
                 IoMode,
                 null);
 
@@ -267,6 +317,15 @@ public sealed class ProcessContractTests
                     null,
                     null,
                     Empty(terminalCursor));
+
+        public Task WaitForExitAndOutputAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _state = ManagedProcessState.Exited;
+            _exitCode = 0;
+            _exitedAt = DateTimeOffset.UtcNow;
+            return Task.CompletedTask;
+        }
 
         public Task<LoomResult<Unit>> WriteAsync(
             string text,
@@ -302,7 +361,11 @@ public sealed class ProcessContractTests
             return Task.FromResult(LoomResult<Unit>.Success(Unit.Value));
         }
 
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        public ValueTask DisposeAsync()
+        {
+            DisposeCount++;
+            return ValueTask.CompletedTask;
+        }
 
         private static OutputStreamReadResult Empty(long requestedCursor)
             => new(

@@ -69,8 +69,8 @@ Diferido después de H1:
 ## Operación
 
 - WorkSession idle TTL, tombstone retention, ProcessHandle post-exit TTL y explicit release definidos en [[Bloque D0 - Resource lifetime y expiry]]; quedan futuras policies por nuevos resource kinds.
-- Ergonomía futura: evaluar si comandos CLI muy cortos justifican una superficie que reduzca el ciclo process_start -> process_read; no es bloqueo funcional actual.
-- Ergonomía futura: Work Plan CAS + IDs opacos es deliberadamente seguro pero verboso en workflows lineales; no simplificar sin preservar semántica de concurrencia.
+- Ergonomía: `process_run` **cerrado end-to-end** como one-shot real en Core, sin handle durable y reutilizando el backend Process existente. Suite Release 259/259, portable publicado/instalado y smoke directo desde ChatGPT confirmado.
+- Ergonomía siguiente: Work Plan CAS + IDs opacos es deliberadamente seguro pero verboso en workflows lineales; investigar una operación patch sin perder revision/CAS ni identidad estable.
 - tamaños de buffers.
 - formato y retención del audit durable.
 - autenticación remota si se habilita HTTP fuera de localhost/tunnel.

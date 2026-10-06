@@ -920,6 +920,131 @@ public sealed class ProcessCapabilityTests
             after.Value.Process.State);
     }
 
+    [Fact]
+    public async Task RunAsyncReturnsOutputAndNonZeroExitWithoutDurableResource()
+    {
+        await using var fixture = new ProcessFixture();
+        var work = fixture.Sessions.Create(Environment.CurrentDirectory);
+        Assert.True(work.IsSuccess);
+
+        var result = await fixture.Processes.RunAsync(
+            new ProcessRunRequest(
+                "cmd.exe",
+                ["/d", "/s", "/c", "echo run-out & echo run-err 1>&2 & exit /b 7"],
+                WorkId: work.Value!.Id,
+                Timeout: TimeSpan.FromSeconds(5),
+                MaxOutputChars: 4096));
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(7, result.Value!.ExitCode);
+        Assert.Contains("run-out", result.Value.Stdout, StringComparison.Ordinal);
+        Assert.Contains("run-err", result.Value.Stderr, StringComparison.Ordinal);
+        Assert.False(result.Value.StdoutTruncated);
+        Assert.False(result.Value.StderrTruncated);
+        Assert.True(result.Value.ExitedAt >= result.Value.StartedAt);
+        Assert.Equal(0, fixture.Resources.ActiveCount);
+    }
+
+    [Fact]
+    public async Task RunAsyncResolvesRelativeWorkingDirectoryAndEnvironment()
+    {
+        await using var fixture = new ProcessFixture();
+        var directory = Directory.CreateTempSubdirectory("loom-process-run-");
+
+        try
+        {
+            var work = fixture.Sessions.Create(directory.FullName);
+            Assert.True(work.IsSuccess);
+
+            var result = await fixture.Processes.RunAsync(
+                new ProcessRunRequest(
+                    "cmd.exe",
+                    ["/d", "/s", "/c", "echo %LOOM_RUN_VALUE% & cd"],
+                    WorkingDirectory: ".",
+                    Environment: new Dictionary<string, string?>
+                    {
+                        ["LOOM_RUN_VALUE"] = "env-ok"
+                    },
+                    WorkId: work.Value!.Id,
+                    Timeout: TimeSpan.FromSeconds(5)));
+
+            Assert.True(result.IsSuccess, result.Error?.Message);
+            Assert.Equal(0, result.Value!.ExitCode);
+            Assert.Contains("env-ok", result.Value.Stdout, StringComparison.Ordinal);
+            Assert.Contains(directory.FullName, result.Value.Stdout, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(0, fixture.Resources.ActiveCount);
+        }
+        finally
+        {
+            Directory.Delete(directory.FullName, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RunAsyncReportsBoundedOutputAsTruncated()
+    {
+        await using var fixture = new ProcessFixture();
+
+        var result = await fixture.Processes.RunAsync(
+            new ProcessRunRequest(
+                "powershell.exe",
+                [
+                    "-NoProfile",
+                    "-Command",
+                    "[Console]::Out.Write('A' * 100); [Console]::Error.Write('B' * 100)"
+                ],
+                Timeout: TimeSpan.FromSeconds(5),
+                MaxOutputChars: 25));
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(0, result.Value!.ExitCode);
+        Assert.True(result.Value.StdoutTruncated);
+        Assert.True(result.Value.StderrTruncated);
+        Assert.Equal(100, result.Value.StdoutObservedChars);
+        Assert.Equal(100, result.Value.StderrObservedChars);
+        Assert.True(result.Value.Stdout.Length + result.Value.Stderr.Length <= 25);
+        Assert.Equal(0, fixture.Resources.ActiveCount);
+    }
+
+    [Fact]
+    public async Task RunAsyncTimeoutCleansUpProcessTree()
+    {
+        await using var fixture = new ProcessFixture();
+        var directory = Directory.CreateTempSubdirectory("loom-process-run-timeout-");
+
+        try
+        {
+            var pidPath = Path.Combine(directory.FullName, "child.pid");
+            var scriptPath = Path.Combine(directory.FullName, "spawn.ps1");
+            var escapedPidPath = pidPath.Replace("'", "''", StringComparison.Ordinal);
+
+            await File.WriteAllTextAsync(
+                scriptPath,
+                "$child = Start-Process powershell.exe -ArgumentList '-NoProfile','-Command','Start-Sleep -Seconds 30' -PassThru" +
+                Environment.NewLine +
+                $"Set-Content -LiteralPath '{escapedPidPath}' -Value $child.Id" +
+                Environment.NewLine +
+                "Start-Sleep -Seconds 30");
+
+            var result = await fixture.Processes.RunAsync(
+                new ProcessRunRequest(
+                    "powershell.exe",
+                    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath],
+                    Timeout: TimeSpan.FromSeconds(1)));
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal("deadline_exceeded", result.Error?.Code);
+
+            var childPid = await WaitForPidFileAsync(pidPath);
+            await WaitForProcessGoneAsync(childPid);
+            Assert.Equal(0, fixture.Resources.ActiveCount);
+        }
+        finally
+        {
+            Directory.Delete(directory.FullName, recursive: true);
+        }
+    }
+
     private static async Task<int> WaitForPidFileAsync(string path)
     {
         for (var i = 0; i < 200; i++)

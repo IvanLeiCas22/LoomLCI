@@ -45,12 +45,6 @@ public sealed class ProcessCapability
             request.WorkId,
             async (context, token) =>
             {
-                if (string.IsNullOrWhiteSpace(request.Executable))
-                {
-                    return LoomResult<ProcessStartResult>.Failure(
-                        LoomErrors.InvalidArgument("Executable is required."));
-                }
-
                 var session = context.WorkSession;
 
                 if (request.Ownership == ResourceOwnership.SessionOwned && session is null)
@@ -60,58 +54,22 @@ public sealed class ProcessCapability
                             "Session-owned processes require a work_id."));
                 }
 
-                if (request.IoMode is not (ProcessIoMode.Pipes or ProcessIoMode.Terminal))
-                {
-                    return LoomResult<ProcessStartResult>.Failure(
-                        LoomErrors.InvalidArgument("Unsupported process I/O mode."));
-                }
-
-                int? terminalColumns = null;
-                int? terminalRows = null;
-
-                if (request.IoMode == ProcessIoMode.Pipes)
-                {
-                    if (request.TerminalColumns is not null ||
-                        request.TerminalRows is not null)
-                    {
-                        return LoomResult<ProcessStartResult>.Failure(
-                            LoomErrors.InvalidArgument(
-                                "Terminal dimensions are only valid when io_mode is terminal."));
-                    }
-                }
-                else
-                {
-                    terminalColumns = request.TerminalColumns ?? 80;
-                    terminalRows = request.TerminalRows ?? 24;
-
-                    if (terminalColumns is < 1 or > short.MaxValue ||
-                        terminalRows is < 1 or > short.MaxValue)
-                    {
-                        return LoomResult<ProcessStartResult>.Failure(
-                            LoomErrors.InvalidArgument(
-                                $"Terminal dimensions must be between 1 and {short.MaxValue}."));
-                    }
-                }
-
-                var workingDirectoryResult = ResolveWorkingDirectory(
-                    request.WorkingDirectory,
-                    session?.BaseDirectory);
-                if (!workingDirectoryResult.IsSuccess)
-                {
-                    return LoomResult<ProcessStartResult>.Failure(
-                        workingDirectoryResult.Error!);
-                }
-
-                var spec = new ProcessLaunchSpec(
+                var specResult = BuildLaunchSpec(
                     request.Executable,
-                    request.Arguments ?? Array.Empty<string>(),
-                    workingDirectoryResult.Value,
-                    request.Environment ?? new Dictionary<string, string?>(),
+                    request.Arguments,
+                    request.WorkingDirectory,
+                    request.Environment,
                     request.IoMode,
-                    terminalColumns,
-                    terminalRows);
+                    request.TerminalColumns,
+                    request.TerminalRows,
+                    session?.BaseDirectory);
+                if (!specResult.IsSuccess)
+                {
+                    return LoomResult<ProcessStartResult>.Failure(
+                        specResult.Error!);
+                }
 
-                var started = await _provider.StartAsync(spec, token)
+                var started = await _provider.StartAsync(specResult.Value!, token)
                     .ConfigureAwait(false);
                 if (!started.IsSuccess)
                 {
@@ -154,6 +112,96 @@ public sealed class ProcessCapability
                         _lifetimeOptions.ProcessPostExitRetention));
             },
             cancellationToken);
+
+    public Task<LoomResult<ProcessRunResult>> RunAsync(
+        ProcessRunRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var timeout = request.Timeout ?? TimeSpan.FromSeconds(30);
+        if (timeout < TimeSpan.FromSeconds(1) ||
+            timeout > TimeSpan.FromSeconds(600))
+        {
+            return Task.FromResult(
+                LoomResult<ProcessRunResult>.Failure(
+                    LoomErrors.InvalidArgument(
+                        "timeout must be between 1 and 600 seconds.")));
+        }
+
+        if (request.MaxOutputChars is < 1 or > 1024 * 1024)
+        {
+            return Task.FromResult(
+                LoomResult<ProcessRunResult>.Failure(
+                    LoomErrors.InvalidArgument(
+                        "max_output_chars must be between 1 and 1048576.")));
+        }
+
+        return _invocations.RunAsync(
+            "process.run",
+            request.WorkId,
+            async (context, token) =>
+            {
+                var specResult = BuildLaunchSpec(
+                    request.Executable,
+                    request.Arguments,
+                    request.WorkingDirectory,
+                    request.Environment,
+                    ProcessIoMode.Pipes,
+                    terminalColumns: null,
+                    terminalRows: null,
+                    context.WorkSession?.BaseDirectory);
+                if (!specResult.IsSuccess)
+                {
+                    return LoomResult<ProcessRunResult>.Failure(
+                        specResult.Error!);
+                }
+
+                var started = await _provider
+                    .StartAsync(specResult.Value!, token)
+                    .ConfigureAwait(false);
+                if (!started.IsSuccess)
+                {
+                    return LoomResult<ProcessRunResult>.Failure(
+                        started.Error!);
+                }
+
+                await using var resource = started.Value!;
+                await resource
+                    .WaitForExitAndOutputAsync(token)
+                    .ConfigureAwait(false);
+
+                var read = resource.Read(
+                    new ProcessHandle("proc_run"),
+                    stdoutCursor: 0,
+                    stderrCursor: 0,
+                    terminalCursor: 0,
+                    request.MaxOutputChars);
+                var status = read.Process;
+
+                if (!IsTerminal(status.State) ||
+                    status.ExitCode is not { } exitCode ||
+                    status.ExitedAt is not { } exitedAt)
+                {
+                    return LoomResult<ProcessRunResult>.Failure(
+                        LoomErrors.ExecutionFailed(
+                            "One-shot process completed without terminal exit metadata."));
+                }
+
+                return LoomResult<ProcessRunResult>.Success(
+                    new ProcessRunResult(
+                        resource.ProcessId,
+                        exitCode,
+                        resource.StartedAt,
+                        exitedAt,
+                        FlattenOutput(read.Stdout),
+                        FlattenOutput(read.Stderr),
+                        IsRunOutputTruncated(read.Stdout),
+                        IsRunOutputTruncated(read.Stderr),
+                        read.Stdout?.ObservedUntilCursor ?? 0,
+                        read.Stderr?.ObservedUntilCursor ?? 0));
+            },
+            cancellationToken,
+            timeout);
+    }
 
     public Task<LoomResult<ProcessStatusResult>> StatusAsync(
         ProcessHandle handle,
@@ -493,6 +541,85 @@ public sealed class ProcessCapability
                 anchor + _lifetimeOptions.ProcessPostExitRetention
         };
     }
+
+    private static LoomResult<ProcessLaunchSpec> BuildLaunchSpec(
+        string executable,
+        IReadOnlyList<string>? arguments,
+        string? workingDirectory,
+        IReadOnlyDictionary<string, string?>? environment,
+        ProcessIoMode ioMode,
+        int? terminalColumns,
+        int? terminalRows,
+        string? baseDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(executable))
+        {
+            return LoomResult<ProcessLaunchSpec>.Failure(
+                LoomErrors.InvalidArgument("Executable is required."));
+        }
+
+        if (ioMode is not (ProcessIoMode.Pipes or ProcessIoMode.Terminal))
+        {
+            return LoomResult<ProcessLaunchSpec>.Failure(
+                LoomErrors.InvalidArgument("Unsupported process I/O mode."));
+        }
+
+        int? normalizedColumns = null;
+        int? normalizedRows = null;
+
+        if (ioMode == ProcessIoMode.Pipes)
+        {
+            if (terminalColumns is not null || terminalRows is not null)
+            {
+                return LoomResult<ProcessLaunchSpec>.Failure(
+                    LoomErrors.InvalidArgument(
+                        "Terminal dimensions are only valid when io_mode is terminal."));
+            }
+        }
+        else
+        {
+            normalizedColumns = terminalColumns ?? 80;
+            normalizedRows = terminalRows ?? 24;
+
+            if (normalizedColumns is < 1 or > short.MaxValue ||
+                normalizedRows is < 1 or > short.MaxValue)
+            {
+                return LoomResult<ProcessLaunchSpec>.Failure(
+                    LoomErrors.InvalidArgument(
+                        $"Terminal dimensions must be between 1 and {short.MaxValue}."));
+            }
+        }
+
+        var workingDirectoryResult = ResolveWorkingDirectory(
+            workingDirectory,
+            baseDirectory);
+        if (!workingDirectoryResult.IsSuccess)
+        {
+            return LoomResult<ProcessLaunchSpec>.Failure(
+                workingDirectoryResult.Error!);
+        }
+
+        return LoomResult<ProcessLaunchSpec>.Success(
+            new ProcessLaunchSpec(
+                executable,
+                arguments ?? Array.Empty<string>(),
+                workingDirectoryResult.Value,
+                environment ?? new Dictionary<string, string?>(),
+                ioMode,
+                normalizedColumns,
+                normalizedRows));
+    }
+
+    private static string FlattenOutput(OutputStreamReadResult? stream)
+        => stream is null
+            ? string.Empty
+            : string.Concat(stream.Chunks.Select(chunk => chunk.Text));
+
+    private static bool IsRunOutputTruncated(OutputStreamReadResult? stream)
+        => stream is not null &&
+           (stream.Truncated ||
+            stream.RetentionLimitReached ||
+            stream.NextCursor < stream.ObservedUntilCursor);
 
     private static bool IsTerminal(ManagedProcessState state)
         => state is ManagedProcessState.Exited or ManagedProcessState.Terminated;

@@ -52,7 +52,7 @@ No se necesita un plugin local `loomlci@personal`, un plugin cloud adicional ni 
 
 La integración fue validada primero con smoke tests y finalmente con una prueba fresh-agent integral en un chat nuevo.
 
-La validación fresh-agent de la baseline descubrió y ejercitó las **15 capabilities públicas** de Work, Filesystem y Process. Python Runtime E1 llevó el catálogo a **17 tools** y Agent Support a **19 tools**. Visual Files G1.1 agregó `filesystem_view_image` y llevó el Host a 20 tools; G1.2 agregó `filesystem_read_pdf` y G1.3 agregó `filesystem_render_pdf_page`, por lo que el Host actual expone **22 tools** con Work Plan habilitado. F1.3 cerró previamente con el benchmark real-world final 4/4 positivos, 3/3 controles simples y escalada correcta 8A sin plan -> 8B con plan.
+La validación fresh-agent de la baseline descubrió y ejercitó las **15 capabilities públicas** de Work, Filesystem y Process. Python Runtime E1 llevó el catálogo a **17 tools** y Agent Support a **19 tools**. Visual Files G1 llevó el Host a **22 tools** con Work Plan habilitado. El follow-up de ergonomía agregó `process_run`, por lo que el Host actual expone **23 tools**. F1.3 cerró previamente con el benchmark real-world final 4/4 positivos, 3/3 controles simples y escalada correcta 8A sin plan -> 8B con plan.
 
 Ver [[Validacion final fresh-agent]], [[Bloque E - Python Runtime]] y [[Bloque F - Agent Support]].
 
@@ -92,11 +92,11 @@ La instalación final mantiene una única ruta de acceso: la app MCP conectada a
 - segundo cutover al instalado validado;
 - smoke real desde ChatGPT en ambos caminos validado.
 
-El runtime activo final es `loomlci-installed`, actualmente en `0.1.0-dev-readfiles-payload-hardening`; el legacy `loomlci` permanece detenido como fallback. La instalación portable general fue además validada desde cero en una segunda PC Windows x64: ChatGPT operó sobre la notebook, luego se detuvo ese runtime y se volvió a iniciar LoomLCI en la PC de escritorio sobre el mismo tunnel, confirmando el cambio de máquina correctamente. La repetición específica de los follow-ups recientes en notebook queda diferida/no bloqueante.
+El runtime activo final es `loomlci-installed`, actualmente en `0.1.0-dev-process-run`; el legacy `loomlci` permanece detenido como fallback. La instalación portable general fue además validada desde cero en una segunda PC Windows x64: ChatGPT operó sobre la notebook, luego se detuvo ese runtime y se volvió a iniciar LoomLCI en la PC de escritorio sobre el mismo tunnel, confirmando el cambio de máquina correctamente. La repetición específica de los follow-ups recientes en notebook queda diferida/no bloqueante.
 
 Visual Files G1.1, G1.2 y G1.3 están instalados en el runtime portable y la compatibilidad visual final quedó resuelta. El A/B contra IvanSpace mostró que ChatGPT preserva `ImageContentBlock` cuando una tool visual no anuncia `outputSchema`; por eso `filesystem_view_image` y `filesystem_render_pdf_page` omiten intencionalmente `UseStructuredContent`/`OutputSchemaType`, mientras `filesystem_read_pdf` conserva su output schema. Dos chats nuevos confirmaron visión directa sin fallback.
 
-El hardening posterior de `filesystem_read_files` también está desplegado: Core/Windows conserva su límite interno de 64 MiB, mientras el adapter MCP aplica un presupuesto serializado de 9 MiB y devuelve `unsupported/mcp_payload_too_large` antes de superar el límite de 10 MiB del tunnel. Suite Release actual: **251/251**. Smoke real por tunnel: 9 MiB + 1 byte rechazado localmente y lectura pequeña posterior **OK**, con runtime healthy/ready.
+El hardening posterior de `filesystem_read_files` también está desplegado: Core/Windows conserva su límite interno de 64 MiB, mientras el adapter MCP aplica un presupuesto serializado de 9 MiB y devuelve `unsupported/mcp_payload_too_large` antes de superar el límite de 10 MiB del tunnel. El follow-up `process_run` elevó la suite Release actual a **259/259** y el catálogo a 23 tools. El runtime `0.1.0-dev-process-run` está healthy/ready y el smoke directo desde ChatGPT quedó confirmado en un chat con catálogo refrescado: `git status --short` devolvió `exitCode=0`, stdout completo, stderr vacío y ningún `processHandle`.
 
 ## Notas
 

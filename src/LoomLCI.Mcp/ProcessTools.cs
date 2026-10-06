@@ -16,6 +16,18 @@ public sealed record ProcessStartDto(
     string IoMode,
     long PostExitRetentionSeconds);
 
+public sealed record ProcessRunDto(
+    int ProcessId,
+    int ExitCode,
+    DateTimeOffset StartedAt,
+    DateTimeOffset ExitedAt,
+    string Stdout,
+    string Stderr,
+    bool StdoutTruncated,
+    bool StderrTruncated,
+    long StdoutObservedChars,
+    long StderrObservedChars);
+
 public sealed record ProcessStatusDto(
     string ProcessHandle,
     int ProcessId,
@@ -122,6 +134,58 @@ public sealed class ProcessTools
                     value.IoMode.ToString().ToLowerInvariant(),
                     checked((long)value.PostExitRetention.TotalSeconds))));
         }
+
+        return McpToolResults.From(envelope);
+    }
+
+    [McpServerTool(
+        Name = "process_run",
+        Title = "Run short process",
+        UseStructuredContent = true,
+        OutputSchemaType = typeof(ToolEnvelope<ProcessRunDto>),
+        ReadOnly = false,
+        Destructive = true,
+        Idempotent = false,
+        OpenWorld = false)]
+    [Description("Runs a short, non-interactive pipe-based process and waits for it to finish, returning exit code plus bounded stdout/stderr in one call. Use this for quick commands such as git status or --version lookups. A non-zero exit code is still a successful LoomLCI tool result. This tool does not return a process handle and cannot be continued, written to, resized, or used as a background/terminal process; use process_start for those cases. timeoutSeconds covers the whole run and cancellation/timeout cleans up the process tree. maxOutputChars is the total response budget shared by stdout and stderr.")]
+    public async Task<CallToolResult> Run(
+        [Description("Executable path or executable name resolved by Windows. This tool does not infer or insert a shell.")] string executable,
+        [Description("Arguments passed directly to the executable as an argument array.")] string[]? arguments = null,
+        [Description("Optional working directory. Relative paths require a work session with a base directory.")] string? workingDirectory = null,
+        [Description("Optional work session handle. Keeps the session leased during execution and enables relative workingDirectory resolution.")] string? workId = null,
+        [Description("Environment variable overrides. A null value removes that variable.")] Dictionary<string, string?>? environment = null,
+        [Description("Maximum duration of the whole one-shot run in seconds.")][Range(1, 600)] int timeoutSeconds = 30,
+        [Description("Maximum total characters returned across stdout and stderr.")][Range(1, 1048576)] int maxOutputChars = 65536,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _processes.RunAsync(
+                new ProcessRunRequest(
+                    executable,
+                    arguments,
+                    workingDirectory,
+                    environment,
+                    string.IsNullOrWhiteSpace(workId) ? null : new WorkId(workId),
+                    TimeSpan.FromSeconds(timeoutSeconds),
+                    maxOutputChars),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        var envelope = result.IsSuccess
+            ? ToolEnvelope<ProcessRunDto>.From(
+                LoomResult<ProcessRunDto>.Success(
+                    new ProcessRunDto(
+                        result.Value!.ProcessId,
+                        result.Value.ExitCode,
+                        result.Value.StartedAt,
+                        result.Value.ExitedAt,
+                        result.Value.Stdout,
+                        result.Value.Stderr,
+                        result.Value.StdoutTruncated,
+                        result.Value.StderrTruncated,
+                        result.Value.StdoutObservedChars,
+                        result.Value.StderrObservedChars)))
+            : ToolEnvelope<ProcessRunDto>.From(
+                LoomResult<ProcessRunDto>.Failure(result.Error!));
 
         return McpToolResults.From(envelope);
     }
