@@ -1,6 +1,6 @@
 # Ergonomía - Work Plan patch
 
-> Estado: **IMPLEMENTADO, VALIDADO E INSTALADO.** Runtime portable `0.1.0-dev-work-plan-patch` healthy/ready; suite Release **269/269**. Falta únicamente el smoke directo de `work_plan_patch` desde un chat con catálogo MCP refrescado: esta conversación conservó el catálogo anterior de 23 tools aunque el Host instalado ya expone 24.
+> Estado: **CERRADO end-to-end.** Runtime portable `0.1.0-dev-work-plan-patch` healthy/ready; suite Release **269/269** y smoke directo de `work_plan_patch` desde ChatGPT con catálogo MCP refrescado completado correctamente.
 
 ## Motivo
 
@@ -69,10 +69,10 @@ El catálogo del Host con Work Plan habilitado pasa de **23 a 24 tools**.
 - cutover realizado con IvanSpace únicamente para evitar detener LoomLCI desde su propia conexión;
 - runtime instalado: `0.1.0-dev-work-plan-patch`, `process_running=true`, `healthy=true`, `ready=true`;
 - IntegrationTests contra la DLL **instalada**: **15/15**;
-- smoke posterior al cutover desde este mismo chat mediante una tool ya conocida (`process_run`): OK.
+- smoke posterior al cutover desde el chat de implementación mediante una tool ya conocida (`process_run`): OK;
+- smoke directo final desde un chat con catálogo refrescado: OK. Se verificó inicialización `revision 0 -> 1`, patch combinada `update + add` (`revision 2`), preservación de IDs existentes y asignación de ID nuevo, rechazo de revisión stale sin mutación, atomicidad ante una patch con ID inexistente y patch válida `remove + update` (`revision 3`);
+- working tree limpio al finalizar el smoke.
 
-## Aceptación restante
+## Cierre
 
-Esta conversación conserva el catálogo cargado antes del cutover y por eso sigue viendo 23 tools. El runtime nuevo sí está activo y sus tests de contrato confirman `work_plan_patch`.
-
-Para cerrar el smoke directo end-to-end falta únicamente abrir un chat con catálogo refrescado y ejecutar una patch real. No requiere cambios adicionales de código salvo que ese smoke descubra una discrepancia.
+No quedan pendientes técnicos ni de aceptación para esta mejora. El siguiente objetivo del roadmap es **Producto / Deployment 1: mejorar UX del Launcher**.

@@ -1,6 +1,6 @@
 # Plan y tareas
 
-> Estado: **Agent Support F1, Deployment portable, Visual Files G1, hardening de `filesystem_read_files`, `process_run` y [[Ergonomía - Work Plan patch]] implementados**. Computer H1 queda deliberadamente pausado. Work Plan patch está instalado y validado; falta sólo smoke directo de la nueva tool en un chat con catálogo refrescado. Después, [[Roadmap post-G1]] continúa por Producto/Deployment -> Python.
+> Estado: **Agent Support F1, Deployment portable, Visual Files G1, hardening de `filesystem_read_files`, `process_run` y [[Ergonomía - Work Plan patch]] cerrados end-to-end**. Computer H1 queda deliberadamente pausado. [[Roadmap post-G1]] continúa por Producto/Deployment -> Python.
 
 ## Distinciones necesarias
 
@@ -86,7 +86,7 @@ El follow-up post-G1 quedó implementado en [[Ergonomía - Work Plan patch]]:
 - `work_plan_update` queda para creación, reorder, full replacement y clear;
 - suite Release 269/269 y runtime portable `0.1.0-dev-work-plan-patch` healthy/ready.
 
-Falta únicamente el smoke directo de la nueva tool desde un chat con catálogo MCP refrescado. Después, el roadmap continúa por UX de Launcher.
+El smoke directo final desde un chat con catálogo MCP refrescado pasó correctamente, incluyendo CAS stale, atomicidad, preservación de IDs y `remove + update`. Este bloque queda cerrado; el roadmap continúa por UX de Launcher.
 
 ## Deployment portable
 
