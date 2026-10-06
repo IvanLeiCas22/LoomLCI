@@ -92,9 +92,9 @@ La instalación final mantiene una única ruta de acceso: la app MCP conectada a
 - segundo cutover al instalado validado;
 - smoke real desde ChatGPT en ambos caminos validado.
 
-El runtime activo final es `loomlci-installed`, actualmente en `0.1.0-dev-b6e41fd645d3`; el legacy `loomlci` permanece detenido como fallback. La misma instalación portable fue además validada desde cero en una segunda PC Windows x64: ChatGPT operó sobre la notebook, luego se detuvo ese runtime y se volvió a iniciar LoomLCI en la PC de escritorio sobre el mismo tunnel, confirmando el cambio de máquina correctamente.
+El runtime activo final es `loomlci-installed`, actualmente en `0.1.0-dev-63d256e9b658`; el legacy `loomlci` permanece detenido como fallback. La misma instalación portable fue además validada desde cero en una segunda PC Windows x64: ChatGPT operó sobre la notebook, luego se detuvo ese runtime y se volvió a iniciar LoomLCI en la PC de escritorio sobre el mismo tunnel, confirmando el cambio de máquina correctamente.
 
-Visual Files G1.1 y G1.2 ya están instalados en el runtime portable. G1.1 confirmó que `filesystem_view_image` es invocable pero ChatGPT normal no materializa el `ImageContentBlock` como entrada visual; se registra como **BLOCKED_UPSTREAM / client compatibility**. G1.2 agregó `filesystem_read_pdf` con extracción textual aislada y completó el smoke real ChatGPT -> app -> tunnel sobre el runtime instalado: el catálogo actualizado expuso 21 tools, un PDF textual real devolvió `Hello IvanSpace PDF` y un PDF sin capa textual devolvió éxito con texto vacío.
+Visual Files G1.1, G1.2 y G1.3 ya están instalados en el runtime portable. G1.1 confirmó que `filesystem_view_image` es invocable pero ChatGPT normal no materializa el `ImageContentBlock` como entrada visual; se registra como **BLOCKED_UPSTREAM / client compatibility**. G1.2 agregó `filesystem_read_pdf` y completó su smoke directo con catálogo de 21 tools. G1.3 agregó `filesystem_render_pdf_page`; el runtime nuevo pasó el smoke ChatGPT -> app -> tunnel con `work_create` + `work_close`, pero esta conversación conserva el catálogo de 21 acciones cargado antes del upgrade. Un chat refrescado debe descubrir la tool 22 para el smoke directo final; la limitación visual upstream de G1.1 seguirá aplicando al `ImageContentBlock`.
 
 ## Notas
 

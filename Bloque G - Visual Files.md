@@ -1,6 +1,6 @@
 # Bloque G - Visual Files
 
-> Estado: **G1.0, G1.1 y G1.2 implementados y validados; investigación específica de G1.3 cerrada.** G1.1 conserva un bloqueo upstream de ChatGPT para materializar `ImageContentBlock` como visión. G1.2 PDF text worker está instalado, healthy/ready y pasó el smoke directo desde ChatGPT con catálogo de 21 tools. G1.3 queda listo para implementación con PDFium nativo aislado; ver [[G1.3 - PDF render]].
+> Estado: **G1.0, G1.1, G1.2 y G1.3 implementados.** G1.1 conserva un bloqueo upstream de ChatGPT para materializar `ImageContentBlock` como visión. G1.2 pasó su smoke directo. G1.3 PDF render está instalado en `0.1.0-dev-63d256e9b658`, healthy/ready y validado técnicamente/portable; sólo resta el smoke directo de la tool 22 desde un chat con catálogo refrescado. Ver [[G1.3 - PDF render]].
 
 ## Objetivo
 
@@ -799,7 +799,7 @@ Completado:
 
 ## G1.3 - PDF render
 
-> **Investigación específica cerrada.** Ver [[G1.3 - PDF render]]. La decisión preliminar de `Windows.Data.Pdf` fue reemplazada por PDFium nativo aislado para conservar el deployment portable/unpackaged y proteger el Host frente a fallos del parser/renderizador.
+> **Implementado en `d25c3ce`.** Ver [[G1.3 - PDF render]]. La decisión preliminar de `Windows.Data.Pdf` fue reemplazada por PDFium nativo aislado para conservar el deployment portable/unpackaged y proteger el Host frente a fallos del parser/renderizador. Suite final 245/245, Host publicado 12/12, paquete portable instalado y runtime final healthy/ready; smoke directo de la tool 22 pendiente sólo de refresh del catálogo.
 
 - `bblanchon.PDFium.Win32 157.0.8086` + P/Invoke mínimo propio;
 - `StbImageWriteSharp 1.16.7`, encode directo desde bitmap nativo;
@@ -861,7 +861,7 @@ Los cinco pendientes previos a implementación quedan cerrados:
 - PDFs protegidos: comportamiento probado y error fijado;
 - DTOs/error codes/tool contracts: definidos.
 
-G1.0, G1.1 y G1.2 quedaron cerrados técnicamente. G1.1 mantiene un bloqueo visual upstream en ChatGPT; G1.2 completó también el smoke directo de la tool nueva desde ChatGPT con catálogo actualizado. La investigación específica de G1.3 quedó cerrada en [[G1.3 - PDF render]] y no quedan decisiones arquitectónicas bloqueantes antes de implementación.
+G1.0, G1.1, G1.2 y G1.3 están implementados. G1.1 mantiene un bloqueo visual upstream en ChatGPT; G1.2 completó su smoke directo y G1.3 quedó validado técnica/portablemente e instalado en el runtime final. Sólo resta el smoke directo de la tool 22 desde un chat con catálogo refrescado antes de continuar con G1.4.
 
 ## Fuentes
 

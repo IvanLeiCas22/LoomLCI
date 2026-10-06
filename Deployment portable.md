@@ -401,6 +401,35 @@ Se validó e instaló un nuevo update side-by-side para G1.2:
 
 G1.2 lleva el catálogo del Host normal de 20 a **21 tools**. En un chat con catálogo actualizado se confirmó la presencia de `filesystem_read_pdf` y se ejecutó el smoke directo ChatGPT -> app -> tunnel -> runtime nuevo: un PDF textual real devolvió `Hello IvanSpace PDF` y un PDF sin capa textual devolvió éxito con texto vacío. El update queda operativo y validado end-to-end.
 
+### Update G1.3 - PDF render (2026-10-05)
+
+Se implementó, publicó e instaló el renderer PDF aislado:
+
+- commit de producto: `d25c3ce feat: implement G1.3 PDF render`;
+- build Release: **0 warnings / 0 errors**;
+- suite completa: **245/245** = 84 Core + 133 Windows + 4 MCP + 12 Integration + 6 Launcher + 6 PdfWorker;
+- builder con runtime G1.3: Launcher **6/6** + IntegrationTests contra Host publicado **12/12**;
+- follow-up de packaging/licencias: `63d256e fix: include G1.3 dependency license`, sin cambios de runtime;
+- Host publicado exacto de `63d256e9b658`: IntegrationTests **12/12**;
+- backend: `bblanchon.PDFium.Win32 157.0.8086` + P/Invoke mínimo + `StbImageWriteSharp 1.16.7` dentro del child `--internal-pdf-render-worker-v1`;
+- Host publicado contiene `LoomLCI.PdfWorker.dll`, PdfPig, `pdfium.dll` (7.494.656 bytes) y `StbImageWriteSharp.dll` (37.376 bytes), sin publicar un segundo runtime .NET; el paquete portable agrega los avisos/licencias de terceros;
+- Host payload: **124.106.542 bytes**;
+- paquete final: `LoomLCI-0.1.0-dev-63d256e9b658-win-x64.zip`;
+- tamaño ZIP: **81.215.991 bytes**;
+- SHA-256: `2afbb74b3801fbf1b18e2290e0269efe79b9137dcc024ed0de2cfc2406b48da7`;
+- distribución: `THIRD-PARTY-NOTICES.txt` + `licenses/PDFium-LICENSE.txt` + `licenses/Apache-2.0.txt`;
+- NuGet vulnerability/outdated checks: sin hallazgos;
+- PDF vectorial por Host self-contained: **OK**, 1800x1272 / 172.817 bytes;
+- PDF scan/raster por Host final: **OK**, 1800x1271 / 262.667 bytes e inspección visual correcta;
+- PDF protegido por Host final: **OK**, `password_protected`;
+- setup side-by-side: **OK**;
+- cutover del alias `loomlci-installed`: stop/start **OK**;
+- runtime activo final: `0.1.0-dev-63d256e9b658`, `process_running=true`, `healthy=true`, `ready=true`;
+- tunnel preservado;
+- smoke posterior al cutover desde ChatGPT con `work_create` + `work_close`: **OK**.
+
+G1.3 lleva el catálogo del Host normal de 21 a **22 tools** con Work Plan. Esta conversación conserva las 21 acciones cargadas antes del cutover, por lo que el smoke directo de `filesystem_render_pdf_page` requiere refrescar el catálogo o abrir un chat nuevo. Esto es independiente del bloqueo upstream ya conocido para materializar `ImageContentBlock` como visión.
+
 ### Hallazgo durante rollback
 
 El `repair_command` emitido por el runtime legacy incluía `--admin-profile default` y, al ejecutarlo literalmente, falló porque `OPENAI_ADMIN_KEY` no estaba definido.
