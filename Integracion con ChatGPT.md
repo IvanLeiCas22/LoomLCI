@@ -92,9 +92,9 @@ La instalación final mantiene una única ruta de acceso: la app MCP conectada a
 - cutover y rollback del runtime validados;
 - smoke real desde ChatGPT validado.
 
-El runtime activo final es `loomlci-installed`, actualmente en `0.1.0-dev-installer`, healthy/ready. El installer real quedó registrado como `LoomLCI` con uninstall bajo `%LOCALAPPDATA%\Programs\LoomLCI\unins000.exe`; la DLL instalada pasó **15/15 IntegrationTests**. El portable general también fue validado desde cero en una segunda PC Windows x64; la repetición específica del installer convencional en notebook queda diferida/no bloqueante.
+El runtime activo final es `loomlci-installed`, actualmente en `0.1.0-dev-github-e2e` (sequence 3), healthy/ready. El installer real quedó registrado como `LoomLCI` con uninstall bajo `%LOCALAPPDATA%\Programs\LoomLCI\unins000.exe`. [[Auto-update firmado]] fue validado contra una GitHub Release pública real: manifest/firma/ZIP correctos, apply sequence 2 -> 3, journal limpio y rollback disponible hacia `0.1.0-dev-local-e2e` (sequence 2). El portable general también fue validado desde cero en una segunda PC Windows x64; la repetición específica del installer convencional en notebook queda diferida/no bloqueante.
 
-Visual Files G1.1/G1.2/G1.3, el hardening de `filesystem_read_files`, `process_run` y [[Ergonomía - Work Plan patch]] siguen incluidos. La suite Release actual es **272/272** y el catálogo público permanece en **24 tools** con Work Plan habilitado.
+Visual Files G1.1/G1.2/G1.3, el hardening de `filesystem_read_files`, `process_run` y [[Ergonomía - Work Plan patch]] siguen incluidos. La suite Release actual es **283/283** y el catálogo público permanece en **24 tools** con Work Plan habilitado.
 
 ## Notas
 

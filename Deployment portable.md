@@ -593,13 +593,28 @@ El deployment portable quedó como **fuente de verdad del payload**, pero el cam
 
 Validación final: suite Release **272/272**, install/uninstall aislado completo, setup real `0.1.0-dev-installer`, cutover healthy/ready, smoke desde ChatGPT e IntegrationTests contra la DLL instalada **15/15**.
 
+## Follow-up Auto-update firmado (2026-10-06)
+
+Ver [[Auto-update firmado]] para el contrato y la validación completos.
+
+El deployment instalado ya soporta updates de Host desde GitHub Releases:
+
+- manifest + firma ECDSA P-256;
+- `sequence` monotónico y `highestSequence` anti-rollback;
+- `update check`, `update apply` y `rollback`;
+- lock, journal y recuperación automática;
+- health check antes de confirmar activación;
+- limpieza `active + previous`.
+
+E2E real final: Release `v0.1.0-dev-github-e2e` -> update sequence 2 -> 3 -> restart -> `healthy=true` / `ready=true`; journal ausente y rollback disponible hacia sequence 2. Suite Release: **283/283**.
+
 ## Fuera de alcance inicial
 
 - autoarranque al login;
 - Windows Service;
 - MSIX/MSI;
-- auto-update;
-- code signing;
+- auto-update silencioso/background y actualización automática del propio Launcher;
+- code signing / Authenticode;
 - win-arm64;
 - bundle totalmente offline;
 - DPAPI;

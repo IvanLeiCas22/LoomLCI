@@ -34,8 +34,8 @@ Validación en segunda PC completada. Diferido/no bloqueante:
 - DPAPI;
 - autoarranque al login;
 - MSI/MSIX;
-- code signing;
-- auto-update;
+- code signing / Authenticode;
+- auto-update silencioso/background y actualización automática del Launcher;
 - win-arm64;
 - bundle offline;
 - estrategia final multi-PC/tunnels simultáneos;

@@ -21,7 +21,7 @@ Orden preliminar:
 
 1. mejorar UX del Launcher — **CERRADO end-to-end**: modo `--pause` opt-in para accesos directos, shortcuts de iniciar/detener, mensajes simplificados, salida UTF-8 y README portable con encoding estable;
 2. [[Instalador Windows|instalador Windows convencional]] — **CERRADO end-to-end**: Inno Setup 7.1.0, instalación per-user sin admin, registro en Aplicaciones instaladas, uninstall real y reutilización de `SetupService`;
-3. base de auto-update con validación y rollback;
+3. [[Auto-update firmado|base de auto-update con validación y rollback]] — **CERRADO end-to-end**: manifest firmado ECDSA, `sequence` anti-rollback, `update check/apply`, rollback transaccional, journal/crash recovery, limpieza `active + previous` y E2E real contra GitHub Releases;
 4. mecanismo de generación/verificación de metadata y skill del plugin.
 
 La reconciliación final del plugin/skill se cerrará después de incorporar las nuevas capabilities Python, para evitar documentar dos veces una superficie todavía cambiante.
@@ -60,6 +60,6 @@ Es un tema transversal:
 
 ## Próxima acción
 
-**Producto / Deployment 3: base de auto-update con validación y rollback.**
+**Producto / Deployment 4: mecanismo de generación/verificación de metadata y skill del plugin.**
 
-[[Instalador Windows]] quedó cerrado end-to-end en `0.1.0-dev-installer`: suite Release **272/272**, install/uninstall aislado completo, instalación real registrada en Aplicaciones instaladas, cutover healthy/ready, smoke directo desde ChatGPT e IntegrationTests contra la DLL instalada **15/15**.
+[[Auto-update firmado]] quedó cerrado end-to-end: suite Release **283/283**, GitHub Release pública `v0.1.0-dev-github-e2e`, `update check/apply` real desde sequence 2 -> 3, runtime final healthy/ready, journal limpio y sólo `active + previous` instalados.

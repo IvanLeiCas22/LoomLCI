@@ -1,6 +1,6 @@
 # Plan y tareas
 
-> Estado: **Agent Support F1, Deployment portable, Launcher UX, [[Instalador Windows]], Visual Files G1, hardening de `filesystem_read_files`, `process_run` y [[Ergonomía - Work Plan patch]] cerrados end-to-end**. Computer H1 queda deliberadamente pausado. [[Roadmap post-G1]] continúa por Producto/Deployment -> Python.
+> Estado: **Agent Support F1, Deployment portable, Launcher UX, [[Instalador Windows]], [[Auto-update firmado]], Visual Files G1, hardening de `filesystem_read_files`, `process_run` y [[Ergonomía - Work Plan patch]] cerrados end-to-end**. Computer H1 queda deliberadamente pausado. [[Roadmap post-G1]] continúa por Producto/Deployment -> Python.
 
 ## Distinciones necesarias
 
@@ -117,7 +117,25 @@ Validación multi-PC cerrada: el mismo paquete se instaló desde cero en una not
 - instalación real final `0.1.0-dev-installer` healthy/ready;
 - IntegrationTests contra la DLL instalada: **15/15**.
 
-La próxima etapa de [[Roadmap post-G1]] es la base de **auto-update con validación y rollback**.
+## Auto-update firmado - CERRADO
+
+[[Auto-update firmado]] quedó implementado y validado end-to-end:
+
+- GitHub Releases como canal estable público;
+- manifest firmado ECDSA P-256 con public key embebida y private key fuera del repo;
+- `sequence` monotónico / `highestSequence` como anti-rollback;
+- `update check`, `update apply` y `rollback`;
+- lock exclusivo + journal persistente + recuperación determinista tras crash/corte;
+- rollback automático si falla el start/health de la nueva versión;
+- limpieza de versiones antiguas conservando sólo `active + previous`;
+- suite Release **283/283**;
+- Release real `v0.1.0-dev-github-e2e` publicada como Latest;
+- E2E real GitHub -> manifest firmado -> ZIP -> apply -> restart -> health: **OK**;
+- runtime final `0.1.0-dev-github-e2e`, sequence 3, healthy/ready;
+- `previous=0.1.0-dev-local-e2e`, sequence 2;
+- journal ausente y sólo dos versiones instaladas.
+
+La próxima etapa de [[Roadmap post-G1]] es **Producto / Deployment 4: generación/verificación de metadata y skill del plugin**.
 
 ## Visual Files G1 - CERRADO
 

@@ -80,7 +80,7 @@ Una primera prueba de uninstall mediante `process_run` dejó sólo `unins000.exe
 - autoarranque al login;
 - win-arm64.
 
-El siguiente bloque del roadmap es **Producto / Deployment 3: base de auto-update con validación y rollback**.
+El follow-up **Producto / Deployment 3** quedó cerrado en [[Auto-update firmado]]. El siguiente bloque es **Producto / Deployment 4: generación/verificación de metadata y skill del plugin**.
 
 ## Toolchain / licencia
 
