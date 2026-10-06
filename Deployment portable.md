@@ -470,6 +470,22 @@ Validación:
 
 La clasificación `BLOCKED_UPSTREAM` deja de ser el estado actual de Visual Files; se conserva sólo como diagnóstico histórico anterior al A/B.
 
+### Hardening `filesystem_read_files` vs tunnel (2026-10-06)
+
+Se cerró el hallazgo lateral detectado durante G1 sin reducir la capacidad interna de Filesystem:
+
+- Core/Windows mantiene **64 MiB** de texto agregado como límite interno de `read_files`;
+- el adapter MCP aplica un presupuesto común de **9 MiB** sobre el `CallToolResult` serializado;
+- fast-path: si el texto UTF-8 devuelto ya supera 9 MiB, se rechaza antes de serializar el resultado grande;
+- exact-path: si el texto crudo entra, se mide la serialización MCP real para contemplar escaping JSON, paths y metadata;
+- exceso -> `unsupported` con `reason=mcp_payload_too_large` y guía para usar rangos menores o dividir archivos;
+- suite Release: **251/251** = 84 Core + 137 Windows + 5 MCP + 13 Integration + 6 Launcher + 6 PdfWorker;
+- builder portable: Launcher **6/6** + IntegrationTests contra Host publicado **13/13**;
+- paquete: `LoomLCI-0.1.0-dev-readfiles-payload-hardening-win-x64.zip`;
+- SHA-256: `3308603363283675614dbe9b164e20fc8c549f2c5c0e8588a8d9a95a5b831d1d`;
+- runtime instalado: `0.1.0-dev-readfiles-payload-hardening`, healthy/ready;
+- smoke real por Secure MCP Tunnel: una lectura de **9 MiB + 1 byte** fue rechazada localmente y una lectura pequeña inmediatamente posterior funcionó, confirmando que el runtime permaneció operativo.
+
 ### Hallazgo durante rollback
 
 El `repair_command` emitido por el runtime legacy incluía `--admin-profile default` y, al ejecutarlo literalmente, falló porque `OPENAI_ADMIN_KEY` no estaba definido.

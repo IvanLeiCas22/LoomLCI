@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using System.Text;
 using System.Text.Json.Serialization;
 using LoomLCI.Core;
 using LoomLCI.Core.Filesystem;
@@ -241,7 +242,7 @@ public sealed class FilesystemTools
         Destructive = false,
         Idempotent = true,
         OpenWorld = false)]
-    [Description("Reads known text files, optionally by 1-based line range. Large files can be read in bounded ranges by supplying limit; unbounded whole-file reads over 16 MiB are rejected to avoid oversized tool results. Each file result reports hasMoreBefore and hasMoreAfter so partial ranges are explicit without implying transport truncation. Use this when exact file paths are already known; prefer filesystem_search_text when you first need to locate content. Multiple files can be read in one call.")]
+    [Description("Reads known text files, optionally by 1-based line range. Large files can be read in bounded ranges by supplying limit; unbounded whole-file reads over 16 MiB are rejected. MCP responses are capped at a safe 9 MiB serialized budget, so large results must be split into smaller line ranges or separate calls. Each file result reports hasMoreBefore and hasMoreAfter so partial ranges are explicit without implying transport truncation. Use this when exact file paths are already known; prefer filesystem_search_text when you first need to locate content. Multiple files can be read in one call.")]
     public async Task<CallToolResult> ReadFiles(
         [Description("One to 32 files to read. Offset is the optional 1-based starting line and limit is the optional maximum line count.")][MinLength(1)][MaxLength(32)] FilesystemReadFileInput[] files,
         [Description("Optional work session handle used to resolve relative paths.")] string? workId = null,
@@ -252,7 +253,35 @@ public sealed class FilesystemTools
             ParseWorkId(workId),
             cancellationToken).ConfigureAwait(false);
 
-        return McpToolResults.From(MapReadFiles(result));
+        var envelope = MapReadFiles(result);
+        if (!result.IsSuccess)
+        {
+            return McpToolResults.From(envelope);
+        }
+
+        long returnedTextUtf8Bytes = 0;
+        foreach (var file in result.Value!.Files)
+        {
+            returnedTextUtf8Bytes = checked(
+                returnedTextUtf8Bytes + Encoding.UTF8.GetByteCount(file.Text));
+        }
+
+        if (returnedTextUtf8Bytes > McpPayloadLimits.MaxCallToolResultBytes)
+        {
+            return ReadFilesPayloadTooLarge(
+                returnedTextUtf8Bytes,
+                serializedCallToolResultBytes: null);
+        }
+
+        var toolResult = McpToolResults.From(envelope);
+        var serializedBytes =
+            McpPayloadLimits.MeasureSerializedCallToolResultBytes(toolResult);
+
+        return serializedBytes <= McpPayloadLimits.MaxCallToolResultBytes
+            ? toolResult
+            : ReadFilesPayloadTooLarge(
+                returnedTextUtf8Bytes,
+                serializedBytes);
     }
 
     [McpServerTool(
@@ -433,6 +462,32 @@ public sealed class FilesystemTools
                             file.Text)).ToArray())))
             : ToolEnvelope<FilesystemReadFilesDto>.From(
                 LoomResult<FilesystemReadFilesDto>.Failure(result.Error!));
+
+    private static CallToolResult ReadFilesPayloadTooLarge(
+        long returnedTextUtf8Bytes,
+        long? serializedCallToolResultBytes)
+    {
+        var details = new Dictionary<string, object?>
+        {
+            ["reason"] = "mcp_payload_too_large",
+            ["returnedTextUtf8Bytes"] = returnedTextUtf8Bytes,
+            ["maxCallToolResultBytes"] = McpPayloadLimits.MaxCallToolResultBytes
+        };
+
+        if (serializedCallToolResultBytes is { } serializedBytes)
+        {
+            details["serializedCallToolResultBytes"] = serializedBytes;
+        }
+
+        return McpToolResults.From(
+            ToolEnvelope<FilesystemReadFilesDto>.From(
+                LoomResult<FilesystemReadFilesDto>.Failure(
+                    new LoomError(
+                        "unsupported",
+                        "The filesystem_read_files result would exceed the safe MCP response budget. Use smaller line ranges or split files across calls.",
+                        false,
+                        details))));
+    }
 
     private static FilesystemTextLineExcerptDto ToDto(FilesystemTextLineExcerpt value)
         => new(value.Text, value.StartColumn, value.Truncated);

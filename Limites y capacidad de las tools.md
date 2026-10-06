@@ -22,7 +22,7 @@ Límites actuales relevantes:
 - `list_tree`: depth <= 32, entries <= 5000.
 - `find_paths`: <= 32 queries, depth <= 32, results <= 1000.
 - `search_text`: <= 32 queries, depth <= 32, results <= 500, context <= 3, 16 MiB por archivo, 64 MiB escaneados.
-- `read_files`: <= 32 archivos, <= 10000 líneas por archivo, 16 MiB por archivo y 64 MiB agregados.
+- `read_files`: <= 32 archivos y <= 10000 líneas por archivo; una lectura completa sin `limit` rechaza archivos fuente >16 MiB. Core/Windows conserva hasta 64 MiB de texto devuelto agregado, pero el adapter MCP limita el `CallToolResult` serializado a **9 MiB** para mantenerse por debajo del hard limit de 10 MiB del Secure MCP Tunnel.
 - `apply_patch`: <= 64 cambios y 16 MiB por archivo/contenido de texto.
 
 Problemas prioritarios:
@@ -34,7 +34,14 @@ Problemas prioritarios:
 Etapa 1 implementada:
 - `read_files` lee por streaming y permite rangos de archivos >16 MiB cuando se especifica `limit`.
 - La lectura completa sin `limit` mantiene el guardrail de 16 MiB y explica cómo continuar por rangos.
-- El presupuesto agregado de `read_files` mide texto realmente devuelto, no tamaño de archivos fuente.
+- El presupuesto agregado interno de `read_files` mide texto realmente devuelto, no tamaño de archivos fuente.
+
+Hardening MCP cerrado el 2026-10-06:
+- el límite interno de 64 MiB se conserva y permanece agnóstico del transporte;
+- antes de serializar una respuesta grande, el adapter rechaza rápidamente si el texto UTF-8 devuelto ya supera 9 MiB;
+- si el texto crudo entra, mide el `CallToolResult` serializado real para contemplar escaping JSON, paths y metadata;
+- si supera 9 MiB devuelve `unsupported` con `reason=mcp_payload_too_large` y guía para usar rangos menores o dividir archivos entre llamadas;
+- smoke real por Secure MCP Tunnel: 9 MiB + 1 byte fue rechazado localmente y una lectura pequeña posterior siguió funcionando, sin caída del runtime.
 - `search_text` mantiene temporalmente sus límites de 16/64 MiB, pero ahora expone `resultLimitReached`, `scanLimitReached`, `skippedLargeFileCount` y una muestra `skippedLargeFiles`; `truncated` pasa a significar cualquier incompletitud conocida.
 - `apply_patch` separa operaciones textuales de operaciones de archivo: `write/replace` siguen sujetos al límite textual; `delete/move` funcionan con archivos grandes/binarios sin leer su contenido.
 - Los backups de `write/delete/move` se realizan mediante archivos temporales hermanos en disco en lugar de copiar archivos completos a memoria.
@@ -51,6 +58,7 @@ Implementado en [[Bloque A - Process output]]: spool temporal recuperable por st
 
 - [x] Etapa 1: lectura ranged de archivos grandes + tests.
 - [x] Señalización detallada de límites de `search_text`.
-- [ ] Diseñar continuación/paginación para list/find/search sin inflar respuestas.
+- [x] Diseñar continuación/paginación para list/find/search sin inflar respuestas.
 - [x] Rediseñar retención de stdout/stderr sin pérdida temprana.
-- [ ] Evaluar capacidades estructuradas para PDF/imágenes/documentos separadas de `read_files`.
+- [x] Implementar capacidades estructuradas para PDF/imágenes/documentos separadas de `read_files`.
+- [x] Proteger `filesystem_read_files` con presupuesto MCP serializado de 9 MiB.

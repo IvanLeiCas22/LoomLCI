@@ -165,6 +165,7 @@ public sealed class McpStdioTests
         var readFiles = Assert.Single(tools, tool => tool.Name == "filesystem_read_files");
         Assert.Contains("bounded ranges", readFiles.Description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("16 MiB", readFiles.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("9 MiB", readFiles.Description, StringComparison.OrdinalIgnoreCase);
         var readProperties = GetRequiredProperty(readFiles.JsonSchema, "properties");
         var filesSchema = GetRequiredProperty(readProperties, "files");
         Assert.Equal(1, GetRequiredProperty(filesSchema, "minItems").GetInt32());
@@ -1108,6 +1109,128 @@ public sealed class McpStdioTests
                 "work_close",
                 new Dictionary<string, object?> { ["workId"] = workId });
             Assert.True(GetRequiredProperty(GetStructured(close.StructuredContent), "ok").GetBoolean());
+        }
+        finally
+        {
+            if (Directory.Exists(scratch))
+            {
+                Directory.Delete(scratch, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task StdioAdapterRejectsReadFilesResponsesAboveMcpBudget()
+    {
+        var repoRoot = FindRepoRoot();
+        var hostDll = GetHostDll(repoRoot);
+        Assert.True(File.Exists(hostDll), $"Host was not built: {hostDll}");
+
+        var scratch = Path.Combine(
+            Path.GetTempPath(),
+            "LoomLCI.ReadFilesPayloadIntegration",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(scratch);
+
+        const int maxBudgetBytes = 9 * 1024 * 1024;
+        const int escapedTextBytes = 5 * 1024 * 1024;
+
+        try
+        {
+            await File.WriteAllTextAsync(
+                Path.Combine(scratch, "raw-over-budget.txt"),
+                new string('x', maxBudgetBytes + 1),
+                new UTF8Encoding(false));
+            await File.WriteAllTextAsync(
+                Path.Combine(scratch, "escaped-over-budget.txt"),
+                new string('\\', escapedTextBytes),
+                new UTF8Encoding(false));
+
+            var transport = new StdioClientTransport(new StdioClientTransportOptions
+            {
+                Name = "LoomLCI read_files payload integration test",
+                Command = "dotnet",
+                Arguments = [hostDll],
+                WorkingDirectory = repoRoot,
+                ShutdownTimeout = TimeSpan.FromSeconds(5)
+            });
+
+            await using var client = await McpClient.CreateAsync(transport);
+
+            var create = await client.CallToolAsync(
+                "work_create",
+                new Dictionary<string, object?>
+                {
+                    ["baseDirectory"] = scratch,
+                    ["label"] = "read-files-payload-integration-test"
+                });
+            var workId = GetRequiredProperty(
+                GetRequiredProperty(GetStructured(create.StructuredContent), "result"),
+                "workId").GetString();
+            Assert.False(string.IsNullOrWhiteSpace(workId));
+
+            async Task<CallToolResult> ReadAsync(string path)
+                => await client.CallToolAsync(
+                    "filesystem_read_files",
+                    new Dictionary<string, object?>
+                    {
+                        ["files"] = new[]
+                        {
+                            new Dictionary<string, object?> { ["path"] = path }
+                        },
+                        ["workId"] = workId
+                    });
+
+            var rawOversized = await ReadAsync("raw-over-budget.txt");
+            Assert.True(rawOversized.IsError);
+            var rawError = GetRequiredProperty(
+                GetStructured(rawOversized.StructuredContent),
+                "error");
+            var rawDetails = GetRequiredProperty(rawError, "details");
+            Assert.Equal(
+                "unsupported",
+                GetRequiredProperty(rawError, "code").GetString());
+            Assert.Equal(
+                "mcp_payload_too_large",
+                GetRequiredProperty(rawDetails, "reason").GetString());
+            Assert.Equal(
+                maxBudgetBytes + 1L,
+                GetRequiredProperty(rawDetails, "returnedTextUtf8Bytes").GetInt64());
+            Assert.Equal(
+                maxBudgetBytes,
+                GetRequiredProperty(rawDetails, "maxCallToolResultBytes").GetInt32());
+            Assert.False(rawDetails.TryGetProperty(
+                "serializedCallToolResultBytes",
+                out _));
+
+            var escapedOversized = await ReadAsync("escaped-over-budget.txt");
+            Assert.True(escapedOversized.IsError);
+            var escapedError = GetRequiredProperty(
+                GetStructured(escapedOversized.StructuredContent),
+                "error");
+            var escapedDetails = GetRequiredProperty(escapedError, "details");
+            Assert.Equal(
+                "mcp_payload_too_large",
+                GetRequiredProperty(escapedDetails, "reason").GetString());
+            Assert.Equal(
+                escapedTextBytes,
+                GetRequiredProperty(escapedDetails, "returnedTextUtf8Bytes").GetInt64());
+            Assert.True(
+                GetRequiredProperty(
+                    escapedDetails,
+                    "serializedCallToolResultBytes").GetInt64() >
+                maxBudgetBytes);
+            Assert.Equal(
+                maxBudgetBytes,
+                GetRequiredProperty(escapedDetails, "maxCallToolResultBytes").GetInt32());
+
+            var close = await client.CallToolAsync(
+                "work_close",
+                new Dictionary<string, object?> { ["workId"] = workId });
+            Assert.True(
+                GetRequiredProperty(
+                    GetStructured(close.StructuredContent),
+                    "ok").GetBoolean());
         }
         finally
         {

@@ -823,22 +823,19 @@ Completado:
 - segunda PC: validación portable general ya existe; repetición específica G1 diferida/no bloqueante;
 - deployment/documentación: reconciliados en el cierre de G1.4.
 
-# 14. Hallazgo lateral: filesystem_read_files vs tunnel
+# 14. Hallazgo lateral: filesystem_read_files vs tunnel — RESUELTO post-G1
 
-La prueba de payload descubrió una inconsistencia preexistente:
+La prueba de payload de G1 descubrió una inconsistencia preexistente: Core/Windows permitía hasta 64 MiB agregados en `filesystem_read_files`, mientras Secure MCP Tunnel tiene hard limit de 10 MiB; una respuesta de 12 MiB produjo HTTP 413 y terminó esa ejecución del runtime.
 
-- `filesystem_read_files` puede producir resultados muy por encima de 10 MiB;
-- el Core permite hasta 64 MiB agregados;
-- Secure MCP Tunnel tiene hard limit de 10 MiB;
-- una respuesta de 12 MiB produjo HTTP 413 y terminó el runtime instalado de esa ejecución.
+El hardening separado cerró el problema el 2026-10-06 sin acoplar el Core al transporte:
 
-Esto **no bloquea G1** porque las nuevas tools quedan explícitamente por debajo del límite.
-
-No cambiar silenciosamente Filesystem dentro de G1. Registrar como hardening separado para decidir si conviene:
-
-- reducir caps públicos;
-- agregar guard de tamaño en el adapter MCP;
-- o introducir paginación/continuation más estricta para reads grandes.
+- Core/Windows conserva el límite interno de **64 MiB** de texto agregado;
+- el adapter MCP fija **9 MiB** como presupuesto de `CallToolResult` serializado;
+- rechazo rápido cuando el texto UTF-8 ya excede ese presupuesto;
+- medición exacta de serialización para respuestas menores, cubriendo escaping JSON, paths y metadata;
+- exceso -> `unsupported/mcp_payload_too_large`, sin truncación silenciosa;
+- suite Release **251/251** y Host publicado **13/13** IntegrationTests;
+- smoke real por tunnel: **9 MiB + 1 byte** rechazado localmente y lectura pequeña posterior correcta, sin caída del runtime.
 
 # 15. Impacto sobre Computer H
 
@@ -863,7 +860,7 @@ Los cinco pendientes previos a implementación quedan cerrados:
 - PDFs protegidos: comportamiento probado y error fijado;
 - DTOs/error codes/tool contracts: definidos.
 
-G1.0–G1.4 están cerrados. Las tres tools Visual Files quedaron validadas técnica, portable y operativamente; `filesystem_view_image` y `filesystem_render_pdf_page` tienen además visión directa confirmada en ChatGPT tras omitir `outputSchema`. G1.4 cerró con suite Release 249/249, publish/package, corpus real por tunnel y fresh-agent correcto. La repetición específica del paquete G1 en notebook queda diferida/no bloqueante. El siguiente bloque es **Computer H1**.
+G1.0–G1.4 están cerrados. Las tres tools Visual Files quedaron validadas técnica, portable y operativamente; `filesystem_view_image` y `filesystem_render_pdf_page` tienen además visión directa confirmada en ChatGPT tras omitir `outputSchema`. El hardening lateral de `filesystem_read_files` también quedó cerrado posteriormente. La repetición específica de los follow-ups recientes en notebook queda diferida/no bloqueante. **Computer H1 queda pausado por decisión posterior.**
 
 ## Fuentes
 

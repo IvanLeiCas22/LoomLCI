@@ -115,6 +115,27 @@ public sealed class McpToolResultsTests
             McpVisualPayloadLimits.MaxVisualCallToolResultBytes);
     }
 
+    [Fact]
+    public void GenericPayloadMeasurementUsesSharedSerializedBudget()
+    {
+        var envelope = new ToolEnvelope<string>(
+            true,
+            new string('\\', 1024),
+            null);
+        var result = McpToolResults.From(envelope);
+
+        var actualBytes = JsonSerializer.SerializeToUtf8Bytes(
+            result,
+            McpJsonUtilities.DefaultOptions).LongLength;
+
+        Assert.Equal(
+            actualBytes,
+            McpPayloadLimits.MeasureSerializedCallToolResultBytes(result));
+        Assert.Equal(
+            McpPayloadLimits.MaxCallToolResultBytes,
+            McpVisualPayloadLimits.MaxVisualCallToolResultBytes);
+    }
+
     private static byte[] CreatePlusHeavyBytes(int size)
     {
         var bytes = new byte[size];

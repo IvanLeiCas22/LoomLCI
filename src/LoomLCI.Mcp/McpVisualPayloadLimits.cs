@@ -8,7 +8,7 @@ namespace LoomLCI.Mcp;
 internal static class McpVisualPayloadLimits
 {
     public const int MaxImageBytes = VisualFilesLimits.MaxImageBytes;
-    public const int MaxVisualCallToolResultBytes = 9 * 1024 * 1024;
+    public const int MaxVisualCallToolResultBytes = McpPayloadLimits.MaxCallToolResultBytes;
 
     public static bool IsWithinLimits<T>(
         ToolEnvelope<T> envelope,

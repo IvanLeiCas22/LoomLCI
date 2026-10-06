@@ -1,6 +1,6 @@
 # Plan y tareas
 
-> Estado: **Agent Support F1 y Deployment portable cerrados**. El deployment está validado end-to-end en dos PCs Windows x64. [[Bloque G - Visual Files]] pasa a ser el próximo bloque: lectura nativa de imágenes y PDFs antes de Computer. La investigación de [[Bloque H - Computer]] permanece cerrada, pero su implementación queda después de G1.
+> Estado: **Agent Support F1, Deployment portable, Visual Files G1 y hardening de `filesystem_read_files` cerrados**. El deployment general está validado end-to-end en dos PCs Windows x64 y Visual Files tiene visión directa confirmada en ChatGPT. Computer H1 queda deliberadamente pausado por ahora; no hay otro bloque funcional activo.
 
 ## Distinciones necesarias
 
@@ -110,9 +110,9 @@ Implementación incremental propuesta:
 
 Decisiones cerradas: tunnel 10 MiB real, imágenes/PNG <=6 MiB + payload MCP visual <=9 MiB, PDF <=64 MiB, texto PDF <=65.536 code points por página y <=262.144 agregados, PdfPig 0.1.16 aislado en worker privado con 256 MiB/20 s, y PDFs protegidos reportados como `unsupported`. La investigación específica de G1.0 también cerró TFM, helper MCP, tests MCP, harness Release y publish portable.
 
-## Bloque siguiente - Computer H1
+## Computer H1 - PAUSADO
 
-Investigación cerrada en [[Bloque H - Computer]]. Computer se implementará después de G1 y reutilizará la base visual/WinRT que G deje validada.
+Investigación cerrada en [[Bloque H - Computer]]. Su implementación queda deliberadamente en pausa por ahora; el diseño se conserva para retomarlo más adelante sin reabrir la investigación base.
 
 Etapas actualmente diseñadas:
 
