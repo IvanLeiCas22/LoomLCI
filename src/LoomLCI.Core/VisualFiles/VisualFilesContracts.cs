@@ -7,6 +7,8 @@ public static class VisualFilesLimits
     public const int MaxPdfPagesPerRead = 25;
     public const int MaxPageTextCodePoints = 65_536;
     public const int MaxTotalTextCodePoints = 262_144;
+    public const int MinPdfRenderDimension = 256;
+    public const int MaxPdfRenderDimension = 4096;
 }
 
 public sealed record VisualImageRequest(
@@ -60,6 +62,38 @@ public sealed record PdfWorkerResponse(
     int? NextPage = null,
     IReadOnlyList<PdfTextPageResult>? Pages = null);
 
+public sealed record PdfPageRenderRequest(
+    string RequestedPath,
+    string FullPath,
+    int Page,
+    int MaxWidth,
+    int MaxHeight);
+
+public sealed record PdfPageRenderResult(
+    string RequestedPath,
+    string FullPath,
+    long PdfSizeBytes,
+    int Page,
+    int PageCount,
+    int Width,
+    int Height,
+    string MimeType,
+    byte[] Bytes);
+
+public sealed record PdfRenderWorkerRequest(
+    string FullPath,
+    int Page,
+    int MaxWidth,
+    int MaxHeight);
+
+public sealed record PdfRenderWorkerResponse(
+    string Status,
+    int PageCount = 0,
+    int Page = 0,
+    int Width = 0,
+    int Height = 0,
+    byte[]? PngBytes = null);
+
 public interface IVisualFilesProvider
 {
     Task<LoomResult<VisualImageResult>> ReadImageAsync(
@@ -68,5 +102,9 @@ public interface IVisualFilesProvider
 
     Task<LoomResult<PdfTextReadResult>> ReadPdfTextAsync(
         PdfTextReadRequest request,
+        CancellationToken cancellationToken);
+
+    Task<LoomResult<PdfPageRenderResult>> RenderPdfPageAsync(
+        PdfPageRenderRequest request,
         CancellationToken cancellationToken);
 }

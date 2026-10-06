@@ -1,0 +1,23 @@
+LoomLCI third-party notices
+
+G1.3 PDF rendering includes the following third-party components.
+
+1. PDFium
+   Upstream: https://pdfium.googlesource.com/pdfium/
+   Copyright 2014 The PDFium Authors.
+   The upstream license text, including the notices distributed by PDFium,
+   is reproduced in licenses/PDFium-LICENSE.txt.
+
+2. bblanchon.PDFium.Win32 157.0.8086
+   Project: https://github.com/bblanchon/pdfium-binaries
+   NuGet package metadata declares Apache-2.0.
+   This package supplies the precompiled pdfium.dll used by LoomLCI.
+
+3. StbImageWriteSharp 1.16.7
+   Project: https://github.com/StbSharp/StbImageWriteSharp
+   C# port of stb_image_write.h.
+   The project describes the port as Public Domain; the original stb project
+   also offers its code under public-domain/MIT-style terms.
+
+These notices apply to the corresponding third-party components only and do
+not alter the licensing terms of LoomLCI itself.

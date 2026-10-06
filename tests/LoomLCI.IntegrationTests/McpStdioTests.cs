@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
@@ -25,8 +26,8 @@ public sealed class McpStdioTests
         var enabledToolRegistrations = enabledServices.Count(
             descriptor => descriptor.ServiceType == typeof(McpServerTool));
 
-        Assert.Equal(19, disabledToolRegistrations);
-        Assert.Equal(21, enabledToolRegistrations);
+        Assert.Equal(20, disabledToolRegistrations);
+        Assert.Equal(22, enabledToolRegistrations);
     }
 
     [Fact]
@@ -68,6 +69,7 @@ public sealed class McpStdioTests
             Assert.Contains("Prefer structured LoomLCI filesystem capabilities", instructions, StringComparison.Ordinal);
             Assert.Contains("filesystem_view_image", instructions, StringComparison.Ordinal);
             Assert.Contains("filesystem_read_pdf", instructions, StringComparison.Ordinal);
+            Assert.Contains("filesystem_render_pdf_page", instructions, StringComparison.Ordinal);
             Assert.Contains("python_execute", instructions, StringComparison.Ordinal);
             Assert.Contains("Process capabilities", instructions, StringComparison.Ordinal);
             Assert.Contains("opaque values", instructions, StringComparison.OrdinalIgnoreCase);
@@ -202,6 +204,25 @@ public sealed class McpStdioTests
         AssertSchemaRange(GetRequiredProperty(readPdfProperties, "maxPages"), 1, 25);
         Assert.Equal(1, GetRequiredProperty(GetRequiredProperty(readPdfProperties, "startPage"), "default").GetInt32());
         Assert.Equal(10, GetRequiredProperty(GetRequiredProperty(readPdfProperties, "maxPages"), "default").GetInt32());
+
+        var renderPdf = Assert.Single(tools, tool => tool.Name == "filesystem_render_pdf_page");
+        Assert.Equal("Render PDF page", renderPdf.ProtocolTool.Title);
+        Assert.Contains("crash-isolated worker", renderPdf.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("scanned/image-only", renderPdf.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("aspect ratio", renderPdf.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.True(renderPdf.ProtocolTool.Annotations?.ReadOnlyHint ?? false);
+        Assert.False(renderPdf.ProtocolTool.Annotations?.DestructiveHint ?? true);
+        Assert.True(renderPdf.ProtocolTool.Annotations?.IdempotentHint ?? false);
+        Assert.False(renderPdf.ProtocolTool.Annotations?.OpenWorldHint ?? true);
+        var renderPdfProperties = GetRequiredProperty(renderPdf.JsonSchema, "properties");
+        GetRequiredProperty(renderPdfProperties, "path");
+        GetRequiredProperty(renderPdfProperties, "workId");
+        AssertSchemaRange(GetRequiredProperty(renderPdfProperties, "page"), 1, int.MaxValue);
+        AssertSchemaRange(GetRequiredProperty(renderPdfProperties, "maxWidth"), 256, 4096);
+        AssertSchemaRange(GetRequiredProperty(renderPdfProperties, "maxHeight"), 256, 4096);
+        Assert.Equal(1, GetRequiredProperty(GetRequiredProperty(renderPdfProperties, "page"), "default").GetInt32());
+        Assert.Equal(1800, GetRequiredProperty(GetRequiredProperty(renderPdfProperties, "maxWidth"), "default").GetInt32());
+        Assert.Equal(2400, GetRequiredProperty(GetRequiredProperty(renderPdfProperties, "maxHeight"), "default").GetInt32());
 
         var applyPatch = Assert.Single(tools, tool => tool.Name == "filesystem_apply_patch");
         Assert.Equal("Apply file changes", applyPatch.ProtocolTool.Title);
@@ -1305,6 +1326,147 @@ public sealed class McpStdioTests
                     ["workId"] = workId
                 });
             Assert.True(invalid.IsError);
+            var invalidError = GetRequiredProperty(
+                GetStructured(invalid.StructuredContent),
+                "error");
+            Assert.Equal("unsupported", GetRequiredProperty(invalidError, "code").GetString());
+            Assert.Equal(
+                "invalid_pdf",
+                GetRequiredProperty(
+                    GetRequiredProperty(invalidError, "details"),
+                    "reason").GetString());
+
+            var close = await client.CallToolAsync(
+                "work_close",
+                new Dictionary<string, object?> { ["workId"] = workId });
+            Assert.True(GetRequiredProperty(GetStructured(close.StructuredContent), "ok").GetBoolean());
+        }
+        finally
+        {
+            if (Directory.Exists(scratch))
+            {
+                Directory.Delete(scratch, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task StdioAdapterCanRenderPdfPageThroughIsolatedWorker()
+    {
+        var repoRoot = FindRepoRoot();
+        var hostDll = GetHostDll(repoRoot);
+        Assert.True(File.Exists(hostDll), $"Host was not built: {hostDll}");
+
+        var scratch = Path.Combine(
+            Path.GetTempPath(),
+            "LoomLCI.PdfRenderIntegration",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(scratch);
+
+        try
+        {
+            CreateSimplePdf(Path.Combine(scratch, "visual.pdf"), "Rendered page alpha");
+            await File.WriteAllTextAsync(
+                Path.Combine(scratch, "invalid.pdf"),
+                "%PDF-1.4\nthis is not a valid PDF");
+
+            var transport = new StdioClientTransport(new StdioClientTransportOptions
+            {
+                Name = "LoomLCI PDF render integration test",
+                Command = "dotnet",
+                Arguments = [hostDll],
+                WorkingDirectory = repoRoot,
+                ShutdownTimeout = TimeSpan.FromSeconds(5)
+            });
+
+            await using var client = await McpClient.CreateAsync(transport);
+            var create = await client.CallToolAsync(
+                "work_create",
+                new Dictionary<string, object?>
+                {
+                    ["baseDirectory"] = scratch,
+                    ["label"] = "pdf-render-integration-test"
+                });
+            var workId = GetRequiredProperty(
+                GetRequiredProperty(GetStructured(create.StructuredContent), "result"),
+                "workId").GetString();
+            Assert.False(string.IsNullOrWhiteSpace(workId));
+
+            var rendered = await client.CallToolAsync(
+                "filesystem_render_pdf_page",
+                new Dictionary<string, object?>
+                {
+                    ["path"] = "visual.pdf",
+                    ["workId"] = workId,
+                    ["page"] = 1,
+                    ["maxWidth"] = 1200,
+                    ["maxHeight"] = 1200
+                });
+
+            Assert.False(rendered.IsError ?? false);
+            var renderedRoot = GetStructured(rendered.StructuredContent);
+            Assert.True(GetRequiredProperty(renderedRoot, "ok").GetBoolean());
+            var renderedResult = GetRequiredProperty(renderedRoot, "result");
+            Assert.Equal("visual.pdf", GetRequiredProperty(renderedResult, "requestedPath").GetString());
+            Assert.Equal(1, GetRequiredProperty(renderedResult, "page").GetInt32());
+            Assert.Equal(1, GetRequiredProperty(renderedResult, "pageCount").GetInt32());
+            Assert.Equal("image/png", GetRequiredProperty(renderedResult, "mimeType").GetString());
+
+            var width = GetRequiredProperty(renderedResult, "width").GetInt32();
+            var height = GetRequiredProperty(renderedResult, "height").GetInt32();
+            Assert.InRange(width, 1, 1200);
+            Assert.InRange(height, 1, 1200);
+
+            Assert.Collection(
+                rendered.Content,
+                block => Assert.IsType<TextContentBlock>(block),
+                block =>
+                {
+                    var image = Assert.IsType<ImageContentBlock>(block);
+                    Assert.Equal("image/png", image.MimeType);
+                    var png = image.DecodedData.Span;
+                    Assert.True(png.Length > 24);
+                    Assert.True(png[..8].SequenceEqual(
+                        new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }));
+                    Assert.Equal(
+                        width,
+                        checked((int)BinaryPrimitives.ReadUInt32BigEndian(png.Slice(16, 4))));
+                    Assert.Equal(
+                        height,
+                        checked((int)BinaryPrimitives.ReadUInt32BigEndian(png.Slice(20, 4))));
+                    Assert.Equal(
+                        png.Length,
+                        GetRequiredProperty(renderedResult, "imageSizeBytes").GetInt64());
+                });
+
+            var outOfRange = await client.CallToolAsync(
+                "filesystem_render_pdf_page",
+                new Dictionary<string, object?>
+                {
+                    ["path"] = "visual.pdf",
+                    ["workId"] = workId,
+                    ["page"] = 2
+                });
+            Assert.True(outOfRange.IsError);
+            var outOfRangeError = GetRequiredProperty(
+                GetStructured(outOfRange.StructuredContent),
+                "error");
+            Assert.Equal("invalid_argument", GetRequiredProperty(outOfRangeError, "code").GetString());
+            Assert.Equal(
+                "page_out_of_range",
+                GetRequiredProperty(
+                    GetRequiredProperty(outOfRangeError, "details"),
+                    "reason").GetString());
+
+            var invalid = await client.CallToolAsync(
+                "filesystem_render_pdf_page",
+                new Dictionary<string, object?>
+                {
+                    ["path"] = "invalid.pdf",
+                    ["workId"] = workId
+                });
+            Assert.True(invalid.IsError);
+            Assert.DoesNotContain(invalid.Content, block => block is ImageContentBlock);
             var invalidError = GetRequiredProperty(
                 GetStructured(invalid.StructuredContent),
                 "error");

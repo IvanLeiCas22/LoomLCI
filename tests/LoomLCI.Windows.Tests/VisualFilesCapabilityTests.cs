@@ -196,6 +196,74 @@ public sealed class VisualFilesCapabilityTests
     }
 
     [Fact]
+    public async Task PdfRenderInputValidationHappensBeforeWorkerLaunch()
+    {
+        await using var fixture = new VisualFilesFixture();
+
+        var invalidPage = await fixture.VisualFiles.RenderPdfPageAsync("sample.pdf", page: 0);
+        Assert.False(invalidPage.IsSuccess);
+        Assert.Equal("invalid_argument", invalidPage.Error?.Code);
+
+        var invalidWidth = await fixture.VisualFiles.RenderPdfPageAsync("sample.pdf", maxWidth: 255);
+        Assert.False(invalidWidth.IsSuccess);
+        Assert.Equal("invalid_argument", invalidWidth.Error?.Code);
+
+        var invalidHeight = await fixture.VisualFiles.RenderPdfPageAsync("sample.pdf", maxHeight: 4097);
+        Assert.False(invalidHeight.IsSuccess);
+        Assert.Equal("invalid_argument", invalidHeight.Error?.Code);
+    }
+
+    [Fact]
+    public async Task OversizedPdfRenderIsRejectedBeforeWorkerLaunch()
+    {
+        await using var fixture = new VisualFilesFixture();
+        var path = Path.Combine(fixture.Root, "large-render.pdf");
+        await using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            stream.SetLength(VisualFilesLimits.MaxPdfBytes + 1L);
+        }
+
+        var result = await fixture.VisualFiles.RenderPdfPageAsync(path);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("unsupported", result.Error?.Code);
+        Assert.Equal("pdf_too_large", result.Error?.Details?["reason"]);
+    }
+
+    [Fact]
+    public async Task ActivePdfWriterReturnsRetryableBusyBeforeRenderWorkerLaunch()
+    {
+        await using var fixture = new VisualFilesFixture();
+        var path = Path.Combine(fixture.Root, "busy-render.pdf");
+        await File.WriteAllTextAsync(path, "%PDF-1.4");
+
+        await using var writer = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Write,
+            FileShare.ReadWrite | FileShare.Delete);
+
+        var result = await fixture.VisualFiles.RenderPdfPageAsync(path);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("busy", result.Error?.Code);
+        Assert.True(result.Error?.Retryable);
+        Assert.Equal("file_busy", result.Error?.Details?["reason"]);
+    }
+
+    [Fact]
+    public async Task MissingPdfRenderReturnsNotFoundBeforeWorkerLaunch()
+    {
+        await using var fixture = new VisualFilesFixture();
+        var path = Path.Combine(fixture.Root, "missing-render.pdf");
+
+        var result = await fixture.VisualFiles.RenderPdfPageAsync(path);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("not_found", result.Error?.Code);
+    }
+
+    [Fact]
     public async Task MissingImageReturnsNotFound()
     {
         await using var fixture = new VisualFilesFixture();

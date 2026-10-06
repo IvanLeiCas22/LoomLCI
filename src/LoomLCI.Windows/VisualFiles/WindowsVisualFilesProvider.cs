@@ -7,6 +7,7 @@ namespace LoomLCI.Windows.VisualFiles;
 public sealed class WindowsVisualFilesProvider : IVisualFilesProvider
 {
     private readonly PdfWorkerClient? _pdfWorker;
+    private readonly PdfRenderWorkerClient? _pdfRenderWorker;
 
     public WindowsVisualFilesProvider()
     {
@@ -15,6 +16,7 @@ public sealed class WindowsVisualFilesProvider : IVisualFilesProvider
     public WindowsVisualFilesProvider(PdfWorkerLaunchDescriptor pdfWorkerLaunch)
     {
         _pdfWorker = new PdfWorkerClient(pdfWorkerLaunch);
+        _pdfRenderWorker = new PdfRenderWorkerClient(pdfWorkerLaunch);
     }
 
     public async Task<LoomResult<VisualImageResult>> ReadImageAsync(
@@ -163,6 +165,77 @@ public sealed class WindowsVisualFilesProvider : IVisualFilesProvider
         catch (IOException ex)
         {
             return LoomResult<PdfTextReadResult>.Failure(LoomErrors.ExecutionFailed(ex.Message));
+        }
+    }
+
+    public async Task<LoomResult<PdfPageRenderResult>> RenderPdfPageAsync(
+        PdfPageRenderRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!File.Exists(request.FullPath))
+            {
+                return LoomResult<PdfPageRenderResult>.Failure(
+                    LoomErrors.NotFound($"File '{request.FullPath}' was not found."));
+            }
+
+            await using var stableHandle = new FileStream(
+                request.FullPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 8192,
+                FileOptions.Asynchronous | FileOptions.RandomAccess);
+
+            if (stableHandle.Length > VisualFilesLimits.MaxPdfBytes)
+            {
+                return LoomResult<PdfPageRenderResult>.Failure(
+                    Unsupported(
+                        $"PDF '{request.FullPath}' exceeds the 64 MiB PDF limit.",
+                        "pdf_too_large"));
+            }
+
+            if (_pdfRenderWorker is null)
+            {
+                return LoomResult<PdfPageRenderResult>.Failure(
+                    LoomErrors.ExecutionFailed("PDF render worker carrier is not configured."));
+            }
+
+            return await _pdfRenderWorker.RenderAsync(
+                    request,
+                    stableHandle.Length,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (IOException ex) when (IsSharingViolation(ex))
+        {
+            return LoomResult<PdfPageRenderResult>.Failure(
+                new LoomError(
+                    "busy",
+                    $"File '{request.FullPath}' is currently open for writing. Retry when it is stable.",
+                    true,
+                    new Dictionary<string, object?> { ["reason"] = "file_busy" }));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return LoomResult<PdfPageRenderResult>.Failure(LoomErrors.AccessDenied(ex.Message));
+        }
+        catch (FileNotFoundException ex)
+        {
+            return LoomResult<PdfPageRenderResult>.Failure(LoomErrors.NotFound(ex.Message));
+        }
+        catch (DirectoryNotFoundException ex)
+        {
+            return LoomResult<PdfPageRenderResult>.Failure(LoomErrors.NotFound(ex.Message));
+        }
+        catch (IOException ex)
+        {
+            return LoomResult<PdfPageRenderResult>.Failure(LoomErrors.ExecutionFailed(ex.Message));
         }
     }
 

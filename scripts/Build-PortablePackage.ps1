@@ -56,8 +56,13 @@ if ($LASTEXITCODE -ne 0) {
 
 $pdfWorkerAssembly = Join-Path $hostOut 'LoomLCI.PdfWorker.dll'
 $pdfPigAssembly = Join-Path $hostOut 'UglyToad.PdfPig.dll'
-if (-not (Test-Path $pdfWorkerAssembly) -or -not (Test-Path $pdfPigAssembly)) {
-    throw 'El Host publicado no contiene LoomLCI.PdfWorker y/o PdfPig requeridos por G1.2.'
+$pdfiumNative = Join-Path $hostOut 'pdfium.dll'
+$stbImageWriteAssembly = Join-Path $hostOut 'StbImageWriteSharp.dll'
+if (-not (Test-Path $pdfWorkerAssembly) -or
+    -not (Test-Path $pdfPigAssembly) -or
+    -not (Test-Path $pdfiumNative) -or
+    -not (Test-Path $stbImageWriteAssembly)) {
+    throw 'El Host publicado no contiene los assets PDF requeridos por G1.2/G1.3 (PdfWorker, PdfPig, pdfium.dll, StbImageWriteSharp).'
 }
 
 Write-Host 'Publishing single-file LoomLCI.Launcher...'
@@ -84,6 +89,16 @@ if (-not (Test-Path $launcherExe)) {
 
 Copy-Item $launcherExe (Join-Path $packageDir 'LoomLCI.Launcher.exe') -Force
 Remove-Item $launcherPublish -Recurse -Force
+
+$thirdPartyNotices = Join-Path $repoRoot 'THIRD-PARTY-NOTICES.txt'
+$pdfiumLicense = Join-Path $repoRoot 'licenses\PDFium-LICENSE.txt'
+if (-not (Test-Path $thirdPartyNotices) -or -not (Test-Path $pdfiumLicense)) {
+    throw 'Faltan THIRD-PARTY-NOTICES.txt y/o licenses\PDFium-LICENSE.txt requeridos por G1.3.'
+}
+Copy-Item $thirdPartyNotices (Join-Path $packageDir 'THIRD-PARTY-NOTICES.txt') -Force
+$licensesOut = Join-Path $packageDir 'licenses'
+New-Item -ItemType Directory -Path $licensesOut -Force | Out-Null
+Copy-Item $pdfiumLicense (Join-Path $licensesOut 'PDFium-LICENSE.txt') -Force
 
 $manifest = [ordered]@{
     schemaVersion = 1

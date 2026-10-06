@@ -30,6 +30,16 @@ if (args.Length == 1 &&
     return;
 }
 
+if (args.Length == 1 &&
+    string.Equals(args[0], "--internal-pdf-render-worker-v1", StringComparison.Ordinal))
+{
+    Environment.ExitCode = await PdfRenderWorkerProgram.RunAsync(
+        Console.OpenStandardInput(),
+        Console.OpenStandardOutput(),
+        Console.OpenStandardError());
+    return;
+}
+
 var processPath = Environment.ProcessPath
     ?? throw new InvalidOperationException("Could not resolve the current Host process path.");
 var entryAssemblyPath = Assembly.GetEntryAssembly()?.Location

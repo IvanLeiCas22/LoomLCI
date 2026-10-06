@@ -80,4 +80,57 @@ public sealed class VisualFilesCapability
                     token).ConfigureAwait(false);
             },
             cancellationToken);
+
+    public Task<LoomResult<PdfPageRenderResult>> RenderPdfPageAsync(
+        string path,
+        WorkId? workId = null,
+        int page = 1,
+        int maxWidth = 1800,
+        int maxHeight = 2400,
+        CancellationToken cancellationToken = default)
+        => _invocations.RunAsync(
+            "filesystem.render_pdf_page",
+            workId,
+            async (context, token) =>
+            {
+                if (page < 1)
+                {
+                    return LoomResult<PdfPageRenderResult>.Failure(
+                        LoomErrors.InvalidArgument("page must be at least 1."));
+                }
+
+                if (maxWidth is < VisualFilesLimits.MinPdfRenderDimension
+                    or > VisualFilesLimits.MaxPdfRenderDimension)
+                {
+                    return LoomResult<PdfPageRenderResult>.Failure(
+                        LoomErrors.InvalidArgument(
+                            $"maxWidth must be between {VisualFilesLimits.MinPdfRenderDimension} and {VisualFilesLimits.MaxPdfRenderDimension}."));
+                }
+
+                if (maxHeight is < VisualFilesLimits.MinPdfRenderDimension
+                    or > VisualFilesLimits.MaxPdfRenderDimension)
+                {
+                    return LoomResult<PdfPageRenderResult>.Failure(
+                        LoomErrors.InvalidArgument(
+                            $"maxHeight must be between {VisualFilesLimits.MinPdfRenderDimension} and {VisualFilesLimits.MaxPdfRenderDimension}."));
+                }
+
+                var resolved = FilesystemPathResolver.Resolve(
+                    path,
+                    context.WorkSession?.BaseDirectory);
+                if (!resolved.IsSuccess)
+                {
+                    return LoomResult<PdfPageRenderResult>.Failure(resolved.Error!);
+                }
+
+                return await _provider.RenderPdfPageAsync(
+                    new PdfPageRenderRequest(
+                        path,
+                        resolved.Value!,
+                        page,
+                        maxWidth,
+                        maxHeight),
+                    token).ConfigureAwait(false);
+            },
+            cancellationToken);
 }

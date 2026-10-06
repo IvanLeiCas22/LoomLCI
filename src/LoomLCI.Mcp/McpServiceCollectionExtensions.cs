@@ -14,6 +14,7 @@ public static class McpServiceCollectionExtensions
             "Prefer structured LoomLCI filesystem capabilities over shell commands when an equivalent operation exists. " +
             "Use filesystem_view_image when visual inspection of a known local PNG, JPEG, or WebP is needed instead of reading or encoding the file manually. " +
             "Use filesystem_read_pdf when text from a known local PDF is needed; it is page-bounded and does not perform OCR. " +
+            "Use filesystem_render_pdf_page when a specific PDF page must be inspected visually, including scans, diagrams, tables, or layout. " +
             "Use python_execute for persistent in-session calculations, parsing, and transformations; use Process capabilities for independent executables, terminal semantics, subprocess workflows, or large retained output. " +
             "Use a work session when calls need a shared base directory or session-owned resources. " +
             "Treat work and process handles as opaque values and pass them back unchanged. Close work sessions when their task is complete.";
