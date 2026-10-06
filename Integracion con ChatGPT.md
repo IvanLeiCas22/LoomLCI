@@ -79,24 +79,22 @@ Esas rutas producían registros duplicados o no exponían las tools a Chat norma
 
 La instalación final mantiene una única ruta de acceso: la app MCP conectada al Secure MCP Tunnel.
 
-## Deployment portable activo
+## Deployment instalado activo
 
-[[Deployment portable]] quedó implementado y validado end-to-end en esta PC:
+[[Deployment portable]] sigue siendo la base del payload y [[Instalador Windows]] es ahora el camino de instalación convencional:
 
 - Host Release self-contained instalado fuera del repo;
-- `LoomLCI.Launcher` con Start/Stop/Status/Setup y acceso directo de escritorio;
-- tunnel-client v0.0.14 oficial, fijado y verificado por hash, independiente de IvanSpace;
+- `LoomLCI.Launcher` con Start/Stop/Status/Setup y accesos directos de iniciar/detener;
+- tunnel-client v0.0.14 oficial, fijado y verificado por hash;
 - profile/state/secrets aislados por máquina bajo `%LOCALAPPDATA%\LoomLCI\deployment`;
-- cutover legacy -> instalado validado;
-- rollback instalado -> legacy validado;
-- segundo cutover al instalado validado;
-- smoke real desde ChatGPT en ambos caminos validado.
+- setup EXE per-user registrado en Aplicaciones instaladas;
+- uninstall real validado;
+- cutover y rollback del runtime validados;
+- smoke real desde ChatGPT validado.
 
-El runtime activo final es `loomlci-installed`, actualmente en `0.1.0-dev-work-plan-patch`; el legacy `loomlci` permanece detenido como fallback. La instalación portable general fue además validada desde cero en una segunda PC Windows x64: ChatGPT operó sobre la notebook, luego se detuvo ese runtime y se volvió a iniciar LoomLCI en la PC de escritorio sobre el mismo tunnel, confirmando el cambio de máquina correctamente. La repetición específica de los follow-ups recientes en notebook queda diferida/no bloqueante.
+El runtime activo final es `loomlci-installed`, actualmente en `0.1.0-dev-installer`, healthy/ready. El installer real quedó registrado como `LoomLCI` con uninstall bajo `%LOCALAPPDATA%\Programs\LoomLCI\unins000.exe`; la DLL instalada pasó **15/15 IntegrationTests**. El portable general también fue validado desde cero en una segunda PC Windows x64; la repetición específica del installer convencional en notebook queda diferida/no bloqueante.
 
-Visual Files G1.1, G1.2 y G1.3 están instalados en el runtime portable y la compatibilidad visual final quedó resuelta. El A/B contra IvanSpace mostró que ChatGPT preserva `ImageContentBlock` cuando una tool visual no anuncia `outputSchema`; por eso `filesystem_view_image` y `filesystem_render_pdf_page` omiten intencionalmente `UseStructuredContent`/`OutputSchemaType`, mientras `filesystem_read_pdf` conserva su output schema. Dos chats nuevos confirmaron visión directa sin fallback.
-
-El hardening posterior de `filesystem_read_files` también está desplegado: Core/Windows conserva su límite interno de 64 MiB, mientras el adapter MCP aplica un presupuesto serializado de 9 MiB y devuelve `unsupported/mcp_payload_too_large` antes de superar el límite de 10 MiB del tunnel. `process_run` quedó cerrado end-to-end y [[Ergonomía - Work Plan patch]] elevó la suite Release actual a **269/269** y el catálogo del Host a **24 tools** con Work Plan habilitado. El runtime `0.1.0-dev-work-plan-patch` está healthy/ready; este mismo chat confirmó el tunnel después del cutover usando `process_run`, y la DLL instalada pasó 15/15 IntegrationTests. La conversación conserva el catálogo anterior de 23 tools, por lo que el smoke directo de `work_plan_patch` queda pendiente de un chat con catálogo refrescado.
+Visual Files G1.1/G1.2/G1.3, el hardening de `filesystem_read_files`, `process_run` y [[Ergonomía - Work Plan patch]] siguen incluidos. La suite Release actual es **272/272** y el catálogo público permanece en **24 tools** con Work Plan habilitado.
 
 ## Notas
 

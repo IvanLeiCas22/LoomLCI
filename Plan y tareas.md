@@ -1,6 +1,6 @@
 # Plan y tareas
 
-> Estado: **Agent Support F1, Deployment portable, Launcher UX, Visual Files G1, hardening de `filesystem_read_files`, `process_run` y [[Ergonomía - Work Plan patch]] cerrados end-to-end**. Computer H1 queda deliberadamente pausado. [[Roadmap post-G1]] continúa por Producto/Deployment -> Python.
+> Estado: **Agent Support F1, Deployment portable, Launcher UX, [[Instalador Windows]], Visual Files G1, hardening de `filesystem_read_files`, `process_run` y [[Ergonomía - Work Plan patch]] cerrados end-to-end**. Computer H1 queda deliberadamente pausado. [[Roadmap post-G1]] continúa por Producto/Deployment -> Python.
 
 ## Distinciones necesarias
 
@@ -101,6 +101,23 @@ El smoke directo final desde un chat con catálogo MCP refrescado pasó correcta
 - smoke end-to-end desde ChatGPT.
 
 Validación multi-PC cerrada: el mismo paquete se instaló desde cero en una notebook Windows x64, ChatGPT operó correctamente sobre ella y luego se volvió a la PC de escritorio deteniendo/iniciando el launcher correspondiente. El follow-up de Launcher UX quedó cerrado: los accesos directos usan pausa visible, existe `Detener LoomLCI`, la CLI automatizable conserva su comportamiento sin pausa y el README portable ya no depende del encoding implícito de Windows PowerShell 5.1.
+
+## Instalador Windows - CERRADO
+
+[[Instalador Windows]] quedó implementado y validado end-to-end:
+
+- Inno Setup 7.1.0 fijado como toolchain;
+- instalador EXE per-user, sin admin por defecto;
+- portable como fuente de verdad del payload;
+- `SetupService` sigue siendo dueño de tunnel, secret, profile, doctor y shortcuts;
+- registro estándar en Aplicaciones instaladas;
+- uninstall real con stop previo y limpieza de binarios/config/runtime Python privados;
+- install/uninstall aislado completo con roots/AppId de prueba;
+- suite Release **272/272**;
+- instalación real final `0.1.0-dev-installer` healthy/ready;
+- IntegrationTests contra la DLL instalada: **15/15**.
+
+La próxima etapa de [[Roadmap post-G1]] es la base de **auto-update con validación y rollback**.
 
 ## Visual Files G1 - CERRADO
 

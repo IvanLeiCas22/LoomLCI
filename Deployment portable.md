@@ -578,6 +578,21 @@ Validación final:
 - runtime activo final: `0.1.0-dev-launcher-ux`, `process_running=true`, `healthy=true`, `ready=true`;
 - smoke posterior al cutover desde ChatGPT mediante LoomLCI: **OK**.
 
+## Follow-up Instalador Windows convencional (2026-10-06)
+
+Ver [[Instalador Windows]] para el contrato y validación completos.
+
+El deployment portable quedó como **fuente de verdad del payload**, pero el camino de instalación normal ahora es un setup EXE generado con Inno Setup 7.1.0:
+
+- instalación per-user, sin UAC/admin por defecto;
+- registro estándar en Aplicaciones instaladas;
+- wizard para Tunnel ID y runtime key;
+- configuración real delegada al mismo `LoomLCI.Launcher setup`;
+- uninstall con stop previo y limpieza del root administrado;
+- portable intermedio generado en staging temporal y eliminado al finalizar el builder.
+
+Validación final: suite Release **272/272**, install/uninstall aislado completo, setup real `0.1.0-dev-installer`, cutover healthy/ready, smoke desde ChatGPT e IntegrationTests contra la DLL instalada **15/15**.
+
 ## Fuera de alcance inicial
 
 - autoarranque al login;
