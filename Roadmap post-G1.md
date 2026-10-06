@@ -36,6 +36,16 @@ Orden preliminar:
 
 La ruta binaria debe reutilizar las lecciones de Visual Files y respetar los límites MCP/tunnel ya fijados.
 
+## Horizonte lejano / post-roadmap actual
+
+Estas mejoras quedan **documentadas pero deliberadamente no priorizadas**. No deben desplazar Producto/Deployment 4, Python ni la reconciliación final del plugin/skill:
+
+- **publicación automática de releases**: GitHub Actions dispara desde un tag/release, construye los artefactos, ejecuta validaciones y publica automáticamente setup + ZIP de update + manifest + firma; requiere resolver de forma segura el acceso a la clave privada de firma dentro de CI;
+- **update automático en las PCs instaladas**: chequeo periódico o al iniciar LoomLCI y aplicación automática/semiautomática de releases firmadas, reutilizando el motor transaccional, health check y rollback ya implementados;
+- cualquier automatización de este bloque debe conservar como invariantes la firma obligatoria, `sequence` anti-rollback, journal/crash recovery y rollback seguro.
+
+Por ahora el modelo operativo aceptado sigue siendo: **publicación manual de la GitHub Release + `update check/apply` explícito en cada instalación**.
+
 ## Reconciliación plugin/skill
 
 Es un tema transversal:

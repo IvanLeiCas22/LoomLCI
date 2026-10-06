@@ -142,12 +142,20 @@ Desde la instalación real:
 5. versiones instaladas: exactamente active + previous.
 6. nuevo `update check`: `LoomLCI ya está actualizado.`
 
-## Fuera de alcance
+## Fuera de alcance cercano
 
-- auto-update silencioso/background;
 - actualización automática del propio Launcher;
 - code signing / Authenticode del EXE;
-- canales beta/prerelease;
-- automatización de publicación con GitHub Actions.
+- canales beta/prerelease.
+
+## Mejoras lejanas / no priorizadas
+
+Quedan registradas como evolución futura, **no como próximos pasos**:
+
+- automatizar la publicación mediante GitHub Actions: build + tests + generación de setup/ZIP/manifest/firma + upload de assets al crear un tag/release;
+- automatizar el consumo en las PCs instaladas: chequeo al iniciar o periódico y aplicación automática/semiautomática de releases firmadas;
+- resolver antes de automatizar CI cómo custodiar y usar la private key de firma sin degradar el modelo de confianza actual.
+
+Hasta entonces, el flujo aceptado sigue siendo manual en ambos extremos: se publican los assets de cada GitHub Release manualmente y cada instalación ejecuta `update check` / `update apply` de forma explícita.
 
 El siguiente bloque de [[Roadmap post-G1]] es **Producto / Deployment 4: mecanismo de generación/verificación de metadata y skill del plugin**.
