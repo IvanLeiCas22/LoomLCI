@@ -90,9 +90,9 @@ No continuar optimizando prompting ni contrato de Work Plan sin evidencia nueva.
 
 Validación multi-PC cerrada: el mismo paquete se instaló desde cero en una notebook Windows x64, ChatGPT operó correctamente sobre ella y luego se volvió a la PC de escritorio deteniendo/iniciando el launcher correspondiente. Quedan como UX futura la confirmación visible al finalizar y un acceso directo de stop; no bloquean el roadmap.
 
-## Próximo bloque de capability - Visual Files G1
+## Visual Files G1 - CERRADO
 
-Investigación y diseño v0.1 cerrados en [[Bloque G - Visual Files]]. **G1.0, G1.1, G1.2 y G1.3 ya están implementados.** G1.1 conserva un bloqueo upstream visual de ChatGPT; G1.2 completó su smoke directo y G1.3 está instalado/healthy con validación técnica y portable cerradas. Sólo resta el smoke directo de la tool 22 desde un chat con catálogo refrescado antes de pasar a G1.4.
+Investigación, implementación y evaluación final cerradas en [[Bloque G - Visual Files]] y [[G1.4 - Evaluation + portable]]. **G1.0–G1.4 están cerrados.** G1.1 conserva un bloqueo upstream visual de ChatGPT, pero las tres tools quedaron validadas por tests, Host publicado, Secure MCP Tunnel y fresh-agent. La repetición específica del paquete G1 en notebook queda diferida/no bloqueante.
 
 Superficie v0.1 fijada:
 
@@ -105,8 +105,8 @@ Implementación incremental propuesta:
 1. **G1.0 Binary/image foundation — CERRADO**: Windows TFM, helper MCP mixed structured + image, guard 6/9 MiB, 4 MCP tests, harness Release y portable validados; suite total 207/207.
 2. **G1.1 Local image — IMPLEMENTADO / VISUAL ACCEPTANCE BLOCKED_UPSTREAM**: `filesystem_view_image`, provider/capability separados, resolver compartido, PNG/JPEG/WebP, `FileShare.Read`, 223/223 tests y runtime portable final healthy/ready. ChatGPT descubre/invoca la tool pero no entrega su `ImageContentBlock` a la visión del modelo.
 3. **G1.2 PDF text worker — CERRADO (`b6e41fd`)**: ver [[G1.2 - PDF text worker]]. PdfPig 0.1.16 aislado en child Host, Job Object 256 MiB, timeout 20 s, stable file lock, JSON one-shot y `filesystem_read_pdf`; **235/235 tests**, Host publicado **11/11**, runtime `0.1.0-dev-b6e41fd645d3` healthy/ready y smoke directo ChatGPT/tunnel **OK** con catálogo de 21 tools.
-4. **G1.3 PDF render — IMPLEMENTADO (`d25c3ce`)**: ver [[G1.3 - PDF render]]. PDFium nativo aislado en `LoomLCI.PdfWorker`, P/Invoke mínimo, StbImageWriteSharp, Job 256 MiB/20 s, bounds 256..4096 y `filesystem_render_pdf_page`; **245/245 tests**, Host publicado **12/12**, paquete final instalado en `0.1.0-dev-63d256e9b658` (follow-up de licencias `63d256e`) y runtime healthy/ready. Smoke directo pendiente sólo de refresh del catálogo a 22 tools.
-5. **G1.4 Evaluation + portable**: corpus real, malformed/oversized, tunnel/ChatGPT, fresh-agent y deployment.
+4. **G1.3 PDF render — CERRADO (`d25c3ce`)**: ver [[G1.3 - PDF render]]. PDFium nativo aislado en `LoomLCI.PdfWorker`, P/Invoke mínimo, StbImageWriteSharp, Job 256 MiB/20 s, bounds 256..4096 y `filesystem_render_pdf_page`; **245/245 tests**, Host publicado **12/12**, paquete final instalado en `0.1.0-dev-63d256e9b658` (follow-up de licencias `63d256e`) y runtime healthy/ready. Smoke directo ChatGPT/tunnel **OK** con catálogo de 22 tools: PNG 1800x1080 / 101.550 bytes y error de page-range correcto.
+5. **G1.4 Evaluation + portable — CERRADO**: ver [[G1.4 - Evaluation + portable]]. Hardening de mappings, suite Release **249/249**, builder portable, Host publicado, corpus ChatGPT/tunnel y fresh-agent pasaron. La notebook queda diferida/no bloqueante hasta que futuros cambios de packaging o capabilities justifiquen repetir la validación multi-PC.
 
 Decisiones cerradas: tunnel 10 MiB real, imágenes/PNG <=6 MiB + payload MCP visual <=9 MiB, PDF <=64 MiB, texto PDF <=65.536 code points por página y <=262.144 agregados, PdfPig 0.1.16 aislado en worker privado con 256 MiB/20 s, y PDFs protegidos reportados como `unsupported`. La investigación específica de G1.0 también cerró TFM, helper MCP, tests MCP, harness Release y publish portable.
 

@@ -20,6 +20,20 @@ public sealed class PdfWorkerClientTests
     }
 
     [Fact]
+    public async Task PasswordProtectedStatusMapsToSpecificReason()
+    {
+        var client = CreateClient(
+            "$null = [Console]::In.ReadLine(); " +
+            "[Console]::Out.WriteLine('{\"status\":\"password_protected\"}')");
+
+        var result = await client.ReadAsync(Request(), 123, CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("unsupported", result.Error?.Code);
+        Assert.Equal("password_protected_pdf", result.Error?.Details?["reason"]);
+    }
+
+    [Fact]
     public async Task NonZeroWorkerExitMapsToCrashAndKeepsBoundedDiagnostics()
     {
         var client = CreateClient(
@@ -73,6 +87,48 @@ public sealed class PdfWorkerClientTests
         Assert.False(result.IsSuccess);
         Assert.Equal("unsupported", result.Error?.Code);
         Assert.Equal("pdf_render_resource_limit", result.Error?.Details?["reason"]);
+    }
+
+    [Fact]
+    public async Task RenderPasswordProtectedStatusMapsToSpecificReason()
+    {
+        var client = CreateRenderClient(
+            "$null = [Console]::In.ReadLine(); " +
+            "[Console]::Out.WriteLine('{\"status\":\"password_protected\"}')");
+
+        var result = await client.RenderAsync(RenderRequest(), 123, CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("unsupported", result.Error?.Code);
+        Assert.Equal("password_protected_pdf", result.Error?.Details?["reason"]);
+    }
+
+    [Fact]
+    public async Task RenderUnsupportedSecurityMapsToSpecificReason()
+    {
+        var client = CreateRenderClient(
+            "$null = [Console]::In.ReadLine(); " +
+            "[Console]::Out.WriteLine('{\"status\":\"unsupported_security\"}')");
+
+        var result = await client.RenderAsync(RenderRequest(), 123, CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("unsupported", result.Error?.Code);
+        Assert.Equal("unsupported_pdf_security", result.Error?.Details?["reason"]);
+    }
+
+    [Fact]
+    public async Task RenderedImageTooLargeMapsToSpecificReason()
+    {
+        var client = CreateRenderClient(
+            "$null = [Console]::In.ReadLine(); " +
+            "[Console]::Out.WriteLine('{\"status\":\"rendered_image_too_large\"}')");
+
+        var result = await client.RenderAsync(RenderRequest(), 123, CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("unsupported", result.Error?.Code);
+        Assert.Equal("rendered_image_too_large", result.Error?.Details?["reason"]);
     }
 
     [Fact]

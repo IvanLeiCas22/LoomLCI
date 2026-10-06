@@ -1,6 +1,6 @@
 # Bloque G - Visual Files
 
-> Estado: **G1.0, G1.1, G1.2 y G1.3 implementados.** G1.1 conserva un bloqueo upstream de ChatGPT para materializar `ImageContentBlock` como visión. G1.2 pasó su smoke directo. G1.3 PDF render está instalado en `0.1.0-dev-63d256e9b658`, healthy/ready y validado técnicamente/portable; sólo resta el smoke directo de la tool 22 desde un chat con catálogo refrescado. Ver [[G1.3 - PDF render]].
+> Estado: **G1.0–G1.4 CERRADOS. Visual Files G1 está cerrado.** Las tres tools quedaron validadas por tests, Host publicado, Secure MCP Tunnel, corpus real y fresh-agent. G1.1 conserva un bloqueo upstream de ChatGPT para materializar `ImageContentBlock` como visión del modelo; no se considera una falla de LoomLCI. La repetición específica del paquete G1 actual en notebook queda diferida/no bloqueante. Ver [[G1.4 - Evaluation + portable]].
 
 ## Objetivo
 
@@ -799,7 +799,7 @@ Completado:
 
 ## G1.3 - PDF render
 
-> **Implementado en `d25c3ce`.** Ver [[G1.3 - PDF render]]. La decisión preliminar de `Windows.Data.Pdf` fue reemplazada por PDFium nativo aislado para conservar el deployment portable/unpackaged y proteger el Host frente a fallos del parser/renderizador. Suite final 245/245, Host publicado 12/12, paquete portable instalado y runtime final healthy/ready; smoke directo de la tool 22 pendiente sólo de refresh del catálogo.
+> **Implementado y validado en `d25c3ce`.** Ver [[G1.3 - PDF render]]. La decisión preliminar de `Windows.Data.Pdf` fue reemplazada por PDFium nativo aislado para conservar el deployment portable/unpackaged y proteger el Host frente a fallos del parser/renderizador. Suite final 245/245, Host publicado 12/12, paquete portable instalado y runtime final healthy/ready; smoke directo de la tool 22 completado desde ChatGPT con catálogo de 22 tools.
 
 - `bblanchon.PDFium.Win32 157.0.8086` + P/Invoke mínimo propio;
 - `StbImageWriteSharp 1.16.7`, encode directo desde bitmap nativo;
@@ -813,13 +813,15 @@ Completado:
 
 ## G1.4 - Evaluation + portable
 
-- suite completa Release;
-- publish self-contained;
-- verificar que Host publicado incluye `LoomLCI.PdfWorker` + PdfPig + `pdfium.dll` + `StbImageWriteSharp.dll` sin duplicar un segundo runtime .NET;
-- Secure MCP Tunnel;
-- real-world/fresh-agent;
-- segunda PC si el cambio de packaging lo justifica;
-- actualizar deployment/documentación.
+> **CERRADO.** Ver [[G1.4 - Evaluation + portable]]. Hardening de mappings, suite Release **249/249**, publish/package portable, corpus ChatGPT/tunnel y fresh-agent pasaron correctamente en la PC principal. La repetición del paquete G1 actual en notebook queda diferida/no bloqueante hasta que futuros cambios de packaging o capabilities la justifiquen.
+
+- suite completa Release: OK;
+- publish self-contained: OK;
+- Host publicado incluye `LoomLCI.PdfWorker` + PdfPig + `pdfium.dll` + `StbImageWriteSharp.dll` sin segundo runtime .NET: OK;
+- Secure MCP Tunnel: OK;
+- real-world/fresh-agent: OK;
+- segunda PC: validación portable general ya existe; repetición específica G1 diferida/no bloqueante;
+- deployment/documentación: reconciliados en el cierre de G1.4.
 
 # 14. Hallazgo lateral: filesystem_read_files vs tunnel
 
@@ -861,7 +863,7 @@ Los cinco pendientes previos a implementación quedan cerrados:
 - PDFs protegidos: comportamiento probado y error fijado;
 - DTOs/error codes/tool contracts: definidos.
 
-G1.0, G1.1, G1.2 y G1.3 están implementados. G1.1 mantiene un bloqueo visual upstream en ChatGPT; G1.2 completó su smoke directo y G1.3 quedó validado técnica/portablemente e instalado en el runtime final. Sólo resta el smoke directo de la tool 22 desde un chat con catálogo refrescado antes de continuar con G1.4.
+G1.0–G1.4 están cerrados. G1.1 mantiene un bloqueo visual upstream en ChatGPT, pero las tres tools Visual Files quedaron validadas técnica, portable y operativamente; G1.4 cerró con suite Release 249/249, publish/package, corpus real por tunnel y fresh-agent correcto. La repetición específica del paquete G1 en notebook queda diferida/no bloqueante. El siguiente bloque es **Computer H1**.
 
 ## Fuentes
 

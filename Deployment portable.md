@@ -428,7 +428,22 @@ Se implementó, publicó e instaló el renderer PDF aislado:
 - tunnel preservado;
 - smoke posterior al cutover desde ChatGPT con `work_create` + `work_close`: **OK**.
 
-G1.3 lleva el catálogo del Host normal de 21 a **22 tools** con Work Plan. Esta conversación conserva las 21 acciones cargadas antes del cutover, por lo que el smoke directo de `filesystem_render_pdf_page` requiere refrescar el catálogo o abrir un chat nuevo. Esto es independiente del bloqueo upstream ya conocido para materializar `ImageContentBlock` como visión.
+G1.3 lleva el catálogo del Host normal de 21 a **22 tools** con Work Plan. Con el catálogo refrescado se completó el smoke directo de `filesystem_render_pdf_page` desde ChatGPT: PDF real de una página -> PNG **1800x1080 / 101.550 bytes**; `page=2` devolvió correctamente `invalid_argument` con rango `1..1`. El `ImageContentBlock` continúa sin materializarse como visión por el bloqueo upstream ya conocido de G1.1.
+
+### Cierre G1.4 - Evaluation + portable (2026-10-05)
+
+La evaluación conjunta de Visual Files cerró correctamente en la PC principal:
+
+- hardening de mappings de errores PDF incorporado;
+- suite Release: **249/249**;
+- builder portable: Launcher **6/6** + IntegrationTests contra Host publicado **12/12**;
+- paquete de validación: `LoomLCI-0.1.0-dev-g14-validation-win-x64.zip`;
+- SHA-256: `dc7b76b734680bb990dc6d7a64f10f0a96ad2da19eb63e7a3a7dab150d305e8e`;
+- corpus real por ChatGPT/tunnel: imagen cercana al cap, PDF textual paginado, PDF mixto texto+diagrama, PDF scan sin text layer y PDF inválido: **OK**;
+- fresh-agent: **OK**, con selección natural de `filesystem_view_image`, `filesystem_read_pdf` y `filesystem_render_pdf_page`;
+- la limitación de `ImageContentBlock` sigue clasificada como `BLOCKED_UPSTREAM / client compatibility`.
+
+La instalación portable general ya fue validada previamente en dos PCs Windows x64. No se repite ahora la notebook con el paquete específico G1.4: queda **diferido/no bloqueante** hasta que un cambio futuro de packaging, dependencias nativas o capabilities justifique repetir la validación multi-PC.
 
 ### Hallazgo durante rollback
 
