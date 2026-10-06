@@ -1,6 +1,11 @@
-using System.Runtime.InteropServices;
+using System.IO.Compression;
+using System.Net;
 using System.Security.AccessControl;
+using System.Security.Cryptography;
 using System.Security.Principal;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.Json;
 using LoomLCI.Launcher;
 
 namespace LoomLCI.Launcher.Tests;
@@ -55,7 +60,10 @@ public sealed class LauncherTests
             var expected = new MachineConfig
             {
                 ActiveVersion = "0.1.0-test",
+                ActiveSequence = 7,
                 PreviousVersion = "0.0.9",
+                PreviousSequence = 6,
+                HighestSequence = 7,
                 TunnelId = "tunnel_test",
                 Alias = "loomlci-installed",
                 ProfileName = "loomlci-installed",
@@ -280,11 +288,15 @@ public sealed class LauncherTests
             Path.Combine(root, "data"));
         var client = new TunnelClient(new ProcessRunner());
         var setup = new SetupService(client);
+        var updates = new UpdateService(
+            paths,
+            new FakeUpdateRuntimeControl());
 
         return new LauncherApplication(
             paths,
             client,
             setup,
+            updates,
             input,
             output,
             error);

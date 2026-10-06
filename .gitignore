@@ -14,6 +14,9 @@ artifacts/
 **/__pycache__/
 *.py[cod]
 
+# Release signing private material must stay outside the repo
+**/update-signing-private.*
+
 # OS/editor noise
 Thumbs.db
 Desktop.ini

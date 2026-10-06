@@ -8,6 +8,9 @@ public sealed record PortablePackageManifest
 
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
     public required string Version { get; init; }
+    public long Sequence { get; init; }
+    public int UpdateProtocol { get; init; } = 1;
+    public string Platform { get; init; } = "win-x64";
     public string HostRelativePath { get; init; } = "payload/host";
 }
 
@@ -37,9 +40,27 @@ public static class PortablePackageManifestStore
                 $"Schema de package.json no soportado: {manifest.SchemaVersion}.");
         }
 
-        if (string.IsNullOrWhiteSpace(manifest.Version))
+        VersionName.Validate(manifest.Version);
+
+        if (manifest.Sequence < 0)
         {
-            throw new InvalidDataException("package.json no declara una versión.");
+            throw new InvalidDataException(
+                "package.json declara sequence negativo.");
+        }
+
+        if (manifest.UpdateProtocol <= 0)
+        {
+            throw new InvalidDataException(
+                "package.json declara updateProtocol inválido.");
+        }
+
+        if (!string.Equals(
+                manifest.Platform,
+                "win-x64",
+                StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                $"package.json declara plataforma no soportada: {manifest.Platform}.");
         }
 
         return manifest;

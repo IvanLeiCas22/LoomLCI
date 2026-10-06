@@ -14,6 +14,9 @@ public sealed record AppPaths(string InstallRoot, string DataRoot)
     public string ProfilesRoot => Path.Combine(DataRoot, "tunnel-profiles");
     public string TunnelStateRoot => Path.Combine(DataRoot, "tunnel-state");
     public string LogsRoot => Path.Combine(DataRoot, "logs");
+    public string UpdateRoot => Path.Combine(DataRoot, "update");
+    public string UpdateJournalPath => Path.Combine(UpdateRoot, "journal.json");
+    public string OperationLockPath => Path.Combine(DataRoot, ".deployment.lock");
 
     public string VersionDirectory(string version) =>
         Path.Combine(VersionsRoot, version);

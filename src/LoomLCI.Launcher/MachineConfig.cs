@@ -9,7 +9,10 @@ public sealed record MachineConfig
 
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
     public required string ActiveVersion { get; init; }
+    public long ActiveSequence { get; init; }
     public string? PreviousVersion { get; init; }
+    public long PreviousSequence { get; init; }
+    public long HighestSequence { get; init; }
     public required string TunnelId { get; init; }
     public required string Alias { get; init; }
     public required string ProfileName { get; init; }
@@ -43,6 +46,21 @@ public static class MachineConfigStore
         {
             throw new InvalidDataException(
                 $"Schema de machine.json no soportado: {config.SchemaVersion}.");
+        }
+
+        VersionName.Validate(config.ActiveVersion);
+        if (!string.IsNullOrWhiteSpace(config.PreviousVersion))
+        {
+            VersionName.Validate(config.PreviousVersion);
+        }
+
+        if (config.ActiveSequence < 0 ||
+            config.PreviousSequence < 0 ||
+            config.HighestSequence < config.ActiveSequence ||
+            config.HighestSequence < config.PreviousSequence)
+        {
+            throw new InvalidDataException(
+                "machine.json contiene secuencias de update inválidas.");
         }
 
         return config;

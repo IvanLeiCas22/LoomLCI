@@ -2,6 +2,7 @@
 param(
     [string]$OutputRoot,
     [string]$Version,
+    [long]$Sequence = 0,
     [switch]$SkipTests
 )
 
@@ -23,6 +24,9 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
 
 if ($Version -notmatch '^[A-Za-z0-9._-]+$') {
     throw "Versión inválida para nombre de directorio: $Version"
+}
+if ($Sequence -lt 0) {
+    throw "Sequence inválido: $Sequence"
 }
 
 $packageDir = Join-Path $OutputRoot "LoomLCI-$Version-win-x64"
@@ -107,6 +111,9 @@ Copy-Item $apacheLicense (Join-Path $licensesOut 'Apache-2.0.txt') -Force
 $manifest = [ordered]@{
     schemaVersion = 1
     version = $Version
+    sequence = $Sequence
+    updateProtocol = 1
+    platform = 'win-x64'
     hostRelativePath = 'payload/host'
 }
 $manifest | ConvertTo-Json | Set-Content (Join-Path $packageDir 'package.json') -Encoding UTF8

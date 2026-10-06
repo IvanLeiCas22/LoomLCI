@@ -21,10 +21,17 @@ internal static class Program
             var runner = new ProcessRunner();
             var tunnelClient = new TunnelClient(runner);
             var setup = new SetupService(tunnelClient);
+            var updateRuntime = new TunnelUpdateRuntimeControl(
+                tunnelClient);
+            var updates = new UpdateService(
+                paths,
+                updateRuntime,
+                feed: UpdateFeedOptions.FromEnvironmentOrDefault());
             var app = new LauncherApplication(
                 paths,
                 tunnelClient,
                 setup,
+                updates,
                 Console.In,
                 Console.Out,
                 Console.Error);

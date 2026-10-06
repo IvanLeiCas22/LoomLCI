@@ -49,16 +49,36 @@ public sealed class SetupService
         ValidateAlias(alias);
 
         var runtimeKey = ResolveRuntimeKey(options.RuntimeKeyFile, input, output);
+        using var deploymentLock = DeploymentLock.Acquire(paths);
+
         var currentConfig = File.Exists(paths.MachineConfigPath)
             ? MachineConfigStore.Load(paths.MachineConfigPath)
             : null;
+        var sameVersion = string.Equals(
+            currentConfig?.ActiveVersion,
+            manifest.Version,
+            StringComparison.Ordinal);
+
+        if (sameVersion &&
+            currentConfig!.ActiveSequence != manifest.Sequence)
+        {
+            throw new InvalidDataException(
+                "El mismo nombre de versión no puede reutilizarse con otro sequence.");
+        }
 
         var config = new MachineConfig
         {
             ActiveVersion = manifest.Version,
-            PreviousVersion = currentConfig?.ActiveVersion == manifest.Version
-                ? currentConfig.PreviousVersion
+            ActiveSequence = manifest.Sequence,
+            PreviousVersion = sameVersion
+                ? currentConfig!.PreviousVersion
                 : currentConfig?.ActiveVersion,
+            PreviousSequence = sameVersion
+                ? currentConfig!.PreviousSequence
+                : currentConfig?.ActiveSequence ?? 0,
+            HighestSequence = Math.Max(
+                currentConfig?.HighestSequence ?? 0,
+                manifest.Sequence),
             TunnelId = tunnelId,
             Alias = alias,
             ProfileName = alias,
@@ -246,50 +266,24 @@ public sealed class SetupService
         PortablePackageManifest manifest,
         AppPaths paths)
     {
-        var sourceHost = Path.GetFullPath(
-            Path.Combine(
-                packageRoot,
-                manifest.HostRelativePath.Replace('/', Path.DirectorySeparatorChar)));
-        var sourceLauncher = Path.Combine(packageRoot, "LoomLCI.Launcher.exe");
+        HostPackageInstaller.InstallHost(
+            packageRoot,
+            manifest,
+            paths);
 
-        if (!Directory.Exists(sourceHost) ||
-            !File.Exists(Path.Combine(sourceHost, "LoomLCI.Host.exe")))
-        {
-            throw new InvalidOperationException(
-                $"Paquete inválido: Host payload ausente en {sourceHost}.");
-        }
-
+        var sourceLauncher = Path.Combine(
+            packageRoot,
+            "LoomLCI.Launcher.exe");
         if (!File.Exists(sourceLauncher))
         {
             throw new InvalidOperationException(
                 $"Paquete inválido: falta {sourceLauncher}.");
         }
 
-        Directory.CreateDirectory(paths.InstallRoot);
-        Directory.CreateDirectory(paths.VersionsRoot);
-
-        var finalVersion = paths.VersionDirectory(manifest.Version);
-        var stagingVersion = finalVersion + ".staging-" + Guid.NewGuid().ToString("N");
-
-        CopyDirectory(sourceHost, stagingVersion);
-
-        if (!File.Exists(Path.Combine(stagingVersion, "LoomLCI.Host.exe")))
-        {
-            Directory.Delete(stagingVersion, recursive: true);
-            throw new InvalidOperationException(
-                "La copia staging del Host quedó incompleta.");
-        }
-
-        if (Directory.Exists(finalVersion))
-        {
-            Directory.Delete(stagingVersion, recursive: true);
-        }
-        else
-        {
-            Directory.Move(stagingVersion, finalVersion);
-        }
-
-        File.Copy(sourceLauncher, paths.LauncherPath, overwrite: true);
+        File.Copy(
+            sourceLauncher,
+            paths.LauncherPath,
+            overwrite: true);
     }
 
     private async Task EnsureTunnelClientAsync(
@@ -483,29 +477,4 @@ public sealed class SetupService
             $"{operation} falló (exit {result.ExitCode}): {detail}");
     }
 
-    private static void CopyDirectory(string source, string destination)
-    {
-        Directory.CreateDirectory(destination);
-
-        foreach (var file in Directory.EnumerateFiles(
-                     source,
-                     "*",
-                     SearchOption.TopDirectoryOnly))
-        {
-            File.Copy(
-                file,
-                Path.Combine(destination, Path.GetFileName(file)),
-                overwrite: false);
-        }
-
-        foreach (var directory in Directory.EnumerateDirectories(
-                     source,
-                     "*",
-                     SearchOption.TopDirectoryOnly))
-        {
-            CopyDirectory(
-                directory,
-                Path.Combine(destination, Path.GetFileName(directory)));
-        }
-    }
 }

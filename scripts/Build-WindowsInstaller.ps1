@@ -3,6 +3,7 @@ param(
     [string]$OutputRoot,
     [string]$PortableOutputRoot,
     [string]$Version,
+    [long]$Sequence = 0,
     [string]$InnoCompiler,
     [string]$InstallRoot,
     [string]$LoomRoot,
@@ -106,6 +107,7 @@ try {
     $portableArgs = @{
         OutputRoot = $PortableOutputRoot
         Version = $Version
+        Sequence = $Sequence
     }
     if ($SkipPortableTests) {
         $portableArgs.SkipTests = $true

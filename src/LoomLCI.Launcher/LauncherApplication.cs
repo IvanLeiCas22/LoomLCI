@@ -5,6 +5,7 @@ public sealed class LauncherApplication
     private readonly AppPaths _paths;
     private readonly TunnelClient _tunnelClient;
     private readonly SetupService _setup;
+    private readonly UpdateService _updates;
     private readonly TextReader _input;
     private readonly TextWriter _output;
     private readonly TextWriter _error;
@@ -13,6 +14,7 @@ public sealed class LauncherApplication
         AppPaths paths,
         TunnelClient tunnelClient,
         SetupService setup,
+        UpdateService updates,
         TextReader input,
         TextWriter output,
         TextWriter error)
@@ -20,6 +22,7 @@ public sealed class LauncherApplication
         _paths = paths;
         _tunnelClient = tunnelClient;
         _setup = setup;
+        _updates = updates;
         _input = input;
         _output = output;
         _error = error;
@@ -59,6 +62,8 @@ public sealed class LauncherApplication
                     "stop" => await StopAsync(cancellationToken),
                     "status" => await StatusAsync(cancellationToken),
                     "setup" => await SetupAsync(effectiveArgs[1..], cancellationToken),
+                    "update" => await UpdateAsync(effectiveArgs[1..], cancellationToken),
+                    "rollback" => await RollbackAsync(effectiveArgs[1..], cancellationToken),
                     "help" or "--help" or "-h" => PrintHelp(),
                     _ => UnknownCommand(command)
                 };
@@ -87,6 +92,7 @@ public sealed class LauncherApplication
 
     private async Task<int> StartAsync(CancellationToken cancellationToken)
     {
+        await _updates.RecoverIfNeededAsync(cancellationToken);
         var config = ValidateInstalledState();
 
         var before = await _tunnelClient.StatusAsync(
@@ -191,6 +197,12 @@ public sealed class LauncherApplication
             cancellationToken);
 
         _output.WriteLine($"LoomLCI version: {config.ActiveVersion}");
+        _output.WriteLine($"sequence: {config.ActiveSequence}");
+        if (!string.IsNullOrWhiteSpace(config.PreviousVersion))
+        {
+            _output.WriteLine(
+                $"previous: {config.PreviousVersion} (sequence {config.PreviousSequence})");
+        }
         _output.WriteLine($"tunnel-client: {version}");
         _output.WriteLine($"alias: {config.Alias}");
 
@@ -215,6 +227,94 @@ public sealed class LauncherApplication
         _output.WriteLine($"tunnel: {status.Status.TunnelId}");
 
         return status.Status.IsReady ? 0 : 1;
+    }
+
+
+    private async Task<int> UpdateAsync(
+        string[] args,
+        CancellationToken cancellationToken)
+    {
+        if (args.Length != 1)
+        {
+            throw new ArgumentException(
+                "Uso: LoomLCI.Launcher.exe update <check|apply>.");
+        }
+
+        switch (args[0].ToLowerInvariant())
+        {
+            case "check":
+            {
+                var check = await _updates.CheckAsync(
+                    cancellationToken);
+
+                _output.WriteLine(
+                    $"Versión actual: {check.CurrentVersion} " +
+                    $"(sequence {check.CurrentSequence})");
+                _output.WriteLine(
+                    $"Última release: {check.Release.Version} " +
+                    $"(sequence {check.Release.Sequence})");
+
+                if (check.RequiresNewInstaller)
+                {
+                    _output.WriteLine(
+                        "La release requiere un Launcher/installer más nuevo.");
+                    return 3;
+                }
+
+                _output.WriteLine(
+                    check.UpdateAvailable
+                        ? "Hay una actualización disponible."
+                        : "LoomLCI ya está actualizado.");
+                return 0;
+            }
+
+            case "apply":
+            {
+                var result = await _updates.ApplyAsync(
+                    cancellationToken);
+
+                if (!result.Changed)
+                {
+                    _output.WriteLine(
+                        $"LoomLCI ya está actualizado ({result.ActiveVersion}).");
+                    return 0;
+                }
+
+                _output.WriteLine(
+                    $"Update aplicado: {result.ActiveVersion} " +
+                    $"(sequence {result.ActiveSequence}).");
+                _output.WriteLine(
+                    $"Rollback disponible: {result.PreviousVersion} " +
+                    $"(sequence {result.PreviousSequence}).");
+                return 0;
+            }
+
+            default:
+                throw new ArgumentException(
+                    $"Subcomando de update desconocido: {args[0]}.");
+        }
+    }
+
+    private async Task<int> RollbackAsync(
+        string[] args,
+        CancellationToken cancellationToken)
+    {
+        if (args.Length != 0)
+        {
+            throw new ArgumentException(
+                "Uso: LoomLCI.Launcher.exe rollback.");
+        }
+
+        var result = await _updates.RollbackAsync(
+            cancellationToken);
+
+        _output.WriteLine(
+            $"Rollback aplicado: {result.ActiveVersion} " +
+            $"(sequence {result.ActiveSequence}).");
+        _output.WriteLine(
+            $"Versión de retorno: {result.PreviousVersion} " +
+            $"(sequence {result.PreviousSequence}).");
+        return 0;
     }
 
     private async Task<int> SetupAsync(
@@ -256,6 +356,20 @@ public sealed class LauncherApplication
                 $"Falta Launcher instalado: {_paths.LauncherPath}");
         }
 
+        VersionName.Validate(config.ActiveVersion);
+        if (!string.IsNullOrWhiteSpace(config.PreviousVersion))
+        {
+            VersionName.Validate(config.PreviousVersion);
+        }
+
+        if (config.ActiveSequence < 0 ||
+            config.PreviousSequence < 0 ||
+            config.HighestSequence < config.ActiveSequence)
+        {
+            throw new InvalidDataException(
+                "machine.json contiene secuencias de update inválidas.");
+        }
+
         if (!File.Exists(_paths.HostPath(config.ActiveVersion)))
         {
             throw new InvalidOperationException(
@@ -294,6 +408,9 @@ public sealed class LauncherApplication
         _output.WriteLine("  stop    Detiene sólo el runtime local.");
         _output.WriteLine("  status  Muestra el estado del runtime instalado.");
         _output.WriteLine("  setup   Instala/configura el paquete portable sin detener otro runtime.");
+        _output.WriteLine("  update check   Busca una release firmada más nueva.");
+        _output.WriteLine("  update apply   Aplica update con rollback automático si falla.");
+        _output.WriteLine("  rollback       Vuelve transaccionalmente a previousVersion.");
         _output.WriteLine();
         _output.WriteLine("opciones generales:");
         _output.WriteLine("  --pause  Espera Enter antes de cerrar; pensado para accesos directos.");
