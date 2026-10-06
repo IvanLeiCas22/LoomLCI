@@ -178,6 +178,7 @@ public sealed class McpStdioTests
         Assert.False(viewImage.ProtocolTool.Annotations?.DestructiveHint ?? true);
         Assert.True(viewImage.ProtocolTool.Annotations?.IdempotentHint ?? false);
         Assert.False(viewImage.ProtocolTool.Annotations?.OpenWorldHint ?? true);
+        Assert.Null(viewImage.ProtocolTool.OutputSchema);
         var viewImageProperties = GetRequiredProperty(viewImage.JsonSchema, "properties");
         GetRequiredProperty(viewImageProperties, "path");
         GetRequiredProperty(viewImageProperties, "workId");
@@ -197,6 +198,7 @@ public sealed class McpStdioTests
         Assert.False(readPdf.ProtocolTool.Annotations?.DestructiveHint ?? true);
         Assert.True(readPdf.ProtocolTool.Annotations?.IdempotentHint ?? false);
         Assert.False(readPdf.ProtocolTool.Annotations?.OpenWorldHint ?? true);
+        Assert.NotNull(readPdf.ProtocolTool.OutputSchema);
         var readPdfProperties = GetRequiredProperty(readPdf.JsonSchema, "properties");
         GetRequiredProperty(readPdfProperties, "path");
         GetRequiredProperty(readPdfProperties, "workId");
@@ -214,6 +216,7 @@ public sealed class McpStdioTests
         Assert.False(renderPdf.ProtocolTool.Annotations?.DestructiveHint ?? true);
         Assert.True(renderPdf.ProtocolTool.Annotations?.IdempotentHint ?? false);
         Assert.False(renderPdf.ProtocolTool.Annotations?.OpenWorldHint ?? true);
+        Assert.Null(renderPdf.ProtocolTool.OutputSchema);
         var renderPdfProperties = GetRequiredProperty(renderPdf.JsonSchema, "properties");
         GetRequiredProperty(renderPdfProperties, "path");
         GetRequiredProperty(renderPdfProperties, "workId");

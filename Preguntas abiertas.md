@@ -43,7 +43,7 @@ Validación en segunda PC completada. Diferido/no bloqueante:
 
 ## Visual Files
 
-Investigación, implementación y evaluación final cerradas en [[Bloque G - Visual Files]] y [[G1.4 - Evaluation + portable]]. Quedan fijadas tres tools read-only (`filesystem_view_image`, `filesystem_read_pdf`, `filesystem_render_pdf_page`), `ImageContentBlock.FromBytes`, cap de 6 MiB binarios + 9 MiB MCP serializados para resultados visuales, PdfPig 0.1.16 aislado para texto y PDFium nativo aislado para render dentro de `LoomLCI.PdfWorker`. **G1.0–G1.4 están cerrados.** G1.4 terminó con suite Release 249/249, publish/package, corpus ChatGPT/tunnel y fresh-agent correcto. G1.1 conserva el bloqueo upstream visual de ChatGPT. La repetición específica del paquete G1 actual en notebook queda diferida/no bloqueante. No queda pregunta arquitectónica u operativa bloqueante en Visual Files.
+Investigación, implementación y evaluación final cerradas en [[Bloque G - Visual Files]] y [[G1.4 - Evaluation + portable]]. Quedan fijadas tres tools read-only (`filesystem_view_image`, `filesystem_read_pdf`, `filesystem_render_pdf_page`), `ImageContentBlock.FromBytes`, cap de 6 MiB binarios + 9 MiB MCP serializados para resultados visuales, PdfPig 0.1.16 aislado para texto y PDFium nativo aislado para render dentro de `LoomLCI.PdfWorker`. **G1.0–G1.4 están cerrados.** El follow-up de compatibilidad visual quedó resuelto: las dos tools que devuelven imagen no anuncian `outputSchema`, preservan `ImageContentBlock` y fueron verificadas con visión directa en ChatGPT. La repetición específica del paquete G1 actual en notebook queda diferida/no bloqueante. No queda pregunta arquitectónica u operativa bloqueante en Visual Files.
 
 ## Computer
 

@@ -1,6 +1,6 @@
 # Bloque G - Visual Files
 
-> Estado: **G1.0–G1.4 CERRADOS. Visual Files G1 está cerrado.** Las tres tools quedaron validadas por tests, Host publicado, Secure MCP Tunnel, corpus real y fresh-agent. G1.1 conserva un bloqueo upstream de ChatGPT para materializar `ImageContentBlock` como visión del modelo; no se considera una falla de LoomLCI. La repetición específica del paquete G1 actual en notebook queda diferida/no bloqueante. Ver [[G1.4 - Evaluation + portable]].
+> Estado: **G1.0–G1.4 CERRADOS. Visual Files G1 está cerrado.** Las tres tools quedaron validadas por tests, Host publicado, Secure MCP Tunnel, corpus real y fresh-agent. El follow-up de compatibilidad visual confirmó visión directa en ChatGPT para `filesystem_view_image` y `filesystem_render_pdf_page`: las tools que devuelven imagen omiten intencionalmente `outputSchema` para preservar `ImageContentBlock` end-to-end. La repetición específica del paquete G1 actual en notebook queda diferida/no bloqueante. Ver [[G1.4 - Evaluation + portable]].
 
 ## Objetivo
 
@@ -769,7 +769,7 @@ Completado:
 
 ## G1.1 - Local image
 
-> **Implementado en `a9f50fb`.** Ver [[G1.1 - Local image]]. Validación local/STDIO/portable/tunnel completa. El smoke visual directo confirmó que ChatGPT descubre e invoca la tool, pero actualmente pierde/no materializa `ImageContentBlock` como visión del modelo; estado de aceptación visual: **BLOCKED_UPSTREAM / client compatibility**.
+> **Implementado en `a9f50fb` y acceptance visual final OK.** Ver [[G1.1 - Local image]]. Validación local/STDIO/portable/tunnel completa. El follow-up de compatibilidad eliminó `outputSchema` de la tool visual y un chat nuevo confirmó que `filesystem_view_image` entrega imagen directamente a la visión del modelo.
 
 - path resolver compartido;
 - contratos Core;
@@ -809,7 +809,7 @@ Completado:
 - PNG <=6 MiB + CallToolResult <=9 MiB;
 - `filesystem_render_pdf_page`;
 - visual/scan/error/lifecycle tests;
-- MCP image output; aceptación visual directa de ChatGPT puede seguir `BLOCKED_UPSTREAM` igual que G1.1.
+- MCP image output; acceptance visual directa de ChatGPT confirmada tras omitir `outputSchema` en la tool visual.
 
 ## G1.4 - Evaluation + portable
 
@@ -846,7 +846,7 @@ Computer H1 hereda de G:
 
 - Windows TFM migrado;
 - helper MCP de imágenes probado;
-- `ImageContentBlock` validado por STDIO/Host publicado; ChatGPT descubre/invoca contenido visual pero actualmente no lo materializa como visión del modelo (`BLOCKED_UPSTREAM`);
+- `ImageContentBlock` validado por STDIO/Host publicado y por visión directa en ChatGPT; para tools con media, no anunciar `outputSchema` mientras el adaptador tipado descarte contenido multimodal adicional;
 - cap binario con evidencia real;
 - patrón de contenido visual;
 - packaging de helper ejecutable ya ejercitado.
@@ -863,7 +863,7 @@ Los cinco pendientes previos a implementación quedan cerrados:
 - PDFs protegidos: comportamiento probado y error fijado;
 - DTOs/error codes/tool contracts: definidos.
 
-G1.0–G1.4 están cerrados. G1.1 mantiene un bloqueo visual upstream en ChatGPT, pero las tres tools Visual Files quedaron validadas técnica, portable y operativamente; G1.4 cerró con suite Release 249/249, publish/package, corpus real por tunnel y fresh-agent correcto. La repetición específica del paquete G1 en notebook queda diferida/no bloqueante. El siguiente bloque es **Computer H1**.
+G1.0–G1.4 están cerrados. Las tres tools Visual Files quedaron validadas técnica, portable y operativamente; `filesystem_view_image` y `filesystem_render_pdf_page` tienen además visión directa confirmada en ChatGPT tras omitir `outputSchema`. G1.4 cerró con suite Release 249/249, publish/package, corpus real por tunnel y fresh-agent correcto. La repetición específica del paquete G1 en notebook queda diferida/no bloqueante. El siguiente bloque es **Computer H1**.
 
 ## Fuentes
 

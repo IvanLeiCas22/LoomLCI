@@ -380,7 +380,7 @@ Se validó un update side-by-side del deployment existente para G1.1:
 - tunnel id preservado;
 - smoke real desde ChatGPT sobre el runtime final con `work_create` + `work_close`: OK.
 
-La conversación donde se hizo el upgrade conservó el catálogo de 19 acciones cargado antes del update. Por eso el smoke visual de la nueva `filesystem_view_image` requirió refrescar las acciones de la app. En un chat refrescado se confirmó posteriormente la tool, pero ChatGPT no materializó su `ImageContentBlock` como visión del modelo; quedó documentado como bloqueo upstream del cliente.
+La conversación donde se hizo el upgrade conservó el catálogo de 19 acciones cargado antes del update. Por eso el smoke visual de la nueva `filesystem_view_image` requirió refrescar las acciones de la app. En un chat refrescado se confirmó posteriormente la tool, pero en esa versión ChatGPT no materializó su `ImageContentBlock` como visión del modelo; ese diagnóstico histórico quedó resuelto más adelante mediante el follow-up de compatibilidad de `outputSchema`.
 
 ### Update G1.2 - PDF text worker (2026-10-05)
 
@@ -428,7 +428,7 @@ Se implementó, publicó e instaló el renderer PDF aislado:
 - tunnel preservado;
 - smoke posterior al cutover desde ChatGPT con `work_create` + `work_close`: **OK**.
 
-G1.3 lleva el catálogo del Host normal de 21 a **22 tools** con Work Plan. Con el catálogo refrescado se completó el smoke directo de `filesystem_render_pdf_page` desde ChatGPT: PDF real de una página -> PNG **1800x1080 / 101.550 bytes**; `page=2` devolvió correctamente `invalid_argument` con rango `1..1`. El `ImageContentBlock` continúa sin materializarse como visión por el bloqueo upstream ya conocido de G1.1.
+G1.3 lleva el catálogo del Host normal de 21 a **22 tools** con Work Plan. Con el catálogo refrescado se completó el smoke directo de `filesystem_render_pdf_page` desde ChatGPT: PDF real de una página -> PNG **1800x1080 / 101.550 bytes**; `page=2` devolvió correctamente `invalid_argument` con rango `1..1`. El diagnóstico inicial de materialización visual quedó posteriormente resuelto por el follow-up de compatibilidad descrito abajo.
 
 ### Cierre G1.4 - Evaluation + portable (2026-10-05)
 
@@ -441,9 +441,34 @@ La evaluación conjunta de Visual Files cerró correctamente en la PC principal:
 - SHA-256: `dc7b76b734680bb990dc6d7a64f10f0a96ad2da19eb63e7a3a7dab150d305e8e`;
 - corpus real por ChatGPT/tunnel: imagen cercana al cap, PDF textual paginado, PDF mixto texto+diagrama, PDF scan sin text layer y PDF inválido: **OK**;
 - fresh-agent: **OK**, con selección natural de `filesystem_view_image`, `filesystem_read_pdf` y `filesystem_render_pdf_page`;
-- la limitación de `ImageContentBlock` sigue clasificada como `BLOCKED_UPSTREAM / client compatibility`.
+- el diagnóstico inicial de `ImageContentBlock` quedó superado por un A/B directo: las tools visuales sin `outputSchema` preservan el contenido multimodal en ChatGPT.
 
 La instalación portable general ya fue validada previamente en dos PCs Windows x64. No se repite ahora la notebook con el paquete específico G1.4: queda **diferido/no bloqueante** hasta que un cambio futuro de packaging, dependencias nativas o capabilities justifique repetir la validación multi-PC.
+
+### Follow-up de compatibilidad visual (2026-10-05)
+
+Se comparó LoomLCI contra IvanSpace y se aisló la causa del fallo visual en ChatGPT: cuando una tool que devuelve `structuredContent + ImageContentBlock` anuncia `outputSchema`, el adaptador tipado de ChatGPT expone la salida estructurada pero descarta el contenido multimodal adicional. Sin `outputSchema`, el bloque de imagen se preserva y llega a visión del modelo.
+
+Cambio final:
+
+- `filesystem_view_image`: sin `UseStructuredContent` / `OutputSchemaType`;
+- `filesystem_render_pdf_page`: sin `UseStructuredContent` / `OutputSchemaType`;
+- `filesystem_read_pdf`: conserva `outputSchema` porque su salida útil es texto/metadata;
+- el `CallToolResult` de las dos tools visuales sigue incluyendo `structuredContent + TextContentBlock + ImageContentBlock`;
+- tests de contrato fijan que las dos tools visuales no anuncian `OutputSchema` y que `filesystem_read_pdf` sí lo hace.
+
+Validación:
+
+- tests específicos de contrato/imagen/render: **3/3**;
+- suite Release completa: **249/249**;
+- builder portable: Launcher **6/6** + IntegrationTests **12/12**;
+- paquete: `LoomLCI-0.1.0-dev-visual-output-fix-win-x64.zip`;
+- SHA-256: `0f08bb92f56916852fd0e8beca776407b656261a3e4e94a7088a3441405a55cc`;
+- runtime instalado: `0.1.0-dev-visual-output-fix`, healthy/ready;
+- smoke `filesystem_view_image`: visión directa **OK**, describiendo correctamente `G1.1 VISUAL SMOKE`;
+- smoke `filesystem_render_pdf_page`: visión directa **OK**, leyendo visualmente `SCAN 42` sin Python, shell, OCR ni extracción textual.
+
+La clasificación `BLOCKED_UPSTREAM` deja de ser el estado actual de Visual Files; se conserva sólo como diagnóstico histórico anterior al A/B.
 
 ### Hallazgo durante rollback
 

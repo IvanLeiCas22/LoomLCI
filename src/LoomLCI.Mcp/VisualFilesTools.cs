@@ -53,11 +53,12 @@ public sealed class VisualFilesTools
         _visualFiles = visualFiles;
     }
 
+    // Intentionally omit MCP outputSchema for image-returning tools.
+    // ChatGPT currently preserves ImageContentBlock for model vision only when
+    // these mixed structured + image results are not adapted as typed outputs.
     [McpServerTool(
         Name = "filesystem_view_image",
         Title = "View local image",
-        UseStructuredContent = true,
-        OutputSchemaType = typeof(ToolEnvelope<VisualImageDto>),
         ReadOnly = true,
         Destructive = false,
         Idempotent = true,
@@ -185,11 +186,12 @@ public sealed class VisualFilesTools
                 LoomResult<PdfTextReadDto>.Success(dto)));
     }
 
+    // Keep this aligned with filesystem_view_image: the result still carries
+    // StructuredContent, but advertising outputSchema causes ChatGPT to drop the
+    // additional ImageContentBlock before it reaches model vision.
     [McpServerTool(
         Name = "filesystem_render_pdf_page",
         Title = "Render PDF page",
-        UseStructuredContent = true,
-        OutputSchemaType = typeof(ToolEnvelope<PdfPageRenderDto>),
         ReadOnly = true,
         Destructive = false,
         Idempotent = true,
