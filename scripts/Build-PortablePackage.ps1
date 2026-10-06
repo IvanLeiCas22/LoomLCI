@@ -92,13 +92,17 @@ Remove-Item $launcherPublish -Recurse -Force
 
 $thirdPartyNotices = Join-Path $repoRoot 'THIRD-PARTY-NOTICES.txt'
 $pdfiumLicense = Join-Path $repoRoot 'licenses\PDFium-LICENSE.txt'
-if (-not (Test-Path $thirdPartyNotices) -or -not (Test-Path $pdfiumLicense)) {
-    throw 'Faltan THIRD-PARTY-NOTICES.txt y/o licenses\PDFium-LICENSE.txt requeridos por G1.3.'
+$apacheLicense = Join-Path $repoRoot 'licenses\Apache-2.0.txt'
+if (-not (Test-Path $thirdPartyNotices) -or
+    -not (Test-Path $pdfiumLicense) -or
+    -not (Test-Path $apacheLicense)) {
+    throw 'Faltan THIRD-PARTY-NOTICES.txt y/o licencias requeridas por G1.3.'
 }
 Copy-Item $thirdPartyNotices (Join-Path $packageDir 'THIRD-PARTY-NOTICES.txt') -Force
 $licensesOut = Join-Path $packageDir 'licenses'
 New-Item -ItemType Directory -Path $licensesOut -Force | Out-Null
 Copy-Item $pdfiumLicense (Join-Path $licensesOut 'PDFium-LICENSE.txt') -Force
+Copy-Item $apacheLicense (Join-Path $licensesOut 'Apache-2.0.txt') -Force
 
 $manifest = [ordered]@{
     schemaVersion = 1

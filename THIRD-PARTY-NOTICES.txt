@@ -11,13 +11,13 @@ G1.3 PDF rendering includes the following third-party components.
 2. bblanchon.PDFium.Win32 157.0.8086
    Project: https://github.com/bblanchon/pdfium-binaries
    NuGet package metadata declares Apache-2.0.
+   A copy of Apache License 2.0 is reproduced in licenses/Apache-2.0.txt.
    This package supplies the precompiled pdfium.dll used by LoomLCI.
 
 3. StbImageWriteSharp 1.16.7
    Project: https://github.com/StbSharp/StbImageWriteSharp
    C# port of stb_image_write.h.
-   The project describes the port as Public Domain; the original stb project
-   also offers its code under public-domain/MIT-style terms.
+   The upstream README declares the project Public Domain.
 
 These notices apply to the corresponding third-party components only and do
 not alter the licensing terms of LoomLCI itself.
