@@ -6,6 +6,7 @@ namespace LoomLCI.Core.AgentSupport;
 public sealed class WorkPlanCapability
 {
     public const int MaxSteps = 32;
+    public const int MaxPatchChanges = 32;
     public const int MaxStepTextScalars = 512;
 
     private readonly InvocationRunner _invocations;
@@ -64,30 +65,68 @@ public sealed class WorkPlanCapability
                 var updated = context.WorkSession!.UpdateWorkPlan(
                     request.ExpectedRevision,
                     normalizedSteps);
-                if (!updated.IsSuccess)
+                if (updated.IsSuccess)
                 {
-                    return Task.FromResult(updated);
+                    PublishUpdatedEvent(updated.Value!, context.WorkSession.Id, context.Id);
                 }
-
-                var snapshot = updated.Value!;
-                _events.Publish(
-                    "WorkPlanUpdated",
-                    "agent_support.work_plan",
-                    context.WorkSession.Id,
-                    context.Id,
-                    payload: new Dictionary<string, object?>
-                    {
-                        ["revision"] = snapshot.Revision,
-                        ["stepCount"] = snapshot.Steps.Count,
-                        ["pendingCount"] = snapshot.Steps.Count(step => step.Status == WorkPlanStepStatus.Pending),
-                        ["activeCount"] = snapshot.Steps.Count(step => step.Status == WorkPlanStepStatus.Active),
-                        ["waitingCount"] = snapshot.Steps.Count(step => step.Status == WorkPlanStepStatus.Waiting),
-                        ["completedCount"] = snapshot.Steps.Count(step => step.Status == WorkPlanStepStatus.Completed)
-                    });
 
                 return Task.FromResult(updated);
             },
             cancellationToken);
+    }
+
+    public Task<LoomResult<WorkPlanSnapshot>> PatchAsync(
+        WorkPlanPatchRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var validated = ValidatePatch(request);
+        if (!validated.IsSuccess)
+        {
+            return Task.FromResult(
+                LoomResult<WorkPlanSnapshot>.Failure(validated.Error!));
+        }
+
+        var normalizedChanges = validated.Value!;
+
+        return _invocations.RunAsync(
+            "agent_support.work_plan.patch",
+            request.WorkId,
+            (context, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+
+                var updated = context.WorkSession!.PatchWorkPlan(
+                    request.ExpectedRevision,
+                    normalizedChanges);
+                if (updated.IsSuccess)
+                {
+                    PublishUpdatedEvent(updated.Value!, context.WorkSession.Id, context.Id);
+                }
+
+                return Task.FromResult(updated);
+            },
+            cancellationToken);
+    }
+
+    private void PublishUpdatedEvent(
+        WorkPlanSnapshot snapshot,
+        WorkId workId,
+        InvocationId invocationId)
+    {
+        _events.Publish(
+            "WorkPlanUpdated",
+            "agent_support.work_plan",
+            workId,
+            invocationId,
+            payload: new Dictionary<string, object?>
+            {
+                ["revision"] = snapshot.Revision,
+                ["stepCount"] = snapshot.Steps.Count,
+                ["pendingCount"] = snapshot.Steps.Count(step => step.Status == WorkPlanStepStatus.Pending),
+                ["activeCount"] = snapshot.Steps.Count(step => step.Status == WorkPlanStepStatus.Active),
+                ["waitingCount"] = snapshot.Steps.Count(step => step.Status == WorkPlanStepStatus.Waiting),
+                ["completedCount"] = snapshot.Steps.Count(step => step.Status == WorkPlanStepStatus.Completed)
+            });
     }
 
     private static LoomResult<IReadOnlyList<WorkPlanStepInput>> ValidateUpdate(
@@ -145,6 +184,150 @@ public sealed class WorkPlanCapability
         }
 
         return LoomResult<IReadOnlyList<WorkPlanStepInput>>.Success(
+            Array.AsReadOnly(normalized));
+    }
+
+    private static LoomResult<IReadOnlyList<WorkPlanPatchChange>> ValidatePatch(
+        WorkPlanPatchRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.WorkId.Value))
+        {
+            return LoomResult<IReadOnlyList<WorkPlanPatchChange>>.Failure(
+                LoomErrors.InvalidArgument("work_id is required."));
+        }
+
+        if (request.ExpectedRevision < 0)
+        {
+            return LoomResult<IReadOnlyList<WorkPlanPatchChange>>.Failure(
+                LoomErrors.InvalidArgument("expected_revision must be non-negative."));
+        }
+
+        if (request.Changes is null ||
+            request.Changes.Count == 0 ||
+            request.Changes.Count > MaxPatchChanges)
+        {
+            return LoomResult<IReadOnlyList<WorkPlanPatchChange>>.Failure(
+                LoomErrors.InvalidArgument(
+                    $"changes must contain between 1 and {MaxPatchChanges} entries."));
+        }
+
+        var normalized = new WorkPlanPatchChange[request.Changes.Count];
+
+        for (var index = 0; index < request.Changes.Count; index++)
+        {
+            var change = request.Changes[index];
+            if (change is null)
+            {
+                return LoomResult<IReadOnlyList<WorkPlanPatchChange>>.Failure(
+                    LoomErrors.InvalidArgument("changes cannot contain null entries."));
+            }
+
+            if (!Enum.IsDefined(change.Operation))
+            {
+                return LoomResult<IReadOnlyList<WorkPlanPatchChange>>.Failure(
+                    LoomErrors.InvalidArgument("patch operation is invalid."));
+            }
+
+            if (change.Id is { } suppliedId && string.IsNullOrWhiteSpace(suppliedId.Value))
+            {
+                return LoomResult<IReadOnlyList<WorkPlanPatchChange>>.Failure(
+                    LoomErrors.InvalidArgument("step id cannot be empty when supplied."));
+            }
+
+            if (change.Status is { } suppliedStatus && !Enum.IsDefined(suppliedStatus))
+            {
+                return LoomResult<IReadOnlyList<WorkPlanPatchChange>>.Failure(
+                    LoomErrors.InvalidArgument("step status is invalid."));
+            }
+
+            switch (change.Operation)
+            {
+                case WorkPlanPatchOperation.Add:
+                {
+                    if (change.Id is not null)
+                    {
+                        return LoomResult<IReadOnlyList<WorkPlanPatchChange>>.Failure(
+                            LoomErrors.InvalidArgument(
+                                "add changes must not supply a step id."));
+                    }
+
+                    var text = ValidateAndNormalizeText(change.Text);
+                    if (!text.IsSuccess)
+                    {
+                        return LoomResult<IReadOnlyList<WorkPlanPatchChange>>.Failure(text.Error!);
+                    }
+
+                    normalized[index] = new WorkPlanPatchChange(
+                        WorkPlanPatchOperation.Add,
+                        null,
+                        text.Value!,
+                        change.Status ?? WorkPlanStepStatus.Pending);
+                    break;
+                }
+
+                case WorkPlanPatchOperation.Update:
+                {
+                    if (change.Id is null)
+                    {
+                        return LoomResult<IReadOnlyList<WorkPlanPatchChange>>.Failure(
+                            LoomErrors.InvalidArgument(
+                                "update changes require a step id."));
+                    }
+
+                    if (change.Text is null && change.Status is null)
+                    {
+                        return LoomResult<IReadOnlyList<WorkPlanPatchChange>>.Failure(
+                            LoomErrors.InvalidArgument(
+                                "update changes require text, status, or both."));
+                    }
+
+                    string? normalizedText = null;
+                    if (change.Text is not null)
+                    {
+                        var text = ValidateAndNormalizeText(change.Text);
+                        if (!text.IsSuccess)
+                        {
+                            return LoomResult<IReadOnlyList<WorkPlanPatchChange>>.Failure(text.Error!);
+                        }
+
+                        normalizedText = text.Value!;
+                    }
+
+                    normalized[index] = new WorkPlanPatchChange(
+                        WorkPlanPatchOperation.Update,
+                        change.Id,
+                        normalizedText,
+                        change.Status);
+                    break;
+                }
+
+                case WorkPlanPatchOperation.Remove:
+                {
+                    if (change.Id is null)
+                    {
+                        return LoomResult<IReadOnlyList<WorkPlanPatchChange>>.Failure(
+                            LoomErrors.InvalidArgument(
+                                "remove changes require a step id."));
+                    }
+
+                    if (change.Text is not null || change.Status is not null)
+                    {
+                        return LoomResult<IReadOnlyList<WorkPlanPatchChange>>.Failure(
+                            LoomErrors.InvalidArgument(
+                                "remove changes accept only a step id."));
+                    }
+
+                    normalized[index] = change;
+                    break;
+                }
+
+                default:
+                    throw new InvalidOperationException(
+                        $"Unknown Work Plan patch operation '{change.Operation}'.");
+            }
+        }
+
+        return LoomResult<IReadOnlyList<WorkPlanPatchChange>>.Success(
             Array.AsReadOnly(normalized));
     }
 

@@ -29,26 +29,10 @@ public sealed partial class WorkSession
     {
         lock (_stateGate)
         {
-            if (_state != WorkSessionState.Active)
+            var precondition = ValidateMutationPreconditionUnsafe(expectedRevision);
+            if (precondition is not null)
             {
-                return LoomResult<WorkPlanSnapshot>.Failure(UnavailableError());
-            }
-
-            if (expectedRevision != _workPlan.Revision)
-            {
-                return LoomResult<WorkPlanSnapshot>.Failure(
-                    LoomErrors.Conflict(
-                        $"Work plan revision {expectedRevision} is stale; current revision is {_workPlan.Revision}.",
-                        new Dictionary<string, object?>
-                        {
-                            ["currentRevision"] = _workPlan.Revision
-                        }));
-            }
-
-            if (_workPlan.Revision == long.MaxValue)
-            {
-                return LoomResult<WorkPlanSnapshot>.Failure(
-                    LoomErrors.Internal("Work plan revision limit was reached."));
+                return LoomResult<WorkPlanSnapshot>.Failure(precondition);
             }
 
             var currentIds = _workPlan.Steps
@@ -75,11 +59,7 @@ public sealed partial class WorkSession
                 }
                 else
                 {
-                    do
-                    {
-                        id = WorkPlanStepId.Create();
-                    }
-                    while (currentIds.Contains(id.Value) || requestIds.Contains(id.Value));
+                    id = CreateUniqueStepId(currentIds, requestIds);
                 }
 
                 if (!requestIds.Add(id.Value))
@@ -95,6 +75,136 @@ public sealed partial class WorkSession
             _workPlan = CreateSnapshot(_workPlan.Revision + 1, nextSteps);
             return LoomResult<WorkPlanSnapshot>.Success(_workPlan);
         }
+    }
+
+    internal LoomResult<WorkPlanSnapshot> PatchWorkPlan(
+        long expectedRevision,
+        IReadOnlyList<WorkPlanPatchChange> changes)
+    {
+        lock (_stateGate)
+        {
+            var precondition = ValidateMutationPreconditionUnsafe(expectedRevision);
+            if (precondition is not null)
+            {
+                return LoomResult<WorkPlanSnapshot>.Failure(precondition);
+            }
+
+            var nextSteps = _workPlan.Steps.ToList();
+            var currentIds = _workPlan.Steps
+                .Select(step => step.Id.Value)
+                .ToHashSet(StringComparer.Ordinal);
+            var targetedIds = new HashSet<string>(StringComparer.Ordinal);
+            var generatedIds = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (var change in changes)
+            {
+                switch (change.Operation)
+                {
+                    case WorkPlanPatchOperation.Add:
+                    {
+                        var id = CreateUniqueStepId(currentIds, generatedIds);
+                        generatedIds.Add(id.Value);
+                        nextSteps.Add(
+                            new WorkPlanStep(
+                                id,
+                                change.Text!,
+                                change.Status ?? WorkPlanStepStatus.Pending));
+                        break;
+                    }
+
+                    case WorkPlanPatchOperation.Update:
+                    case WorkPlanPatchOperation.Remove:
+                    {
+                        var id = change.Id!.Value;
+                        if (!currentIds.Contains(id.Value))
+                        {
+                            return LoomResult<WorkPlanSnapshot>.Failure(
+                                LoomErrors.InvalidArgument(
+                                    $"Work plan step id '{id.Value}' does not exist in the current plan."));
+                        }
+
+                        if (!targetedIds.Add(id.Value))
+                        {
+                            return LoomResult<WorkPlanSnapshot>.Failure(
+                                LoomErrors.InvalidArgument(
+                                    $"Work plan step id '{id.Value}' appears more than once in the patch."));
+                        }
+
+                        var stepIndex = nextSteps.FindIndex(
+                            step => string.Equals(
+                                step.Id.Value,
+                                id.Value,
+                                StringComparison.Ordinal));
+
+                        if (change.Operation == WorkPlanPatchOperation.Remove)
+                        {
+                            nextSteps.RemoveAt(stepIndex);
+                            break;
+                        }
+
+                        var current = nextSteps[stepIndex];
+                        nextSteps[stepIndex] = new WorkPlanStep(
+                            current.Id,
+                            change.Text ?? current.Text,
+                            change.Status ?? current.Status);
+                        break;
+                    }
+
+                    default:
+                        throw new InvalidOperationException(
+                            $"Unknown Work Plan patch operation '{change.Operation}'.");
+                }
+            }
+
+            if (nextSteps.Count > WorkPlanCapability.MaxSteps)
+            {
+                return LoomResult<WorkPlanSnapshot>.Failure(
+                    LoomErrors.InvalidArgument(
+                        $"patched plan must contain no more than {WorkPlanCapability.MaxSteps} steps."));
+            }
+
+            _workPlan = CreateSnapshot(_workPlan.Revision + 1, nextSteps);
+            return LoomResult<WorkPlanSnapshot>.Success(_workPlan);
+        }
+    }
+
+    private LoomError? ValidateMutationPreconditionUnsafe(long expectedRevision)
+    {
+        if (_state != WorkSessionState.Active)
+        {
+            return UnavailableError();
+        }
+
+        if (expectedRevision != _workPlan.Revision)
+        {
+            return LoomErrors.Conflict(
+                $"Work plan revision {expectedRevision} is stale; current revision is {_workPlan.Revision}.",
+                new Dictionary<string, object?>
+                {
+                    ["currentRevision"] = _workPlan.Revision
+                });
+        }
+
+        if (_workPlan.Revision == long.MaxValue)
+        {
+            return LoomErrors.Internal("Work plan revision limit was reached.");
+        }
+
+        return null;
+    }
+
+    private static WorkPlanStepId CreateUniqueStepId(
+        IReadOnlySet<string> currentIds,
+        IReadOnlySet<string> additionalIds)
+    {
+        WorkPlanStepId id;
+        do
+        {
+            id = WorkPlanStepId.Create();
+        }
+        while (currentIds.Contains(id.Value) || additionalIds.Contains(id.Value));
+
+        return id;
     }
 
     private void ClearWorkPlanUnsafe()

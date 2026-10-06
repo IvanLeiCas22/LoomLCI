@@ -8,6 +8,13 @@ public enum WorkPlanStepStatus
     Completed
 }
 
+public enum WorkPlanPatchOperation
+{
+    Add,
+    Update,
+    Remove
+}
+
 public sealed record WorkPlanStep(
     WorkPlanStepId Id,
     string Text,
@@ -26,3 +33,14 @@ public sealed record WorkPlanUpdateRequest(
     WorkId WorkId,
     long ExpectedRevision,
     IReadOnlyList<WorkPlanStepInput> Steps);
+
+public sealed record WorkPlanPatchChange(
+    WorkPlanPatchOperation Operation,
+    WorkPlanStepId? Id,
+    string? Text,
+    WorkPlanStepStatus? Status);
+
+public sealed record WorkPlanPatchRequest(
+    WorkId WorkId,
+    long ExpectedRevision,
+    IReadOnlyList<WorkPlanPatchChange> Changes);

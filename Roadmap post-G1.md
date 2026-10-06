@@ -11,7 +11,7 @@ Mejorar LoomLCI sin abrir todavía Computer Use, priorizando cambios que mejoren
 ### 1. Ergonomía de agente
 
 1. `process_run` — **CERRADO end-to-end**: ejecución one-shot de comandos cortos con resultado completo en una sola llamada, incluyendo smoke directo desde ChatGPT.
-2. Ergonomía de Work Plan — **SIGUIENTE OBJETIVO**: reducir el costo de modificar planes sin perder revision/CAS ni identidad estable de pasos.
+2. Ergonomía de Work Plan — **IMPLEMENTADO/INSTALADO**: `work_plan_patch` reduce el costo de milestones pequeños sin perder revision/CAS ni identidad estable. Suite 269/269 y runtime healthy/ready; falta sólo smoke directo de la nueva tool desde un chat con catálogo refrescado.
 
 Motivo para ir primero: son cambios acotados, de bajo riesgo y se pueden dogfoodear durante todos los bloques siguientes.
 
@@ -58,8 +58,10 @@ Es un tema transversal:
 8. commit;
 9. para cambios de runtime instalado, usar LoomLCI como herramienta principal e IvanSpace sólo para cutover/fallback/recuperación.
 
-## Próximo objetivo
+## Próxima acción
 
-**Ergonomía 2: simplificar Work Plan.**
+**Acceptance final de Ergonomía 2.**
 
-`process_run` está **cerrado end-to-end**, incluido smoke directo desde ChatGPT con catálogo refrescado. El siguiente paso es investigación/análisis específico de una operación tipo patch que reduzca el costo de actualizar planes sin perder revision/CAS ni IDs estables.
+`work_plan_patch` ya está implementado, validado, publicado e instalado en `0.1.0-dev-work-plan-patch`. La conversación de implementación conserva el catálogo anterior de 23 tools, por lo que falta únicamente abrir un chat con catálogo refrescado y ejecutar un smoke directo de la nueva tool.
+
+Después de ese smoke, el siguiente objetivo del roadmap es **Producto / Deployment 1: mejorar UX del Launcher**.

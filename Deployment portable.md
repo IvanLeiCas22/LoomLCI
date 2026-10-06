@@ -504,6 +504,26 @@ Se agregó una tool one-shot para comandos cortos sin cambiar el lifecycle durab
 
 Smoke directo final desde ChatGPT: **OK** en un chat nuevo con catálogo refrescado. `process_run` ejecutó `git status --short` con `exitCode=0`, stderr vacío, stdout completo/no truncado y sin `processHandle`; sólo devolvió `processId` como metadata. La capability queda cerrada end-to-end.
 
+### Ergonomía Work Plan: `work_plan_patch` (2026-10-06)
+
+Se implementó e instaló el follow-up de ergonomía de Work Plan:
+
+- `work_plan_patch` con operaciones `add` / `update` / `remove`, manteniendo `expectedRevision` CAS y IDs `step_*` estables;
+- `work_plan_update` conserva creación inicial, reorder, full replacement y clear;
+- catálogo normal con Work Plan: **24 tools**;
+- suite Release: **269/269** = Core 96 + Windows 141 + MCP 5 + PdfWorker 6 + Launcher 6 + Integration 15;
+- Work Plan Core específico: **33/33**;
+- builder portable: Launcher **6/6** + IntegrationTests contra Host publicado **15/15**;
+- paquete: `LoomLCI-0.1.0-dev-work-plan-patch-win-x64.zip`;
+- SHA-256: `75c18db8e955b57c13eac85445b4417e3b72096c38e10d15f2ea18e58c78c731`;
+- setup side-by-side: OK;
+- cutover del alias `loomlci-installed`: stop/start OK mediante IvanSpace sólo para evitar autoapagar la conexión LoomLCI activa;
+- runtime activo final: `0.1.0-dev-work-plan-patch`, `process_running=true`, `healthy=true`, `ready=true`;
+- IntegrationTests contra la DLL instalada: **15/15**;
+- smoke posterior al cutover desde este mismo chat mediante `process_run`: OK.
+
+La conversación que realizó el update conserva el catálogo anterior de 23 tools, por lo que el smoke directo de `work_plan_patch` queda pendiente de un chat con catálogo refrescado. El Host instalado ya publica la tool y su contrato fue validado contra la DLL instalada; el pendiente es únicamente de aceptación del consumidor.
+
 ### Hallazgo durante rollback
 
 El `repair_command` emitido por el runtime legacy incluía `--admin-profile default` y, al ejecutarlo literalmente, falló porque `OPENAI_ADMIN_KEY` no estaba definido.

@@ -23,10 +23,10 @@ public static class McpServiceCollectionExtensions
         {
             serverInstructions +=
                 " Use Work Plan to organize non-trivial work with multiple meaningful phases, dependent actions, or checkpoints; skip it for simple lookups and short single-step tasks. " +
-                "On a newly created WorkSession, the plan starts empty at revision 0, so you may create the initial plan directly with work_plan_update and expectedRevision=0. " +
-                "Keep a concise plan with a few outcome-oriented steps and update it at meaningful milestones, not after every tool call. " +
+                "On a newly created WorkSession, the plan starts empty at revision 0, so create the initial plan directly with work_plan_update and expectedRevision=0. " +
+                "Keep a concise plan with a few outcome-oriented steps and update it only at meaningful milestones. Prefer work_plan_patch for small changes to an existing plan; use work_plan_update for initial creation, reordering, full replacement, or clearing. " +
                 "Work Plan tracks logical progress only and does not execute or monitor real work. " +
-                "Preserve returned Work Plan step ids and revision; on conflict, reread the plan, reconcile, and retry.";
+                "Preserve returned Work Plan step ids and revision; on conflict, reread the plan, reconcile, and retry. Loom does not auto-merge concurrent mutations.";
         }
 
         var builder = services

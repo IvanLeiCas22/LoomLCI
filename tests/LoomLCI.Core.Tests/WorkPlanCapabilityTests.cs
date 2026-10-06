@@ -444,6 +444,313 @@ public sealed class WorkPlanCapabilityTests
             item => item.Kind == "WorkPlanUpdated");
     }
 
+    [Fact]
+    public async Task PatchUpdatesOnlyRequestedFieldsAndPreservesUntouchedSteps()
+    {
+        await using var fixture = new Fixture();
+
+        var initial = await fixture.Capability.UpdateAsync(
+            Request(
+                fixture.Work.Id,
+                0,
+                NewStep("first", WorkPlanStepStatus.Active),
+                NewStep("second", WorkPlanStepStatus.Waiting)));
+        Assert.True(initial.IsSuccess, initial.Error?.Message);
+
+        var firstId = initial.Value!.Steps[0].Id;
+        var secondId = initial.Value.Steps[1].Id;
+
+        var patched = await fixture.Capability.PatchAsync(
+            PatchRequest(
+                fixture.Work.Id,
+                1,
+                UpdateChange(firstId, status: WorkPlanStepStatus.Completed)));
+
+        Assert.True(patched.IsSuccess, patched.Error?.Message);
+        Assert.Equal(2, patched.Value!.Revision);
+        Assert.Equal(firstId, patched.Value.Steps[0].Id);
+        Assert.Equal("first", patched.Value.Steps[0].Text);
+        Assert.Equal(WorkPlanStepStatus.Completed, patched.Value.Steps[0].Status);
+        Assert.Equal(secondId, patched.Value.Steps[1].Id);
+        Assert.Equal("second", patched.Value.Steps[1].Text);
+        Assert.Equal(WorkPlanStepStatus.Waiting, patched.Value.Steps[1].Status);
+    }
+
+    [Fact]
+    public async Task PatchAddAppendsGeneratedIdAndDefaultsStatusToPending()
+    {
+        await using var fixture = new Fixture();
+
+        var initial = await fixture.Capability.UpdateAsync(
+            Request(fixture.Work.Id, 0, NewStep("existing")));
+        Assert.True(initial.IsSuccess, initial.Error?.Message);
+
+        var existingId = initial.Value!.Steps[0].Id;
+        var patched = await fixture.Capability.PatchAsync(
+            PatchRequest(
+                fixture.Work.Id,
+                1,
+                AddChange("  appended  ")));
+
+        Assert.True(patched.IsSuccess, patched.Error?.Message);
+        Assert.Equal(2, patched.Value!.Revision);
+        Assert.Equal(2, patched.Value.Steps.Count);
+        Assert.Equal(existingId, patched.Value.Steps[0].Id);
+
+        var added = patched.Value.Steps[1];
+        Assert.StartsWith("step_", added.Id.Value, StringComparison.Ordinal);
+        Assert.NotEqual(existingId, added.Id);
+        Assert.Equal("appended", added.Text);
+        Assert.Equal(WorkPlanStepStatus.Pending, added.Status);
+    }
+
+    [Fact]
+    public async Task PatchRemoveDeletesOnlyTargetedStep()
+    {
+        await using var fixture = new Fixture();
+
+        var initial = await fixture.Capability.UpdateAsync(
+            Request(
+                fixture.Work.Id,
+                0,
+                NewStep("keep"),
+                NewStep("remove"),
+                NewStep("also keep")));
+        Assert.True(initial.IsSuccess, initial.Error?.Message);
+
+        var keepId = initial.Value!.Steps[0].Id;
+        var removeId = initial.Value.Steps[1].Id;
+        var lastId = initial.Value.Steps[2].Id;
+
+        var patched = await fixture.Capability.PatchAsync(
+            PatchRequest(
+                fixture.Work.Id,
+                1,
+                RemoveChange(removeId)));
+
+        Assert.True(patched.IsSuccess, patched.Error?.Message);
+        Assert.Equal(new[] { keepId, lastId }, patched.Value!.Steps.Select(step => step.Id));
+    }
+
+    [Fact]
+    public async Task PatchStaleRevisionWinsBeforeUnknownIdValidation()
+    {
+        await using var fixture = new Fixture();
+
+        var initial = await fixture.Capability.UpdateAsync(
+            Request(fixture.Work.Id, 0, NewStep("current")));
+        Assert.True(initial.IsSuccess, initial.Error?.Message);
+
+        var stale = await fixture.Capability.PatchAsync(
+            PatchRequest(
+                fixture.Work.Id,
+                0,
+                RemoveChange(new WorkPlanStepId("step_unknown"))));
+
+        Assert.False(stale.IsSuccess);
+        Assert.Equal("conflict", stale.Error?.Code);
+        Assert.Equal(1L, stale.Error!.Details!["currentRevision"]);
+    }
+
+    [Fact]
+    public async Task ConcurrentPatchAndFullUpdateOnSameRevisionHaveExactlyOneWinner()
+    {
+        await using var fixture = new Fixture();
+
+        var initial = await fixture.Capability.UpdateAsync(
+            Request(fixture.Work.Id, 0, NewStep("base")));
+        Assert.True(initial.IsSuccess, initial.Error?.Message);
+        var id = initial.Value!.Steps[0].Id;
+
+        var patchRequest = PatchRequest(
+            fixture.Work.Id,
+            1,
+            UpdateChange(id, status: WorkPlanStepStatus.Completed));
+        var updateRequest = Request(
+            fixture.Work.Id,
+            1,
+            ExistingStep(id, "replacement", WorkPlanStepStatus.Active));
+
+        var results = await Task.WhenAll(
+            Task.Run(async () => await fixture.Capability.PatchAsync(patchRequest)),
+            Task.Run(async () => await fixture.Capability.UpdateAsync(updateRequest)));
+
+        var success = Assert.Single(results, result => result.IsSuccess);
+        var conflict = Assert.Single(results, result => !result.IsSuccess);
+
+        Assert.Equal(2, success.Value!.Revision);
+        Assert.Equal("conflict", conflict.Error?.Code);
+
+        var current = await fixture.Capability.GetAsync(fixture.Work.Id);
+        Assert.True(current.IsSuccess, current.Error?.Message);
+        Assert.Equal(2, current.Value!.Revision);
+        Assert.Single(current.Value.Steps);
+        Assert.Equal(id, current.Value.Steps[0].Id);
+    }
+
+    [Fact]
+    public async Task PatchRejectsDuplicateTargetsWithoutPublishingPartialChanges()
+    {
+        await using var fixture = new Fixture();
+
+        var initial = await fixture.Capability.UpdateAsync(
+            Request(fixture.Work.Id, 0, NewStep("original")));
+        Assert.True(initial.IsSuccess, initial.Error?.Message);
+        var id = initial.Value!.Steps[0].Id;
+
+        var rejected = await fixture.Capability.PatchAsync(
+            PatchRequest(
+                fixture.Work.Id,
+                1,
+                UpdateChange(id, text: "changed"),
+                RemoveChange(id)));
+
+        Assert.False(rejected.IsSuccess);
+        Assert.Equal("invalid_argument", rejected.Error?.Code);
+
+        var current = await fixture.Capability.GetAsync(fixture.Work.Id);
+        Assert.Equal(1, current.Value!.Revision);
+        var step = Assert.Single(current.Value.Steps);
+        Assert.Equal(id, step.Id);
+        Assert.Equal("original", step.Text);
+    }
+
+    [Fact]
+    public async Task PatchRejectsFinalPlanAboveStepLimitAtomically()
+    {
+        await using var fixture = new Fixture();
+
+        var initial = await fixture.Capability.UpdateAsync(
+            new WorkPlanUpdateRequest(
+                fixture.Work.Id,
+                0,
+                Enumerable.Range(0, WorkPlanCapability.MaxSteps)
+                    .Select(index => NewStep($"step {index}"))
+                    .ToArray()));
+        Assert.True(initial.IsSuccess, initial.Error?.Message);
+
+        var rejected = await fixture.Capability.PatchAsync(
+            PatchRequest(
+                fixture.Work.Id,
+                1,
+                AddChange("too many")));
+
+        Assert.False(rejected.IsSuccess);
+        Assert.Equal("invalid_argument", rejected.Error?.Code);
+
+        var current = await fixture.Capability.GetAsync(fixture.Work.Id);
+        Assert.Equal(1, current.Value!.Revision);
+        Assert.Equal(WorkPlanCapability.MaxSteps, current.Value.Steps.Count);
+    }
+
+    [Fact]
+    public async Task InvalidPatchShapesAreRejectedWithoutTouchingSession()
+    {
+        await using var fixture = new Fixture();
+        DrainEvents(fixture.Events);
+
+        fixture.Clock.Advance(TimeSpan.FromMinutes(5));
+
+        var empty = await fixture.Capability.PatchAsync(
+            new WorkPlanPatchRequest(
+                fixture.Work.Id,
+                0,
+                Array.Empty<WorkPlanPatchChange>()));
+        var addWithId = await fixture.Capability.PatchAsync(
+            PatchRequest(
+                fixture.Work.Id,
+                0,
+                new WorkPlanPatchChange(
+                    WorkPlanPatchOperation.Add,
+                    new WorkPlanStepId("step_supplied"),
+                    "invalid",
+                    null)));
+        var updateWithoutFields = await fixture.Capability.PatchAsync(
+            PatchRequest(
+                fixture.Work.Id,
+                0,
+                new WorkPlanPatchChange(
+                    WorkPlanPatchOperation.Update,
+                    new WorkPlanStepId("step_missing"),
+                    null,
+                    null)));
+        var removeWithText = await fixture.Capability.PatchAsync(
+            PatchRequest(
+                fixture.Work.Id,
+                0,
+                new WorkPlanPatchChange(
+                    WorkPlanPatchOperation.Remove,
+                    new WorkPlanStepId("step_missing"),
+                    "invalid",
+                    null)));
+
+        Assert.All(
+            new[] { empty, addWithId, updateWithoutFields, removeWithText },
+            result =>
+            {
+                Assert.False(result.IsSuccess);
+                Assert.Equal("invalid_argument", result.Error?.Code);
+            });
+        Assert.Equal(Start, fixture.Work.LastActivityAt);
+        Assert.DoesNotContain(
+            DrainEvents(fixture.Events),
+            item => item.Kind == "WorkPlanUpdated");
+    }
+
+    [Fact]
+    public async Task PatchPublishesSameBoundedUpdateEventAndRefreshesActivity()
+    {
+        await using var fixture = new Fixture();
+
+        var initial = await fixture.Capability.UpdateAsync(
+            Request(fixture.Work.Id, 0, NewStep("secret text")));
+        Assert.True(initial.IsSuccess, initial.Error?.Message);
+        var id = initial.Value!.Steps[0].Id;
+        DrainEvents(fixture.Events);
+
+        fixture.Clock.Advance(TimeSpan.FromMinutes(4));
+        var patched = await fixture.Capability.PatchAsync(
+            PatchRequest(
+                fixture.Work.Id,
+                1,
+                UpdateChange(id, status: WorkPlanStepStatus.Completed)));
+
+        Assert.True(patched.IsSuccess, patched.Error?.Message);
+        Assert.Equal(Start.AddMinutes(4), fixture.Work.LastActivityAt);
+
+        var updated = Assert.Single(
+            DrainEvents(fixture.Events),
+            item => item.Kind == "WorkPlanUpdated");
+        Assert.Equal(2L, updated.Payload!["revision"]);
+        Assert.Equal(1, updated.Payload["stepCount"]);
+        Assert.Equal(1, updated.Payload["completedCount"]);
+        Assert.DoesNotContain(
+            updated.Payload.Values,
+            value => value is string text &&
+                     (text.Contains("secret text", StringComparison.Ordinal) ||
+                      text.StartsWith("step_", StringComparison.Ordinal)));
+    }
+
+    private static WorkPlanPatchRequest PatchRequest(
+        WorkId workId,
+        long revision,
+        params WorkPlanPatchChange[] changes)
+        => new(workId, revision, changes);
+
+    private static WorkPlanPatchChange AddChange(
+        string text,
+        WorkPlanStepStatus? status = null)
+        => new(WorkPlanPatchOperation.Add, null, text, status);
+
+    private static WorkPlanPatchChange UpdateChange(
+        WorkPlanStepId id,
+        string? text = null,
+        WorkPlanStepStatus? status = null)
+        => new(WorkPlanPatchOperation.Update, id, text, status);
+
+    private static WorkPlanPatchChange RemoveChange(WorkPlanStepId id)
+        => new(WorkPlanPatchOperation.Remove, id, null, null);
+
     private static WorkPlanUpdateRequest Request(
         WorkId workId,
         long revision,

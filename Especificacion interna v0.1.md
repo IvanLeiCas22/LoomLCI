@@ -12,10 +12,11 @@ Implementado actualmente:
 - Filesystem estructurado;
 - Python Runtime E1 cerrado: contratos Core, worker persistente, provisioning privado, backend Windows/provider, tools MCP públicas `python_execute`/`python_reset` y validación final por Secure MCP Tunnel + fresh-agent;
 - Agent Support F1.1 Core: Work Plan efímero por WorkSession, snapshots read-only, revision/CAS, lifecycle close/expiry, validaciones y eventos;
-- Agent Support F1.2 MCP: tools opcionales `work_plan_get`/`work_plan_update`, schema/annotations, opt-in estático y Host objetivo con catálogo de 19 tools;
+- Agent Support F1.2 MCP: tools opcionales `work_plan_get`/`work_plan_update`, schema/annotations y opt-in estático por adapter;
 - Agent Support F1.3 cerrado: benchmark real-world final 4/4 positivos, 3/3 controles simples y escalada correcta 8A sin plan -> 8B con plan usando skill del plugin 0.2.1;
+- ergonomía Work Plan: `work_plan_patch` aplica cambios `add`/`update`/`remove` atómicos sobre revision/CAS, preserva IDs/orden no tocados y convive con `work_plan_update` para creación/reorder/reemplazo/clear;
 - Visual Files G1.0–G1.4 cerrado: foundation MCP binaria, `VisualFilesCapability`/provider, PNG/JPEG/WebP con `filesystem_view_image`, extracción PDF aislada mediante PdfPig 0.1.16 con `filesystem_read_pdf`, render PDF aislado mediante PDFium + StbImageWriteSharp con `filesystem_render_pdf_page`, suite Release 249/249, publish/package portable, corpus por Secure MCP Tunnel y fresh-agent final;
-- ergonomía Process: `process_run` implementado como operación one-shot real en Core, sin `ProcessHandle` durable, con timeout/cleanup y output bounded; Host actual con catálogo de **23 tools** cuando Work Plan está habilitado;
+- ergonomía Process: `process_run` implementado como operación one-shot real en Core, sin `ProcessHandle` durable, con timeout/cleanup y output bounded; Host actual con catálogo de **24 tools** cuando Work Plan está habilitado;
 - adapter MCP por STDIO y acceso de ChatGPT normal mediante Secure MCP Tunnel externo.
 
 Diferido; **no debe interpretarse como implementado hoy**:

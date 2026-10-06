@@ -1444,6 +1444,21 @@ F1 queda cerrado sin más cambios de prompting, Core/API ni cantidad de tools. E
 
 La propiedad importante que se conserva es que Work Plan sigue siendo opcional por adapter/perfil y puede deshabilitarse sin afectar Core execution.
 
+## Follow-up post-F1: ergonomía `work_plan_patch`
+
+La aspereza observada en F1.3 sobre `expectedRevision + IDs` no se resolvió relajando CAS ni identidad. Se agregó una tercera tool opcional de Agent Support, documentada en [[Ergonomía - Work Plan patch]]:
+
+- `work_plan_patch(workId, expectedRevision, changes[])`;
+- `add` agrega al final y genera ID;
+- `update` modifica sólo `text`/`status` solicitados y conserva posición;
+- `remove` elimina un ID existente;
+- 1–32 cambios por llamada;
+- patch completa atómica, un único incremento de revision y sin auto-merge;
+- duplicate targets y unknown IDs se rechazan;
+- `work_plan_update` sigue siendo la operación de full replacement para creación/reorder/reconciliación/clear.
+
+La concurrencia sigue linealizada por `_stateGate`: update y patch compiten sobre la misma revision. Suite Release 269/269, portable instalado y runtime healthy/ready. El Host actual expone 24 tools con Work Plan habilitado. Falta únicamente el smoke directo de la nueva tool desde un chat con catálogo refrescado.
+
 ## Fuentes
 
 - Codex `update_plan`: https://github.com/openai/codex/blob/main/codex-rs/core/src/tools/handlers/plan_spec.rs

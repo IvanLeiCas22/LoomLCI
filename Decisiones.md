@@ -16,7 +16,8 @@
 - El estado lógico del Work Plan estará separado del lifecycle real de procesos, invocaciones y otros recursos; en v0.1 no habrá acoplamiento automático entre steps y resource handles.
 - Agent Support F1.1 mantiene un único Work Plan efímero directamente dentro de cada WorkSession; no usa Resource Registry, se descarta al comenzar close/expiry y sus snapshots se actualizan atómicamente con `expectedRevision` para evitar lost updates.
 - Los pasos del Work Plan usan IDs opacos `step_*`, permiten múltiples estados `active`/`waiting`, y F1.1 limita el plan a 32 pasos de una sola línea y 512 Unicode scalar values por texto.
-- Agent Support F1.2 expone `work_plan_get`/`work_plan_update` sólo por opt-in del adapter; el Host objetivo para ChatGPT los habilita. `work_plan_get` se anuncia read-only/non-idempotent por refresh de lifetime y `work_plan_update` destructive por full replacement/removal posible.
+- Agent Support se expone sólo por opt-in del adapter; el Host objetivo para ChatGPT habilita `work_plan_get`, `work_plan_update` y `work_plan_patch`. `work_plan_get` es read-only/non-idempotent por refresh de lifetime; las dos mutations son destructive/non-idempotent.
+- `work_plan_patch` es la superficie ergonómica para cambios pequeños: `add`/`update`/`remove`, 1–32 cambios, aplicación atómica sobre copia, un único incremento de revision y sin auto-merge. `work_plan_update` conserva full replacement para creación inicial, reorder, reconciliación completa y clear.
 - Python Runtime usará un CPython privado/versionado por LoomLCI, no el Python del PATH/usuario; E1 fija CPython 3.14.8 x64 embeddable.
 - Python Runtime tendrá un único worker lazy y session-owned por WorkSession; `workId` será suficiente como identidad pública y no se expondrá `PythonHandle` en E1.
 - El IPC Python ↔ Loom usará Named Pipe privado/versionado separado de stdout/stderr; el backend Windows reutilizará `IProcessProvider`/Job Objects para lifecycle y cleanup.

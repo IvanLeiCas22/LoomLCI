@@ -27,7 +27,7 @@ public sealed class McpStdioTests
             descriptor => descriptor.ServiceType == typeof(McpServerTool));
 
         Assert.Equal(21, disabledToolRegistrations);
-        Assert.Equal(23, enabledToolRegistrations);
+        Assert.Equal(24, enabledToolRegistrations);
     }
 
     [Fact]
@@ -78,8 +78,10 @@ public sealed class McpStdioTests
             Assert.Contains("simple lookups", instructions, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("revision 0", instructions, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("meaningful milestones", instructions, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains("not after every tool call", instructions, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("work_plan_patch", instructions, StringComparison.Ordinal);
+            Assert.Contains("reordering", instructions, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("on conflict", instructions, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("does not auto-merge", instructions, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
@@ -369,12 +371,12 @@ public sealed class McpStdioTests
         Assert.Contains("workId", getPlanRequired);
 
         var updateWorkPlan = Assert.Single(tools, tool => tool.Name == "work_plan_update");
-        Assert.Equal("Create or update work plan", updateWorkPlan.ProtocolTool.Title);
-        Assert.Contains("multiple meaningful phases", updateWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Create or replace work plan", updateWorkPlan.ProtocolTool.Title);
+        Assert.Contains("initial creation", updateWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("expectedRevision=0", updateWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("meaningful milestones", updateWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("rather than after every tool call", updateWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("replaces the complete", updateWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("work_plan_patch", updateWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("reordering", updateWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("complete logical Work Plan", updateWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("reconcile", updateWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("empty steps array", updateWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
         Assert.False(updateWorkPlan.ProtocolTool.Annotations?.ReadOnlyHint ?? true);
@@ -414,6 +416,60 @@ public sealed class McpStdioTests
         Assert.Contains("workId", updatePlanRequired);
         Assert.Contains("expectedRevision", updatePlanRequired);
         Assert.Contains("steps", updatePlanRequired);
+
+        var patchWorkPlan = Assert.Single(tools, tool => tool.Name == "work_plan_patch");
+        Assert.Equal("Patch work plan", patchWorkPlan.ProtocolTool.Title);
+        Assert.Contains("without resending untouched steps", patchWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("expectedRevision", patchWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("does not auto-merge", patchWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("complete normalized snapshot", patchWorkPlan.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.False(patchWorkPlan.ProtocolTool.Annotations?.ReadOnlyHint ?? true);
+        Assert.True(patchWorkPlan.ProtocolTool.Annotations?.DestructiveHint ?? false);
+        Assert.False(patchWorkPlan.ProtocolTool.Annotations?.IdempotentHint ?? true);
+        Assert.False(patchWorkPlan.ProtocolTool.Annotations?.OpenWorldHint ?? true);
+
+        var patchPlanProperties = GetRequiredProperty(patchWorkPlan.JsonSchema, "properties");
+        AssertSchemaRange(
+            GetRequiredProperty(patchPlanProperties, "expectedRevision"),
+            0,
+            long.MaxValue);
+        var changesSchema = GetRequiredProperty(patchPlanProperties, "changes");
+        Assert.Equal(1, GetRequiredProperty(changesSchema, "minItems").GetInt32());
+        Assert.Equal(32, GetRequiredProperty(changesSchema, "maxItems").GetInt32());
+
+        var patchChangeProperties = GetRequiredProperty(
+            GetRequiredProperty(changesSchema, "items"),
+            "properties");
+        AssertSchemaEnum(
+            GetRequiredProperty(patchChangeProperties, "op"),
+            "add",
+            "update",
+            "remove");
+        AssertSchemaEnum(
+            GetRequiredProperty(patchChangeProperties, "status"),
+            "pending",
+            "active",
+            "waiting",
+            "completed");
+
+        var changeRequired = GetRequiredProperty(
+                GetRequiredProperty(changesSchema, "items"),
+                "required")
+            .EnumerateArray()
+            .Select(value => value.GetString())
+            .ToHashSet(StringComparer.Ordinal);
+        Assert.Contains("op", changeRequired);
+        Assert.DoesNotContain("id", changeRequired);
+        Assert.DoesNotContain("text", changeRequired);
+        Assert.DoesNotContain("status", changeRequired);
+
+        var patchPlanRequired = GetRequiredProperty(patchWorkPlan.JsonSchema, "required")
+            .EnumerateArray()
+            .Select(value => value.GetString())
+            .ToHashSet(StringComparer.Ordinal);
+        Assert.Contains("workId", patchPlanRequired);
+        Assert.Contains("expectedRevision", patchPlanRequired);
+        Assert.Contains("changes", patchPlanRequired);
     }
 
     [Fact]
@@ -1890,6 +1946,150 @@ public sealed class McpStdioTests
                     GetStructured(afterClose.StructuredContent),
                     "error"),
                 "code").GetString());
+    }
+
+    [Fact]
+    public async Task StdioAdapterCanPatchWorkPlanAtomicallyAndPreserveIdentity()
+    {
+        var repoRoot = FindRepoRoot();
+        var hostDll = GetHostDll(repoRoot);
+        Assert.True(File.Exists(hostDll), $"Host was not built: {hostDll}");
+
+        var transport = new StdioClientTransport(new StdioClientTransportOptions
+        {
+            Name = "LoomLCI Work Plan patch integration test",
+            Command = "dotnet",
+            Arguments = [hostDll],
+            WorkingDirectory = repoRoot,
+            ShutdownTimeout = TimeSpan.FromSeconds(5)
+        });
+
+        await using var client = await McpClient.CreateAsync(transport);
+
+        var create = await client.CallToolAsync(
+            "work_create",
+            new Dictionary<string, object?>
+            {
+                ["baseDirectory"] = repoRoot,
+                ["label"] = "work-plan-patch-integration-test"
+            });
+        var createRoot = GetStructured(create.StructuredContent);
+        var workId = GetRequiredProperty(
+            GetRequiredProperty(createRoot, "result"),
+            "workId").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(workId));
+
+        var initial = await client.CallToolAsync(
+            "work_plan_update",
+            new Dictionary<string, object?>
+            {
+                ["workId"] = workId,
+                ["expectedRevision"] = 0L,
+                ["steps"] = new object[]
+                {
+                    new Dictionary<string, object?>
+                    {
+                        ["text"] = "Keep identity",
+                        ["status"] = "active"
+                    },
+                    new Dictionary<string, object?>
+                    {
+                        ["text"] = "Remove me",
+                        ["status"] = "waiting"
+                    }
+                }
+            });
+
+        var initialResult = GetRequiredProperty(
+            GetStructured(initial.StructuredContent),
+            "result");
+        var initialSteps = GetRequiredProperty(initialResult, "steps")
+            .EnumerateArray()
+            .ToArray();
+        var keepId = GetRequiredProperty(initialSteps[0], "id").GetString();
+        var removeId = GetRequiredProperty(initialSteps[1], "id").GetString();
+
+        var patched = await client.CallToolAsync(
+            "work_plan_patch",
+            new Dictionary<string, object?>
+            {
+                ["workId"] = workId,
+                ["expectedRevision"] = 1L,
+                ["changes"] = new object[]
+                {
+                    new Dictionary<string, object?>
+                    {
+                        ["op"] = "update",
+                        ["id"] = keepId,
+                        ["status"] = "completed"
+                    },
+                    new Dictionary<string, object?>
+                    {
+                        ["op"] = "remove",
+                        ["id"] = removeId
+                    },
+                    new Dictionary<string, object?>
+                    {
+                        ["op"] = "add",
+                        ["text"] = "Added by patch"
+                    }
+                }
+            });
+
+        var patchedRoot = GetStructured(patched.StructuredContent);
+        Assert.True(GetRequiredProperty(patchedRoot, "ok").GetBoolean());
+        var patchedResult = GetRequiredProperty(patchedRoot, "result");
+        Assert.Equal(2, GetRequiredProperty(patchedResult, "revision").GetInt64());
+        var patchedSteps = GetRequiredProperty(patchedResult, "steps")
+            .EnumerateArray()
+            .ToArray();
+        Assert.Equal(2, patchedSteps.Length);
+
+        Assert.Equal(keepId, GetRequiredProperty(patchedSteps[0], "id").GetString());
+        Assert.Equal("Keep identity", GetRequiredProperty(patchedSteps[0], "text").GetString());
+        Assert.Equal("completed", GetRequiredProperty(patchedSteps[0], "status").GetString());
+
+        var addedId = GetRequiredProperty(patchedSteps[1], "id").GetString();
+        Assert.StartsWith("step_", addedId, StringComparison.Ordinal);
+        Assert.NotEqual(keepId, addedId);
+        Assert.NotEqual(removeId, addedId);
+        Assert.Equal("Added by patch", GetRequiredProperty(patchedSteps[1], "text").GetString());
+        Assert.Equal("pending", GetRequiredProperty(patchedSteps[1], "status").GetString());
+
+        var stale = await client.CallToolAsync(
+            "work_plan_patch",
+            new Dictionary<string, object?>
+            {
+                ["workId"] = workId,
+                ["expectedRevision"] = 1L,
+                ["changes"] = new object[]
+                {
+                    new Dictionary<string, object?>
+                    {
+                        ["op"] = "remove",
+                        ["id"] = "step_unknown"
+                    }
+                }
+            });
+
+        Assert.True(stale.IsError is true);
+        var staleError = GetRequiredProperty(
+            GetStructured(stale.StructuredContent),
+            "error");
+        Assert.Equal("conflict", GetRequiredProperty(staleError, "code").GetString());
+        Assert.Equal(
+            2,
+            GetRequiredProperty(
+                GetRequiredProperty(staleError, "details"),
+                "currentRevision").GetInt64());
+
+        var close = await client.CallToolAsync(
+            "work_close",
+            new Dictionary<string, object?> { ["workId"] = workId });
+        Assert.True(
+            GetRequiredProperty(
+                GetStructured(close.StructuredContent),
+                "ok").GetBoolean());
     }
 
     [Fact]

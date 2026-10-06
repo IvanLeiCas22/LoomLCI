@@ -1,6 +1,6 @@
 # Plan y tareas
 
-> Estado: **Agent Support F1, Deployment portable, Visual Files G1, hardening de `filesystem_read_files` y `process_run` cerrados**. Computer H1 queda deliberadamente pausado. El trabajo futuro seleccionado se organiza en [[Roadmap post-G1]]: Ergonomía -> Producto/Deployment -> Python. El siguiente objetivo es simplificar la ergonomía de Work Plan.
+> Estado: **Agent Support F1, Deployment portable, Visual Files G1, hardening de `filesystem_read_files`, `process_run` y [[Ergonomía - Work Plan patch]] implementados**. Computer H1 queda deliberadamente pausado. Work Plan patch está instalado y validado; falta sólo smoke directo de la nueva tool en un chat con catálogo refrescado. Después, [[Roadmap post-G1]] continúa por Producto/Deployment -> Python.
 
 ## Distinciones necesarias
 
@@ -75,6 +75,18 @@ El holdout real-world confirmó que la política de selección es suficientement
 - una misma WorkSession escaló correctamente de lookup simple sin plan a workflow multi-fase con plan.
 
 No continuar optimizando prompting ni contrato de Work Plan sin evidencia nueva.
+
+## Ergonomía Work Plan patch
+
+El follow-up post-G1 quedó implementado en [[Ergonomía - Work Plan patch]]:
+
+- `work_plan_patch` modifica sólo pasos afectados mediante `add` / `update` / `remove`;
+- conserva `expectedRevision` CAS, IDs estables y atomicidad;
+- no hace auto-merge ni reorder;
+- `work_plan_update` queda para creación, reorder, full replacement y clear;
+- suite Release 269/269 y runtime portable `0.1.0-dev-work-plan-patch` healthy/ready.
+
+Falta únicamente el smoke directo de la nueva tool desde un chat con catálogo MCP refrescado. Después, el roadmap continúa por UX de Launcher.
 
 ## Deployment portable
 
