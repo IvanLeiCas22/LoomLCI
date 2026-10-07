@@ -22,7 +22,7 @@ Orden preliminar:
 1. mejorar UX del Launcher — **CERRADO end-to-end**: modo `--pause` opt-in para accesos directos, shortcuts de iniciar/detener, mensajes simplificados, salida UTF-8 y README portable con encoding estable;
 2. [[Instalador Windows|instalador Windows convencional]] — **CERRADO end-to-end**: Inno Setup 7.1.0, instalación per-user sin admin, registro en Aplicaciones instaladas, uninstall real y reutilización de `SetupService`;
 3. [[Auto-update firmado|base de auto-update con validación y rollback]] — **CERRADO end-to-end**: manifest firmado ECDSA, `sequence` anti-rollback, `update check/apply`, rollback transaccional, journal/crash recovery, limpieza `active + previous` y E2E real contra GitHub Releases;
-4. mecanismo de generación/verificación de metadata y skill del plugin.
+4. [[Plugin metadata|mecanismo de generación/verificación de metadata y skill del plugin]] — **CERRADO end-to-end**: fuente canónica en repo, export real `initialize + tools/list`, snapshot de contrato, build/verifier anti-drift, neutralización del wiring Debug histórico y plugin privado `0.3.0` publicado/read-back.
 
 La reconciliación final del plugin/skill se cerrará después de incorporar las nuevas capabilities Python, para evitar documentar dos veces una superficie todavía cambiante.
 
@@ -70,6 +70,6 @@ Es un tema transversal:
 
 ## Próxima acción
 
-**Producto / Deployment 4: mecanismo de generación/verificación de metadata y skill del plugin.**
+**Python 1: paquetes de terceros administrados/versionados por LoomLCI.**
 
-[[Auto-update firmado]] quedó cerrado end-to-end: suite Release **283/283**, GitHub Release pública `v0.1.0-dev-github-e2e`, `update check/apply` real desde sequence 2 -> 3, runtime final healthy/ready, journal limpio y sólo `active + previous` instalados.
+[[Plugin metadata]] quedó cerrado end-to-end: snapshot del contrato MCP de **24 tools**, suite Release **285/285**, build/verifier reproducible y plugin privado `0.3.0` publicado con wiring MCP histórico neutralizado. La reconciliación final de la skill sigue después del bloque Python.

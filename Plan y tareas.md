@@ -1,6 +1,6 @@
 # Plan y tareas
 
-> Estado: **Agent Support F1, Deployment portable, Launcher UX, [[Instalador Windows]], [[Auto-update firmado]], Visual Files G1, hardening de `filesystem_read_files`, `process_run` y [[Ergonomía - Work Plan patch]] cerrados end-to-end**. Computer H1 queda deliberadamente pausado. [[Roadmap post-G1]] continúa por Producto/Deployment -> Python.
+> Estado: **Agent Support F1, Deployment portable, Launcher UX, [[Instalador Windows]], [[Auto-update firmado]], [[Plugin metadata]], Visual Files G1, hardening de `filesystem_read_files`, `process_run` y [[Ergonomía - Work Plan patch]] cerrados end-to-end**. Computer H1 queda deliberadamente pausado. [[Roadmap post-G1]] continúa por Python.
 
 ## Distinciones necesarias
 
@@ -135,7 +135,21 @@ Validación multi-PC cerrada: el mismo paquete se instaló desde cero en una not
 - `previous=0.1.0-dev-local-e2e`, sequence 2;
 - journal ausente y sólo dos versiones instaladas.
 
-La próxima etapa de [[Roadmap post-G1]] es **Producto / Deployment 4: generación/verificación de metadata y skill del plugin**.
+## Plugin metadata - CERRADO
+
+[[Plugin metadata]] quedó implementado y validado end-to-end:
+
+- `plugin/` como fuente canónica de manifest, README y skill;
+- export MCP real mediante `initialize` + `tools/list`, sin parsear C#;
+- snapshot versionado de las **24 tools**;
+- build que falla ante drift no aceptado;
+- verifier de tool refs, duplicación de manifests y rutas/wiring Debug;
+- `.codex-plugin/plugin.json` generado desde el manifest canónico;
+- `mcp.json` / `.mcp.json` vacíos para neutralizar el wiring STDIO histórico;
+- plugin privado actualizado `0.2.1 -> 0.3.0` con CAS y read-back;
+- suite Release **285/285**, IntegrationTests **17/17**.
+
+La próxima etapa de [[Roadmap post-G1]] es **Python 1: paquetes de terceros administrados/versionados por LoomLCI**. La reconciliación final de la skill queda después del bloque Python.
 
 ## Visual Files G1 - CERRADO
 

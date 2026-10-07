@@ -1,0 +1,39 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "loomlci",
+  "version": "0.3.0",
+  "description": "Acceso a LoomLCI para trabajar sobre la PC local con filesystem, procesos, Python, contenido visual y Work Plan.",
+  "author": {
+    "name": "Iván Leiva Castell"
+  },
+  "keywords": [
+    "loomlci",
+    "mcp",
+    "windows",
+    "filesystem",
+    "processes",
+    "python",
+    "pdf",
+    "work-plan"
+  ],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "LoomLCI",
+        "shortDescription": "Trabaja sobre la PC local con LoomLCI",
+        "longDescription": "Acompaña la app MCP LoomLCI conectada mediante Secure MCP Tunnel. La skill orienta el workflow del agente y el schema vivo del servidor MCP sigue siendo la fuente de verdad para tools, parámetros, límites y semántica.",
+        "developerName": "Iván Leiva Castell",
+        "category": "Developer Tools",
+        "capabilities": [
+          "Read",
+          "Write",
+          "Interactive"
+        ],
+        "defaultPrompt": [
+          "Usa LoomLCI para trabajar sobre mi computadora local y verificar el resultado."
+        ],
+        "brandColor": "#4F46E5"
+      }
+    }
+  }
+}

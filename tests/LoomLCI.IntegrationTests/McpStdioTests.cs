@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using LoomLCI.Mcp;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Client;
@@ -28,6 +29,114 @@ public sealed class McpStdioTests
 
         Assert.Equal(21, disabledToolRegistrations);
         Assert.Equal(24, enabledToolRegistrations);
+    }
+
+    [Fact]
+    public async Task PluginContractSnapshotMatchesAdvertisedTools()
+    {
+        var repoRoot = FindRepoRoot();
+        var hostDll = GetHostDll(repoRoot);
+        var snapshotPath = Path.Combine(
+            repoRoot,
+            "plugin",
+            "contract",
+            "mcp-contract.json");
+        var skillPath = Path.Combine(
+            repoRoot,
+            "plugin",
+            "skills",
+            "loomlci",
+            "SKILL.md");
+
+        Assert.True(File.Exists(snapshotPath), $"Plugin contract snapshot not found: {snapshotPath}");
+        Assert.True(File.Exists(skillPath), $"Plugin skill not found: {skillPath}");
+
+        var transport = new StdioClientTransport(new StdioClientTransportOptions
+        {
+            Name = "LoomLCI plugin contract regression",
+            Command = "dotnet",
+            Arguments = [hostDll],
+            WorkingDirectory = repoRoot,
+            ShutdownTimeout = TimeSpan.FromSeconds(5)
+        });
+
+        await using var client = await McpClient.CreateAsync(transport);
+        var tools = await client.ListToolsAsync();
+
+        using var snapshot = JsonDocument.Parse(
+            await File.ReadAllTextAsync(snapshotPath));
+        var snapshotTools = GetRequiredProperty(snapshot.RootElement, "tools")
+            .EnumerateArray()
+            .ToDictionary(
+                element => GetRequiredProperty(element, "name").GetString()!,
+                StringComparer.Ordinal);
+
+        Assert.Equal(tools.Count, snapshotTools.Count);
+
+        foreach (var tool in tools)
+        {
+            Assert.True(
+                snapshotTools.TryGetValue(tool.Name, out var expected),
+                $"Tool '{tool.Name}' is missing from plugin/contract/mcp-contract.json.");
+
+            Assert.Equal(
+                tool.ProtocolTool.Title,
+                GetRequiredProperty(expected, "title").GetString());
+            Assert.Equal(
+                tool.Description,
+                GetRequiredProperty(expected, "description").GetString());
+            Assert.Equal(
+                JsonValueKind.Object,
+                GetRequiredProperty(expected, "inputSchema").ValueKind);
+        }
+
+        var skill = await File.ReadAllTextAsync(skillPath);
+        var toolRefs = Regex.Matches(
+                skill,
+                @"\b(?:work|filesystem|process|python|computer)_[a-z0-9_]+\b")
+            .Select(match => match.Value)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+        var liveToolNames = tools
+            .Select(tool => tool.Name)
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.All(
+            toolRefs,
+            reference => Assert.Contains(reference, liveToolNames));
+    }
+
+    [Fact]
+    public void PluginSourceDoesNotReintroduceLegacyDebugWiring()
+    {
+        var repoRoot = FindRepoRoot();
+        var pluginRoot = Path.Combine(repoRoot, "plugin");
+        var sourceFiles = new[]
+        {
+            Path.Combine(pluginRoot, "plugin.json"),
+            Path.Combine(pluginRoot, "README.md"),
+            Path.Combine(pluginRoot, "skills", "loomlci", "SKILL.md")
+        };
+
+        foreach (var path in sourceFiles)
+        {
+            Assert.True(File.Exists(path), $"Plugin source file not found: {path}");
+            var text = File.ReadAllText(path);
+            Assert.DoesNotContain("C:\\Users\\", text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("bin\\Debug", text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("LoomLCI.Host.dll", text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(
+                "Documents\\ProyectosPersonales\\LoomLCI\\src",
+                text,
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        using var manifest = JsonDocument.Parse(File.ReadAllText(sourceFiles[0]));
+        Assert.False(manifest.RootElement.TryGetProperty("mcpServers", out _));
+        Assert.Equal(
+            "loomlci",
+            GetRequiredProperty(manifest.RootElement, "name").GetString());
     }
 
     [Fact]
