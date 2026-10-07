@@ -75,6 +75,7 @@ builder.Services.AddSingleton<IProcessProvider, WindowsProcessProvider>();
 builder.Services.AddSingleton<ProcessCapability>();
 builder.Services.AddSingleton<IPythonRuntimeProvider, WindowsPythonRuntimeProvider>();
 builder.Services.AddSingleton<IPythonPackageProvider, WindowsPythonPackageProvider>();
+builder.Services.AddSingleton<IPythonBridgeDispatcher, PythonBridgeDispatcher>();
 builder.Services.AddSingleton<PythonCapability>();
 builder.Services.AddSingleton<PythonPackageCapability>();
 builder.Services.AddSingleton<IFilesystemProvider, WindowsFilesystemProvider>();

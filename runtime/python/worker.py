@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import builtins
 import contextvars
+import importlib.util
 import io
 import json
 import os
@@ -13,9 +14,11 @@ import threading
 import traceback
 from typing import Any
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 MAX_REQUEST_FRAME_BYTES = 2 * 1024 * 1024
 MAX_RESPONSE_FRAME_BYTES = 32 * 1024 * 1024
+MAX_BRIDGE_CALL_FRAME_BYTES = 2 * 1024 * 1024
+MAX_BRIDGE_RESULT_FRAME_BYTES = 8 * 1024 * 1024
 MAX_CODE_UTF8_BYTES = 256 * 1024
 MAX_EXCEPTION_MESSAGE_CHARS = 16 * 1024
 MAX_TRACEBACK_CHARS = 64 * 1024
@@ -171,7 +174,10 @@ def _read_exact(stream: Any, count: int, allow_clean_eof: bool = False) -> bytes
     return b"".join(chunks)
 
 
-def _read_frame(stream: Any) -> dict[str, Any] | None:
+def _read_frame(
+    stream: Any,
+    max_frame_bytes: int,
+) -> dict[str, Any] | None:
     header = _read_exact(stream, 4, allow_clean_eof=True)
     if header is None:
         return None
@@ -179,9 +185,9 @@ def _read_frame(stream: Any) -> dict[str, Any] | None:
     (length,) = struct.unpack("<I", header)
     if length < 2:
         raise ProtocolError("Protocol frame payload is too small.")
-    if length > MAX_REQUEST_FRAME_BYTES:
+    if length > max_frame_bytes:
         raise ProtocolError(
-            f"Protocol request frame exceeds {MAX_REQUEST_FRAME_BYTES} bytes."
+            f"Protocol frame exceeds {max_frame_bytes} bytes."
         )
 
     payload = _read_exact(stream, length)
@@ -206,7 +212,11 @@ def _read_frame(stream: Any) -> dict[str, Any] | None:
     return value
 
 
-def _write_frame(stream: Any, value: dict[str, Any]) -> None:
+def _write_frame(
+    stream: Any,
+    value: dict[str, Any],
+    max_frame_bytes: int = MAX_RESPONSE_FRAME_BYTES,
+) -> None:
     try:
         text = json.dumps(
             value,
@@ -218,9 +228,9 @@ def _write_frame(stream: Any, value: dict[str, Any]) -> None:
         raise ProtocolError("Could not serialize protocol response.") from exc
 
     payload = text.encode("utf-8")
-    if len(payload) > MAX_RESPONSE_FRAME_BYTES:
+    if len(payload) > max_frame_bytes:
         raise ProtocolError(
-            f"Protocol response frame exceeds {MAX_RESPONSE_FRAME_BYTES} bytes."
+            f"Protocol response frame exceeds {max_frame_bytes} bytes."
         )
 
     stream.write(struct.pack("<I", len(payload)))
@@ -322,12 +332,181 @@ def _execute(code: str, max_output_chars: int) -> dict[str, Any]:
     }
 
 
+def _bridge_transport(
+    stream: Any,
+    request_id: str,
+    call_id: str,
+    method: str,
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    envelope = {
+        "type": "bridge_call",
+        "requestId": request_id,
+        "callId": call_id,
+        "method": method,
+        "arguments": arguments,
+    }
+
+    try:
+        encoded = json.dumps(
+            envelope,
+            ensure_ascii=True,
+            allow_nan=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        return {
+            "ok": False,
+            "result": None,
+            "error": {
+                "code": "invalid_argument",
+                "message": "Python bridge arguments are not strict JSON.",
+                "retryable": False,
+                "details": None,
+            },
+        }
+
+    if len(encoded) > MAX_BRIDGE_CALL_FRAME_BYTES:
+        return {
+            "ok": False,
+            "result": None,
+            "error": {
+                "code": "unsupported",
+                "message": (
+                    "Python bridge call exceeds "
+                    f"{MAX_BRIDGE_CALL_FRAME_BYTES} bytes."
+                ),
+                "retryable": False,
+                "details": None,
+            },
+        }
+
+    _write_frame(
+        stream,
+        envelope,
+        MAX_BRIDGE_CALL_FRAME_BYTES,
+    )
+
+    response = _read_frame(
+        stream,
+        MAX_BRIDGE_RESULT_FRAME_BYTES,
+    )
+    if response is None:
+        raise ProtocolError(
+            "Unexpected EOF while waiting for Python bridge result."
+        )
+
+    if response.get("type") != "bridge_result":
+        raise ProtocolError(
+            "Expected Python bridge result frame."
+        )
+    if response.get("requestId") != request_id:
+        raise ProtocolError(
+            "Python bridge result requestId does not match the active request."
+        )
+    if response.get("callId") != call_id:
+        raise ProtocolError(
+            "Python bridge result callId does not match the active call."
+        )
+
+    ok = response.get("ok")
+    if not isinstance(ok, bool):
+        raise ProtocolError(
+            "Python bridge result ok field must be a boolean."
+        )
+
+    if ok:
+        if response.get("error") is not None:
+            raise ProtocolError(
+                "Successful Python bridge result must not contain error metadata."
+            )
+        return {
+            "ok": True,
+            "result": response.get("result"),
+            "error": None,
+        }
+
+    error = response.get("error")
+    if not isinstance(error, dict):
+        raise ProtocolError(
+            "Failed Python bridge result must contain error metadata."
+        )
+
+    code = error.get("code")
+    message = error.get("message")
+    retryable = error.get("retryable")
+    details = error.get("details")
+
+    if not isinstance(code, str) or not code:
+        raise ProtocolError("Python bridge error code is invalid.")
+    if not isinstance(message, str):
+        raise ProtocolError("Python bridge error message is invalid.")
+    if retryable is not None and not isinstance(retryable, bool):
+        raise ProtocolError("Python bridge error retryable flag is invalid.")
+    if details is not None and not isinstance(details, dict):
+        raise ProtocolError("Python bridge error details are invalid.")
+
+    return {
+        "ok": False,
+        "result": None,
+        "error": {
+            "code": code,
+            "message": message,
+            "retryable": retryable,
+            "details": details,
+        },
+    }
+
+
+def _load_bridge(bridge_script: str, stream: Any) -> Any:
+    if not os.path.isfile(bridge_script):
+        raise ProtocolError(
+            f"Python bridge asset does not exist: {bridge_script}"
+        )
+
+    spec = importlib.util.spec_from_file_location(
+        "_loomlci_bridge",
+        bridge_script,
+    )
+    if spec is None or spec.loader is None:
+        raise ProtocolError(
+            "Could not create Python bridge module spec."
+        )
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["_loomlci_bridge"] = module
+    spec.loader.exec_module(module)
+
+    install = getattr(module, "_install", None)
+    begin_execution = getattr(module, "_begin_execution", None)
+    end_execution = getattr(module, "_end_execution", None)
+    if not callable(install) or not callable(begin_execution) or not callable(end_execution):
+        raise ProtocolError(
+            "Python bridge asset is missing required entry points."
+        )
+
+    install(
+        lambda request_id, call_id, method, arguments: _bridge_transport(
+            stream,
+            request_id,
+            call_id,
+            method,
+            arguments,
+        )
+    )
+    return module
+
+
 def _connect(pipe_name: str) -> Any:
     path = rf"\\.\pipe\{pipe_name}"
     return open(path, "r+b", buffering=0)
 
 
-def _run(pipe_name: str, package_site: str | None = None) -> int:
+def _run(
+    pipe_name: str,
+    bridge_script: str,
+    package_site: str | None = None,
+) -> int:
     if "" not in sys.path:
         sys.path.insert(0, "")
 
@@ -352,6 +531,11 @@ def _run(pipe_name: str, package_site: str | None = None) -> int:
         return _EXIT_PROTOCOL_ERROR
 
     try:
+        bridge = _load_bridge(
+            bridge_script,
+            stream,
+        )
+
         _write_frame(
             stream,
             {
@@ -363,19 +547,34 @@ def _run(pipe_name: str, package_site: str | None = None) -> int:
         )
 
         while True:
-            message = _read_frame(stream)
+            message = _read_frame(
+                stream,
+                MAX_REQUEST_FRAME_BYTES,
+            )
             if message is None:
                 return _EXIT_OK
 
             request_id, code, max_output_chars = _validate_execute_request(message)
-            result = _execute(code, max_output_chars)
+            bridge_token = bridge._begin_execution(request_id)
+            try:
+                result = _execute(code, max_output_chars)
+            finally:
+                bridge._end_execution(
+                    request_id,
+                    bridge_token,
+                )
+
             result.update(
                 {
                     "type": "result",
                     "requestId": request_id,
                 }
             )
-            _write_frame(stream, result)
+            _write_frame(
+                stream,
+                result,
+                MAX_RESPONSE_FRAME_BYTES,
+            )
     except (BrokenPipeError, ConnectionResetError):
         return _EXIT_OK
     except ProtocolError as exc:
@@ -398,9 +597,14 @@ def _run(pipe_name: str, package_site: str | None = None) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--pipe-name", required=True)
+    parser.add_argument("--bridge-script", required=True)
     parser.add_argument("--package-site")
     args = parser.parse_args()
-    return _run(args.pipe_name, args.package_site)
+    return _run(
+        args.pipe_name,
+        args.bridge_script,
+        args.package_site,
+    )
 
 
 if __name__ == "__main__":

@@ -145,6 +145,116 @@ public sealed class PythonWorkerProtocolTests
     }
 
     [Fact]
+    public async Task BridgeCallParsesCorrelatedRequestAndArguments()
+    {
+        await using var stream = new MemoryStream();
+        await PythonWorkerProtocol.WriteRawFrameAsync(
+            stream,
+            new
+            {
+                type = "bridge_call",
+                requestId = "req_1",
+                callId = "call_1",
+                method = "bridge.capabilities",
+                arguments = new
+                {
+                    sample = 42
+                }
+            },
+            PythonWorkerProtocol.MaxBridgeCallFrameBytes);
+
+        stream.Position = 0;
+
+        var message = await PythonWorkerProtocol.ReadExecutionMessageAsync(
+            stream,
+            "req_1",
+            PythonCapability.DefaultMaxOutputChars,
+            CancellationToken.None);
+
+        var bridge = Assert.IsType<PythonWorkerBridgeCallMessage>(
+            message);
+        Assert.Equal("call_1", bridge.CallId);
+        Assert.Equal(
+            "bridge.capabilities",
+            bridge.Call.Method);
+        Assert.Equal(
+            42,
+            bridge.Call.Arguments
+                .GetProperty("sample")
+                .GetInt32());
+    }
+
+    [Fact]
+    public async Task BridgeCallRejectsMismatchedRequestId()
+    {
+        await using var stream = new MemoryStream();
+        await PythonWorkerProtocol.WriteRawFrameAsync(
+            stream,
+            new
+            {
+                type = "bridge_call",
+                requestId = "different",
+                callId = "call_1",
+                method = "bridge.capabilities",
+                arguments = new { }
+            },
+            PythonWorkerProtocol.MaxBridgeCallFrameBytes);
+
+        stream.Position = 0;
+
+        var error = await Assert.ThrowsAsync<PythonWorkerProtocolException>(
+            () => PythonWorkerProtocol.ReadExecutionMessageAsync(
+                stream,
+                "expected",
+                PythonCapability.DefaultMaxOutputChars,
+                CancellationToken.None));
+
+        Assert.Contains("requestId", error.Message);
+    }
+
+    [Fact]
+    public async Task BridgeResultSerializesStructuredLoomError()
+    {
+        await using var stream = new MemoryStream();
+
+        await PythonWorkerProtocol.WriteBridgeResultAsync(
+            stream,
+            "req_1",
+            "call_1",
+            LoomResult<System.Text.Json.JsonElement>.Failure(
+                new LoomError(
+                    "unsupported",
+                    "not available",
+                    false,
+                    new Dictionary<string, object?>
+                    {
+                        ["feature"] = "probe"
+                    })),
+            CancellationToken.None);
+
+        stream.Position = 0;
+        using var document = await PythonWorkerProtocol.ReadRawFrameAsync(
+            stream,
+            PythonWorkerProtocol.MaxBridgeResultFrameBytes);
+
+        var root = document.RootElement;
+        Assert.Equal(
+            "bridge_result",
+            root.GetProperty("type").GetString());
+        Assert.False(root.GetProperty("ok").GetBoolean());
+
+        var error = root.GetProperty("error");
+        Assert.Equal(
+            "unsupported",
+            error.GetProperty("code").GetString());
+        Assert.Equal(
+            "probe",
+            error.GetProperty("details")
+                .GetProperty("feature")
+                .GetString());
+    }
+
+    [Fact]
     public async Task RealWorkerHandshakeAndNamespacePersistenceWork()
     {
         await using var worker = await WorkerHarness.StartAsync();
@@ -382,7 +492,9 @@ public sealed class PythonWorkerProtocolTests
                             "thread_inherit_context=1",
                             installation.WorkerScriptPath,
                             "--pipe-name",
-                            pipeName
+                            pipeName,
+                            "--bridge-script",
+                            installation.BridgeScriptPath
                         ],
                         workingDirectory ?? Environment.CurrentDirectory,
                         new Dictionary<string, string?>(),

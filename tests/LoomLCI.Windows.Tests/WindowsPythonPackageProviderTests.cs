@@ -168,6 +168,55 @@ public sealed class WindowsPythonPackageProviderTests
     }
 
     [Fact]
+    public async Task ReservedLoomNamespaceDoesNotPublishEnvironment()
+    {
+        var root = TemporaryDirectory();
+
+        try
+        {
+            var runtime = new FakeRuntimeProvisioner(root);
+            var manager = new FakePackageManagerProvisioner(root);
+            var processes = new FakeUvProcessProvider
+            {
+                PublishReservedLoomModule = true
+            };
+            var provider = new WindowsPythonPackageProvider(
+                processes,
+                runtime,
+                manager,
+                root);
+
+            var result = await provider.PrepareAsync(
+                new PythonPackagesPrepareSpec(
+                    [new PythonPackageRequirement("numpy")]),
+                CancellationToken.None);
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal(
+                "unsupported",
+                result.Error?.Code);
+            Assert.Contains(
+                "reserved",
+                result.Error?.Message,
+                StringComparison.OrdinalIgnoreCase);
+
+            var envRoot = Path.Combine(
+                root,
+                "packages",
+                "python",
+                "3.14.8-amd64",
+                "envs");
+            Assert.True(Directory.Exists(envRoot));
+            Assert.Empty(
+                Directory.EnumerateDirectories(envRoot));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
     public async Task PruneKeepsProtectedEnvironmentAndEvictsUnprotectedOne()
     {
         var root = TemporaryDirectory();
@@ -295,9 +344,18 @@ public sealed class WindowsPythonPackageProviderTests
                 "fake",
                 Encoding.UTF8);
 
+            var bridgePath = Path.Combine(
+                runtimeDirectory,
+                "loom_bridge.py");
+            File.WriteAllText(
+                bridgePath,
+                "fake",
+                Encoding.UTF8);
+
             _installation = new PythonRuntimeInstallation(
                 pythonPath,
                 workerPath,
+                bridgePath,
                 new PythonRuntimeManifest(
                     "3.14.8",
                     "amd64",
@@ -368,6 +426,7 @@ public sealed class WindowsPythonPackageProviderTests
             => Volatile.Read(ref _startCount);
 
         public bool FailSync { get; set; }
+        public bool PublishReservedLoomModule { get; set; }
 
         public Task<LoomResult<IProcessResource>> StartAsync(
             ProcessLaunchSpec spec,
@@ -411,6 +470,14 @@ public sealed class WindowsPythonPackageProviderTests
                     Path.Combine(target, "installed.txt"),
                     "ok",
                     Encoding.UTF8);
+
+                if (PublishReservedLoomModule)
+                {
+                    File.WriteAllText(
+                        Path.Combine(target, "loom.py"),
+                        "reserved",
+                        Encoding.UTF8);
+                }
             }
 
             var exitCode =

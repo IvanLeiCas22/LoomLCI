@@ -4,7 +4,7 @@ Segundo cerebro del proyecto LoomLCI.
 
 ## Estado
 
-Arquitectura v0.1 reconciliada y baseline cerrada. Process, Filesystem, Native Process/Job Objects, ConPTY, resource lifetime, Python Runtime E1, **[[Python 1 - Paquetes administrados|Python 1]]**, **Agent Support F1**, **Visual Files G1**, Deployment/Launcher, [[Instalador Windows]], [[Auto-update firmado]] y [[Plugin metadata]] están implementados y validados. El Host instalado publica **25 tools** con Work Plan habilitado; el runtime activo `0.1.0-dev-python1` está healthy/ready y conserva rollback hacia `0.1.0-dev-github-e2e`. El plugin privado sigue en **0.3.0** hasta la reconciliación final posterior al bloque Python; el snapshot MCP canónico ya refleja 25 tools. Suite Release actual: **298/298**. Computer H1 sigue pausado; el siguiente objetivo de [[Roadmap post-G1]] es Python 2: bridge privado `loom.*`.
+Arquitectura v0.1 reconciliada y baseline cerrada. Process, Filesystem, Native Process/Job Objects, ConPTY, resource lifetime, Python Runtime E1, **[[Python 1 - Paquetes administrados|Python 1]]**, **[[Python 2 - Bridge privado loom|Python 2 P2.0]]**, **Agent Support F1**, **Visual Files G1**, Deployment/Launcher, [[Instalador Windows]], [[Auto-update firmado]] y [[Plugin metadata]] están implementados/validados hasta sus etapas indicadas. El Host instalado publica **25 tools** con Work Plan habilitado; el runtime activo sigue en `0.1.0-dev-python1` healthy/ready porque el cutover de Python 2 está reservado para P2.4. En código, P2.0 ya cerró protocolo v2 + bridge foundation y la suite Release serial actual es **311/311**. El plugin privado sigue en **0.3.0** hasta la reconciliación final posterior al bloque Python. Computer H1 sigue pausado; el siguiente objetivo de [[Roadmap post-G1]] es **P2.1: Filesystem bridge (`loom.fs`)**.
 
 ## Notas
 
@@ -23,6 +23,7 @@ Arquitectura v0.1 reconciliada y baseline cerrada. Process, Filesystem, Native P
 - [[Python Runtime]]
 - [[Bloque E - Python Runtime]]
 - [[Python 1 - Paquetes administrados]]
+- [[Python 2 - Bridge privado loom]]
 - [[Bloque F - Agent Support]]
 - [[Bloque G - Visual Files]]
 - [[G1.1 - Local image]]

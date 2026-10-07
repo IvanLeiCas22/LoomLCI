@@ -526,6 +526,7 @@ public sealed class PythonCapabilityTests
             Provider = new FakePythonRuntimeProvider();
             Python = new PythonCapability(
                 Provider,
+                new PythonBridgeDispatcher(),
                 Resources,
                 Invocations,
                 Events);
@@ -651,6 +652,7 @@ public sealed class PythonCapabilityTests
 
         public async Task<LoomResult<PythonExecutionResult>> ExecuteAsync(
             PythonWorkerExecuteSpec request,
+            PythonBridgeHandler bridgeHandler,
             CancellationToken cancellationToken)
         {
             if (Interlocked.CompareExchange(ref _executing, 1, 0) != 0)

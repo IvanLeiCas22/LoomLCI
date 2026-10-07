@@ -19,6 +19,7 @@ public sealed class PythonCapability
         new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
     private readonly IPythonRuntimeProvider _provider;
+    private readonly IPythonBridgeDispatcher _bridgeDispatcher;
     private readonly ResourceRegistry _resources;
     private readonly InvocationRunner _invocations;
     private readonly LoomEventBus _events;
@@ -26,11 +27,13 @@ public sealed class PythonCapability
 
     public PythonCapability(
         IPythonRuntimeProvider provider,
+        IPythonBridgeDispatcher bridgeDispatcher,
         ResourceRegistry resources,
         InvocationRunner invocations,
         LoomEventBus events)
     {
         _provider = provider;
+        _bridgeDispatcher = bridgeDispatcher;
         _resources = resources;
         _invocations = invocations;
         _events = events;
@@ -148,6 +151,11 @@ public sealed class PythonCapability
                             new PythonWorkerExecuteSpec(
                                 request.Code,
                                 request.MaxOutputChars),
+                            (call, bridgeToken) =>
+                                _bridgeDispatcher.DispatchAsync(
+                                    context.WorkSession!.Id,
+                                    call,
+                                    bridgeToken),
                             token)
                         .ConfigureAwait(false);
 

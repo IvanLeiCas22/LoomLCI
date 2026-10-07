@@ -30,6 +30,8 @@ public sealed class PythonRuntimeProviderTests
         Assert.Equal(64, manifest.Sha256.Length);
         Assert.NotEmpty(PythonRuntimeAssets.WorkerBytes);
         Assert.Equal(64, PythonRuntimeAssets.WorkerSha256.Length);
+        Assert.NotEmpty(PythonRuntimeAssets.BridgeBytes);
+        Assert.Equal(64, PythonRuntimeAssets.BridgeSha256.Length);
     }
 
     [Fact]
@@ -63,6 +65,8 @@ public sealed class PythonRuntimeProviderTests
                 first.Value!.PythonExecutablePath));
             Assert.True(File.Exists(
                 first.Value.WorkerScriptPath));
+            Assert.True(File.Exists(
+                first.Value.BridgeScriptPath));
             Assert.True(File.Exists(Path.Combine(
                 Path.GetDirectoryName(
                     first.Value.PythonExecutablePath)!,
@@ -236,6 +240,180 @@ public sealed class PythonRuntimeProviderTests
         {
             TryDeleteDirectory(workingDirectory);
         }
+    }
+
+    [Fact]
+    public async Task RealProviderExposesPrivateLoomBridge()
+    {
+        await using var fixture = new PythonFixture();
+        var work = fixture.CreateWork(
+            Environment.CurrentDirectory);
+
+        var result = await fixture.ExecuteAsync(
+            work.Id,
+            "import loom\n" +
+            "print(loom.__bridge_version__)\n" +
+            "print(loom.capabilities())");
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(
+            PythonExecutionStatus.Completed,
+            result.Value!.Status);
+        Assert.Equal(
+            "1\n[]\n",
+            result.Value.Stdout);
+    }
+
+    [Fact]
+    public async Task UnsupportedBridgeCallIsRecoverableAndWorkerStaysAlive()
+    {
+        await using var fixture = new PythonFixture();
+        var work = fixture.CreateWork(
+            Environment.CurrentDirectory);
+
+        var first = await fixture.ExecuteAsync(
+            work.Id,
+            "import loom\n" +
+            "try:\n" +
+            "    loom._bridge_call('missing.method', {})\n" +
+            "except loom.LoomError as exc:\n" +
+            "    print(exc.code)\n" +
+            "    print(exc.retryable)");
+
+        Assert.True(first.IsSuccess, first.Error?.Message);
+        Assert.Equal(
+            "unsupported\nFalse\n",
+            first.Value!.Stdout);
+
+        var firstPid = fixture.ActiveWorker(work.Id).ProcessId;
+
+        var second = await fixture.ExecuteAsync(
+            work.Id,
+            "print('still-alive')");
+
+        Assert.True(second.IsSuccess, second.Error?.Message);
+        Assert.Equal(
+            "still-alive\n",
+            second.Value!.Stdout);
+        Assert.Equal(
+            firstPid,
+            fixture.ActiveWorker(work.Id).ProcessId);
+    }
+
+    [Fact]
+    public async Task ThreadCreatedDuringExecuteCanUseBridge()
+    {
+        await using var fixture = new PythonFixture();
+        var work = fixture.CreateWork(
+            Environment.CurrentDirectory);
+
+        var result = await fixture.ExecuteAsync(
+            work.Id,
+            "import threading, loom\n" +
+            "values = []\n" +
+            "def use_bridge():\n" +
+            "    values.append(loom.capabilities())\n" +
+            "thread = threading.Thread(target=use_bridge)\n" +
+            "thread.start()\n" +
+            "thread.join()\n" +
+            "print(values)");
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(
+            "[[]]\n",
+            result.Value!.Stdout);
+    }
+
+    [Fact]
+    public async Task StaleThreadCannotUseBridgeInLaterExecute()
+    {
+        await using var fixture = new PythonFixture();
+        var work = fixture.CreateWork(
+            Environment.CurrentDirectory);
+
+        var first = await fixture.ExecuteAsync(
+            work.Id,
+            "import threading, time, loom\n" +
+            "late_bridge = []\n" +
+            "def late_call():\n" +
+            "    time.sleep(0.2)\n" +
+            "    try:\n" +
+            "        loom.capabilities()\n" +
+            "        late_bridge.append('unexpected-success')\n" +
+            "    except loom.LoomError as exc:\n" +
+            "        late_bridge.append(exc.code)\n" +
+            "threading.Thread(target=late_call, daemon=True).start()");
+
+        Assert.True(first.IsSuccess, first.Error?.Message);
+
+        var second = await fixture.ExecuteAsync(
+            work.Id,
+            "import time\n" +
+            "time.sleep(0.5)\n" +
+            "print(late_bridge)");
+
+        Assert.True(second.IsSuccess, second.Error?.Message);
+        Assert.Equal(
+            "['bridge_unavailable']\n",
+            second.Value!.Stdout);
+    }
+
+    [Fact]
+    public async Task FinalResultWaitsForActiveBridgeCallback()
+    {
+        var dispatcher = new BlockingBridgeDispatcher();
+        await using var fixture = new PythonFixture(
+            bridgeDispatcher: dispatcher);
+        var work = fixture.CreateWork(
+            Environment.CurrentDirectory);
+
+        var execution = fixture.ExecuteAsync(
+            work.Id,
+            "import loom\nprint(loom.capabilities())");
+
+        await dispatcher.Entered.Task.WaitAsync(
+            TimeSpan.FromSeconds(5));
+
+        Assert.False(execution.IsCompleted);
+
+        dispatcher.Release.TrySetResult();
+
+        var result = await execution;
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(
+            "[]\n",
+            result.Value!.Stdout);
+    }
+
+    [Fact]
+    public async Task TimeoutDuringBridgeCallbackDiscardsWorker()
+    {
+        var dispatcher = new BlockingBridgeDispatcher();
+        await using var fixture = new PythonFixture(
+            bridgeDispatcher: dispatcher);
+        var work = fixture.CreateWork(
+            Environment.CurrentDirectory);
+
+        var execution = fixture.ExecuteAsync(
+            work.Id,
+            "import loom\nloom.capabilities()",
+            TimeSpan.FromSeconds(1));
+
+        await dispatcher.Entered.Task.WaitAsync(
+            TimeSpan.FromSeconds(5));
+        var workerPid = fixture.ActiveWorker(work.Id).ProcessId;
+
+        var result = await execution;
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(
+            "deadline_exceeded",
+            result.Error?.Code);
+        Assert.Empty(
+            fixture.Resources.GetActiveOwnedHandles(
+                PythonCapability.ResourceKind,
+                work.Id));
+        await AssertProcessGoneAsync(workerPid);
     }
 
     [Fact]
@@ -492,9 +670,43 @@ public sealed class PythonRuntimeProviderTests
             firstResult.Error?.Message);
     }
 
+    private sealed class BlockingBridgeDispatcher
+        : IPythonBridgeDispatcher
+    {
+        public TaskCompletionSource Entered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Release { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<LoomResult<JsonElement>> DispatchAsync(
+            WorkId workId,
+            PythonBridgeCall call,
+            CancellationToken cancellationToken)
+        {
+            if (!string.Equals(
+                    call.Method,
+                    "bridge.capabilities",
+                    StringComparison.Ordinal))
+            {
+                return LoomResult<JsonElement>.Failure(
+                    LoomErrors.Unsupported(
+                        $"Python bridge method '{call.Method}' is not supported."));
+            }
+
+            Entered.TrySetResult();
+            await Release.Task.WaitAsync(cancellationToken);
+
+            return LoomResult<JsonElement>.Success(
+                JsonSerializer.SerializeToElement(
+                    Array.Empty<string>()));
+        }
+    }
+
     private sealed class PythonFixture : IAsyncDisposable
     {
-        public PythonFixture()
+        public PythonFixture(
+            IPythonBridgeDispatcher? bridgeDispatcher = null)
         {
             Events = new LoomEventBus();
             Resources = new ResourceRegistry();
@@ -512,6 +724,7 @@ public sealed class PythonRuntimeProviderTests
                     processProvider);
             Python = new PythonCapability(
                 Provider,
+                bridgeDispatcher ?? new PythonBridgeDispatcher(),
                 Resources,
                 Invocations,
                 Events);

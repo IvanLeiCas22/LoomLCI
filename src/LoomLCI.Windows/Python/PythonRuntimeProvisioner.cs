@@ -68,16 +68,25 @@ internal sealed class PythonRuntimeProvisioner : IPythonRuntimeProvisioner
                         cancellationToken)
                     .ConfigureAwait(false);
 
+            var bridgePath = await PythonRuntimeAssets.MaterializeBridgeAsync(
+                    _loomRootDirectory,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
             var runtimeDirectory = RuntimeDirectory();
             if (IsInstalled(runtimeDirectory))
             {
                 return LoomResult<PythonRuntimeInstallation>.Success(
-                    Installation(runtimeDirectory, workerPath));
+                    Installation(
+                        runtimeDirectory,
+                        workerPath,
+                        bridgePath));
             }
 
             return await InstallAsync(
                     runtimeDirectory,
                     workerPath,
+                    bridgePath,
                     cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -112,6 +121,7 @@ internal sealed class PythonRuntimeProvisioner : IPythonRuntimeProvisioner
     private async Task<LoomResult<PythonRuntimeInstallation>> InstallAsync(
         string runtimeDirectory,
         string workerPath,
+        string bridgePath,
         CancellationToken cancellationToken)
     {
         var parentDirectory = Path.GetDirectoryName(runtimeDirectory)
@@ -182,7 +192,10 @@ internal sealed class PythonRuntimeProvisioner : IPythonRuntimeProvisioner
                 runtimeDirectory);
 
             return LoomResult<PythonRuntimeInstallation>.Success(
-                Installation(runtimeDirectory, workerPath));
+                Installation(
+                    runtimeDirectory,
+                    workerPath,
+                    bridgePath));
         }
         finally
         {
@@ -447,10 +460,12 @@ internal sealed class PythonRuntimeProvisioner : IPythonRuntimeProvisioner
 
     private PythonRuntimeInstallation Installation(
         string runtimeDirectory,
-        string workerPath)
+        string workerPath,
+        string bridgePath)
         => new(
             Path.Combine(runtimeDirectory, "python.exe"),
             workerPath,
+            bridgePath,
             _manifest);
 
     private static string MarkerPath(string runtimeDirectory)

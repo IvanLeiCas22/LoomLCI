@@ -212,6 +212,7 @@ public sealed class PythonPackageCapabilityTests
                 Events);
             Python = new PythonCapability(
                 Runtime,
+                new PythonBridgeDispatcher(),
                 Resources,
                 Invocations,
                 Events);
@@ -345,6 +346,7 @@ public sealed class PythonPackageCapabilityTests
 
         public Task<LoomResult<PythonExecutionResult>> ExecuteAsync(
             PythonWorkerExecuteSpec request,
+            PythonBridgeHandler bridgeHandler,
             CancellationToken cancellationToken)
             => Task.FromResult(
                 LoomResult<PythonExecutionResult>.Success(

@@ -96,7 +96,9 @@ public sealed class WindowsPythonRuntimeProvider : IPythonRuntimeProvider
                 "thread_inherit_context=1",
                 installation.WorkerScriptPath,
                 "--pipe-name",
-                pipeName
+                pipeName,
+                "--bridge-script",
+                installation.BridgeScriptPath
             };
 
             if (spec.PackageEnvironment is { } environment)

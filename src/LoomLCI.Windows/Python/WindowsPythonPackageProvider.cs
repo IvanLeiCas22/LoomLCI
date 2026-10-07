@@ -20,7 +20,7 @@ internal sealed record PythonPackageEnvironmentMarker(
 
 public sealed class WindowsPythonPackageProvider : IPythonPackageProvider
 {
-    internal const int PackageStoreSchemaVersion = 1;
+    internal const int PackageStoreSchemaVersion = 2;
     internal const int MaxUvOutputChars = 262_144;
     internal const long DefaultEnvironmentBudgetBytes =
         2L * 1024 * 1024 * 1024;
@@ -353,6 +353,13 @@ public sealed class WindowsPythonPackageProvider : IPythonPackageProvider
                     {
                         return LoomResult<PythonPackagesProviderResult>.Failure(
                             sync.Error!);
+                    }
+
+                    if (PublishesReservedLoomNamespace(sitePath))
+                    {
+                        return LoomResult<PythonPackagesProviderResult>.Failure(
+                            LoomErrors.Unsupported(
+                                "Python package environment publishes the reserved top-level module 'loom'."));
                     }
 
                     var marker = new PythonPackageEnvironmentMarker(
@@ -858,6 +865,47 @@ public sealed class WindowsPythonPackageProvider : IPythonPackageProvider
         }
 
         return total;
+    }
+
+    private static bool PublishesReservedLoomNamespace(
+        string sitePath)
+    {
+        foreach (var entry in Directory.EnumerateFileSystemEntries(
+                     sitePath,
+                     "loom*",
+                     SearchOption.TopDirectoryOnly))
+        {
+            var name = Path.GetFileName(entry);
+            if (Directory.Exists(entry) &&
+                string.Equals(
+                    name,
+                    "loom",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (!File.Exists(entry))
+            {
+                continue;
+            }
+
+            var extension = Path.GetExtension(name);
+            var stem = Path.GetFileNameWithoutExtension(name);
+            if (string.Equals(
+                    stem,
+                    "loom",
+                    StringComparison.OrdinalIgnoreCase) &&
+                extension is not null &&
+                (extension.Equals(".py", StringComparison.OrdinalIgnoreCase) ||
+                 extension.Equals(".pyc", StringComparison.OrdinalIgnoreCase) ||
+                 extension.Equals(".pyd", StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool TryRetireEnvironment(

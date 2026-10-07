@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace LoomLCI.Core.Python;
 
 public enum PythonExecutionStatus
@@ -68,6 +70,22 @@ public sealed record PythonExecutionResult(
     bool StderrTruncated,
     PythonExceptionInfo? Exception);
 
+public sealed record PythonBridgeCall(
+    string Method,
+    JsonElement Arguments);
+
+public delegate Task<LoomResult<JsonElement>> PythonBridgeHandler(
+    PythonBridgeCall call,
+    CancellationToken cancellationToken);
+
+public interface IPythonBridgeDispatcher
+{
+    Task<LoomResult<JsonElement>> DispatchAsync(
+        WorkId workId,
+        PythonBridgeCall call,
+        CancellationToken cancellationToken);
+}
+
 public interface IPythonWorkerResource : IAsyncDisposable
 {
     bool IsHealthy { get; }
@@ -76,6 +94,7 @@ public interface IPythonWorkerResource : IAsyncDisposable
 
     Task<LoomResult<PythonExecutionResult>> ExecuteAsync(
         PythonWorkerExecuteSpec request,
+        PythonBridgeHandler bridgeHandler,
         CancellationToken cancellationToken);
 }
 

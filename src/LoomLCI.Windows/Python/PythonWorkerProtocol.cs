@@ -6,6 +6,7 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
+using LoomLCI.Core;
 using LoomLCI.Core.Python;
 
 namespace LoomLCI.Windows.Python;
@@ -18,14 +19,27 @@ internal sealed record PythonWorkerHello(
     int ProcessId,
     string PythonVersion);
 
+internal abstract record PythonWorkerExecutionMessage;
+
+internal sealed record PythonWorkerResultMessage(
+    PythonExecutionResult Result) : PythonWorkerExecutionMessage;
+
+internal sealed record PythonWorkerBridgeCallMessage(
+    string CallId,
+    PythonBridgeCall Call) : PythonWorkerExecutionMessage;
+
 internal static class PythonWorkerProtocol
 {
-    public const int ProtocolVersion = 1;
+    public const int ProtocolVersion = 2;
     public const int MaxRequestFrameBytes = 2 * 1024 * 1024;
     public const int MaxResponseFrameBytes = 32 * 1024 * 1024;
+    public const int MaxBridgeCallFrameBytes = 2 * 1024 * 1024;
+    public const int MaxBridgeResultFrameBytes = 8 * 1024 * 1024;
     public const int MaxHelloFrameBytes = 16 * 1024;
     public const int MaxCodeUtf8Bytes = PythonCapability.MaxCodeUtf8Bytes;
     public const int MaxRequestIdChars = 128;
+    public const int MaxCallIdChars = 128;
+    public const int MaxBridgeMethodChars = 128;
     public const int MaxExceptionMessageChars = 16 * 1024;
     public const int MaxTracebackChars = 64 * 1024;
 
@@ -184,7 +198,115 @@ internal static class PythonWorkerProtocol
                 cancellationToken)
             .ConfigureAwait(false);
 
+        return ParseExecutionResult(
+            document.RootElement,
+            expectedRequestId,
+            maxOutputChars);
+    }
+
+    public static async Task<PythonWorkerExecutionMessage> ReadExecutionMessageAsync(
+        Stream stream,
+        string expectedRequestId,
+        int maxOutputChars,
+        CancellationToken cancellationToken)
+    {
+        ValidateRequestId(expectedRequestId);
+
+        using var document = await ReadFrameAsync(
+                stream,
+                MaxResponseFrameBytes,
+                cancellationToken)
+            .ConfigureAwait(false);
+
         var root = document.RootElement;
+        RequireObject(root);
+
+        var type = ReadRequiredString(root, "type");
+        return type switch
+        {
+            "result" => new PythonWorkerResultMessage(
+                ParseExecutionResult(
+                    root,
+                    expectedRequestId,
+                    maxOutputChars)),
+            "bridge_call" => ParseBridgeCall(
+                root,
+                expectedRequestId),
+            _ => throw new PythonWorkerProtocolException(
+                $"Unsupported Python worker execution message type '{type}'.")
+        };
+    }
+
+    public static async Task WriteBridgeResultAsync(
+        Stream stream,
+        string requestId,
+        string callId,
+        LoomResult<JsonElement> result,
+        CancellationToken cancellationToken)
+    {
+        ValidateRequestId(requestId);
+        ValidateCallId(callId);
+
+        object envelope = result.IsSuccess
+            ? new
+            {
+                type = "bridge_result",
+                requestId,
+                callId,
+                ok = true,
+                result = result.Value,
+                error = (object?)null
+            }
+            : new
+            {
+                type = "bridge_result",
+                requestId,
+                callId,
+                ok = false,
+                result = (object?)null,
+                error = new
+                {
+                    code = result.Error!.Code,
+                    message = result.Error.Message,
+                    retryable = result.Error.Retryable,
+                    details = result.Error.Details
+                }
+            };
+
+        var payload = SerializeFramePayload(envelope);
+        if (payload.Length > MaxBridgeResultFrameBytes)
+        {
+            envelope = new
+            {
+                type = "bridge_result",
+                requestId,
+                callId,
+                ok = false,
+                result = (object?)null,
+                error = new
+                {
+                    code = "unsupported",
+                    message = $"Python bridge result exceeds {MaxBridgeResultFrameBytes} bytes.",
+                    retryable = false,
+                    details = (object?)null
+                }
+            };
+            payload = SerializeFramePayload(envelope);
+        }
+
+        await WritePayloadAsync(
+                stream,
+                payload,
+                MaxBridgeResultFrameBytes,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private static PythonExecutionResult ParseExecutionResult(
+        JsonElement root,
+        string expectedRequestId,
+        int maxOutputChars)
+    {
         RequireObject(root);
 
         if (ReadRequiredString(root, "type") != "result")
@@ -227,11 +349,11 @@ internal static class PythonWorkerProtocol
         {
             RequireObject(exceptionElement);
 
-            var type = ReadRequiredString(exceptionElement, "type");
+            var exceptionType = ReadRequiredString(exceptionElement, "type");
             var message = ReadRequiredString(exceptionElement, "message");
             var traceback = ReadRequiredString(exceptionElement, "traceback");
 
-            if (CountUnicodeCodePoints(type) > 512 ||
+            if (CountUnicodeCodePoints(exceptionType) > 512 ||
                 CountUnicodeCodePoints(message) > MaxExceptionMessageChars ||
                 CountUnicodeCodePoints(traceback) > MaxTracebackChars)
             {
@@ -239,7 +361,10 @@ internal static class PythonWorkerProtocol
                     "Python worker returned oversized exception metadata.");
             }
 
-            exception = new PythonExceptionInfo(type, message, traceback);
+            exception = new PythonExceptionInfo(
+                exceptionType,
+                message,
+                traceback);
         }
 
         if (status == PythonExecutionStatus.Completed && exception is not null)
@@ -263,6 +388,49 @@ internal static class PythonWorkerProtocol
             exception);
     }
 
+    private static PythonWorkerBridgeCallMessage ParseBridgeCall(
+        JsonElement root,
+        string expectedRequestId)
+    {
+        var rawBytes = StrictUtf8.GetByteCount(root.GetRawText());
+        if (rawBytes > MaxBridgeCallFrameBytes)
+        {
+            throw new PythonWorkerProtocolException(
+                $"Python bridge call exceeds {MaxBridgeCallFrameBytes} bytes.");
+        }
+
+        var requestId = ReadRequiredString(root, "requestId");
+        if (!string.Equals(requestId, expectedRequestId, StringComparison.Ordinal))
+        {
+            throw new PythonWorkerProtocolException(
+                "Python bridge call requestId does not match the active request.");
+        }
+
+        var callId = ReadRequiredString(root, "callId");
+        ValidateCallId(callId);
+
+        var method = ReadRequiredString(root, "method");
+        if (string.IsNullOrWhiteSpace(method) ||
+            method.Length > MaxBridgeMethodChars)
+        {
+            throw new PythonWorkerProtocolException(
+                "Python bridge method must be a non-empty bounded string.");
+        }
+
+        if (!root.TryGetProperty("arguments", out var arguments) ||
+            arguments.ValueKind != JsonValueKind.Object)
+        {
+            throw new PythonWorkerProtocolException(
+                "Python bridge arguments must be a JSON object.");
+        }
+
+        return new PythonWorkerBridgeCallMessage(
+            callId,
+            new PythonBridgeCall(
+                method,
+                arguments.Clone()));
+    }
+
     internal static Task WriteRawFrameAsync(
         Stream stream,
         object value,
@@ -276,24 +444,41 @@ internal static class PythonWorkerProtocol
         CancellationToken cancellationToken = default)
         => ReadFrameAsync(stream, maxFrameBytes, cancellationToken);
 
-    private static async Task WriteFrameAsync(
+    private static Task WriteFrameAsync(
         Stream stream,
         object value,
         int maxFrameBytes,
         CancellationToken cancellationToken)
+        => WritePayloadAsync(
+            stream,
+            SerializeFramePayload(value),
+            maxFrameBytes,
+            cancellationToken);
+
+    private static byte[] SerializeFramePayload(object value)
     {
-        byte[] payload;
         try
         {
-            payload = JsonSerializer.SerializeToUtf8Bytes(value, JsonOptions);
+            return JsonSerializer.SerializeToUtf8Bytes(
+                value,
+                JsonOptions);
         }
-        catch (Exception ex) when (ex is JsonException or NotSupportedException)
+        catch (Exception ex) when (
+            ex is JsonException or
+            NotSupportedException)
         {
             throw new PythonWorkerProtocolException(
                 "Could not serialize Python worker protocol frame.",
                 ex);
         }
+    }
 
+    private static async Task WritePayloadAsync(
+        Stream stream,
+        byte[] payload,
+        int maxFrameBytes,
+        CancellationToken cancellationToken)
+    {
         if (payload.Length < 2 || payload.Length > maxFrameBytes)
         {
             throw new PythonWorkerProtocolException(
@@ -301,11 +486,20 @@ internal static class PythonWorkerProtocol
         }
 
         var header = new byte[sizeof(uint)];
-        BinaryPrimitives.WriteUInt32LittleEndian(header, checked((uint)payload.Length));
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            header,
+            checked((uint)payload.Length));
 
-        await stream.WriteAsync(header, cancellationToken).ConfigureAwait(false);
-        await stream.WriteAsync(payload, cancellationToken).ConfigureAwait(false);
-        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+        await stream.WriteAsync(
+                header,
+                cancellationToken)
+            .ConfigureAwait(false);
+        await stream.WriteAsync(
+                payload,
+                cancellationToken)
+            .ConfigureAwait(false);
+        await stream.FlushAsync(cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private static async Task<JsonDocument> ReadFrameAsync(
@@ -394,6 +588,16 @@ internal static class PythonWorkerProtocol
         {
             throw new PythonWorkerProtocolException(
                 "requestId must be a non-empty bounded string.");
+        }
+    }
+
+    private static void ValidateCallId(string callId)
+    {
+        if (string.IsNullOrWhiteSpace(callId) ||
+            callId.Length > MaxCallIdChars)
+        {
+            throw new PythonWorkerProtocolException(
+                "callId must be a non-empty bounded string.");
         }
     }
 

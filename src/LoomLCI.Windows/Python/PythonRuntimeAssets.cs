@@ -14,12 +14,14 @@ internal sealed record PythonRuntimeManifest(
 internal sealed record PythonRuntimeInstallation(
     string PythonExecutablePath,
     string WorkerScriptPath,
+    string BridgeScriptPath,
     PythonRuntimeManifest Manifest);
 
 internal static class PythonRuntimeAssets
 {
     private const string ManifestResourceName = "LoomLCI.Python.runtime.json";
     private const string WorkerResourceName = "LoomLCI.Python.worker.py";
+    private const string BridgeResourceName = "LoomLCI.Python.loom_bridge.py";
 
     private static readonly Lazy<PythonRuntimeManifest> ManifestValue =
         new(LoadManifestCore, LazyThreadSafetyMode.ExecutionAndPublication);
@@ -28,18 +30,51 @@ internal static class PythonRuntimeAssets
         new(() => ReadResourceBytes(WorkerResourceName),
             LazyThreadSafetyMode.ExecutionAndPublication);
 
+    private static readonly Lazy<byte[]> BridgeValue =
+        new(() => ReadResourceBytes(BridgeResourceName),
+            LazyThreadSafetyMode.ExecutionAndPublication);
+
     public static PythonRuntimeManifest Manifest => ManifestValue.Value;
 
     public static byte[] WorkerBytes => WorkerValue.Value.ToArray();
 
+    public static byte[] BridgeBytes => BridgeValue.Value.ToArray();
+
     public static string WorkerSha256
         => Convert.ToHexStringLower(SHA256.HashData(WorkerValue.Value));
 
-    public static async Task<string> MaterializeWorkerAsync(
+    public static string BridgeSha256
+        => Convert.ToHexStringLower(SHA256.HashData(BridgeValue.Value));
+
+    public static Task<string> MaterializeWorkerAsync(
         string loomRootDirectory,
+        CancellationToken cancellationToken)
+        => MaterializeAssetAsync(
+            loomRootDirectory,
+            "worker",
+            WorkerSha256,
+            WorkerValue.Value,
+            cancellationToken);
+
+    public static Task<string> MaterializeBridgeAsync(
+        string loomRootDirectory,
+        CancellationToken cancellationToken)
+        => MaterializeAssetAsync(
+            loomRootDirectory,
+            "loom-bridge",
+            BridgeSha256,
+            BridgeValue.Value,
+            cancellationToken);
+
+    private static async Task<string> MaterializeAssetAsync(
+        string loomRootDirectory,
+        string name,
+        string sha256,
+        byte[] bytes,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(loomRootDirectory);
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
         var directory = Path.Combine(
             loomRootDirectory,
@@ -49,7 +84,7 @@ internal static class PythonRuntimeAssets
 
         var finalPath = Path.Combine(
             directory,
-            $"worker-{WorkerSha256[..16]}.py");
+            $"{name}-{sha256[..16]}.py");
 
         if (File.Exists(finalPath))
         {
@@ -63,7 +98,7 @@ internal static class PythonRuntimeAssets
         {
             await File.WriteAllBytesAsync(
                     temporaryPath,
-                    WorkerValue.Value,
+                    bytes,
                     cancellationToken)
                 .ConfigureAwait(false);
 

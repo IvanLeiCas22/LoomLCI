@@ -2315,6 +2315,33 @@ public sealed class McpStdioTests
                     GetRequiredProperty(assignRoot, "result"),
                     "status").GetString());
 
+            var bridge = await client.CallToolAsync(
+                "python_execute",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workId,
+                    ["code"] =
+                        "import loom\n" +
+                        "print(loom.__bridge_version__)\n" +
+                        "print(loom.capabilities())"
+                });
+
+            var bridgeRoot = GetStructured(bridge.StructuredContent);
+            Assert.True(GetRequiredProperty(bridgeRoot, "ok").GetBoolean());
+            var bridgeResult = GetRequiredProperty(
+                bridgeRoot,
+                "result");
+            Assert.Equal(
+                "completed",
+                GetRequiredProperty(
+                    bridgeResult,
+                    "status").GetString());
+            Assert.Equal(
+                "1\n[]\n",
+                GetRequiredProperty(
+                    bridgeResult,
+                    "stdout").GetString());
+
             var print = await client.CallToolAsync(
                 "python_execute",
                 new Dictionary<string, object?>

@@ -165,7 +165,22 @@ Validación multi-PC cerrada: el mismo paquete se instaló desde cero en una not
 - runtime instalado `0.1.0-dev-python1`, healthy/ready, rollback hacia `0.1.0-dev-github-e2e`;
 - IntegrationTests contra la DLL instalada: **17/17**.
 
-El smoke directo de `python_packages_prepare` desde ChatGPT quedó completado con catálogo MCP refrescado: environment NumPy 2.5.3 + Pandas 3.0.6 reutilizado correctamente y `python_execute` ejecutó imports/cálculo real. **Python 1 queda CERRADO end-to-end.** La próxima etapa de [[Roadmap post-G1]] es **Python 2: bridge privado `loom.*`**. La reconciliación final de la skill sigue después del bloque Python.
+El smoke directo de `python_packages_prepare` desde ChatGPT quedó completado con catálogo MCP refrescado: environment NumPy 2.5.3 + Pandas 3.0.6 reutilizado correctamente y `python_execute` ejecutó imports/cálculo real. **Python 1 queda CERRADO end-to-end.**
+
+## Python 2 - Bridge privado loom.*
+
+[[Python 2 - Bridge privado loom]] tiene **P2.0 CERRADO**:
+
+- protocolo Worker/Host v2 sobre el Named Pipe privado existente;
+- `bridge_call` / `bridge_result` multiplexados antes del resultado final;
+- handler ligado a cada `python_execute`/WorkSession;
+- correlación `requestId`/`callId`, errores recuperables y protección frente a threads tardíos;
+- módulo privado `loom`, bridge API v1 y `loom.capabilities()` foundation;
+- package-store schema v2 con namespace `loom` reservado;
+- suite Release serial **311/311**;
+- smoke Release NumPy + Pandas + `import loom`: **P20_SMOKE_OK**.
+
+El runtime instalado permanece en `0.1.0-dev-python1`; el cutover de Python 2 se reserva para P2.4. La próxima etapa es **P2.1: Filesystem bridge (`loom.fs`)**. La reconciliación final de la skill sigue después del bloque Python.
 
 ## Visual Files G1 - CERRADO
 
