@@ -30,7 +30,7 @@ Orden preliminar:
 
 1. [[Python 1 - Paquetes administrados|paquetes de terceros administrados/versionados por LoomLCI]] — **CERRADO**: `uv` privado fijado/verificado, environments inmutables con locks+hashes, `python_packages_prepare`, binding por WorkSession, reset explícito al cambiar environment, GC protegido y deployment instalado validado;
 2. [[Python 2 - Bridge privado loom|bridge privado `loom.*` entre el worker Python y capabilities de LoomLCI]] — **CERRADO end-to-end (P2.0–P2.4)**: protocolo privado v2, router modular, `loom.fs`, `loom.process`, lifecycle/ownership administrado, hardening, deployment real, consumer smoke y fresh-agent smoke completados;
-3. [[Python 3 - Outputs binarios e imágenes|outputs binarios/imágenes desde Python hacia el modelo]] — **P3.0 y P3.1 CERRADOS; P3.2 implementado/deployado, fresh-agent final post-0.5.1 pendiente**. Runtime activo `0.1.0-dev-python3` healthy/ready con Python 2 como rollback; Host instalado: 25 tools, bridge v2, `loom.display_image`, sin `outputSchema`; Integration **21/21** contra DLL instalada y suite Release posterior **356/356**. El mixed image result del Host quedó probado correcto; la regresión específica de ChatGPT Code Mode se bordea mediante plugin **0.5.1** (`image(item)` sobre `content_items[type=image]`), publicado por CAS/read-back sin contract drift. Falta únicamente aceptar en un fresh-agent ciego que la skill aplica el workaround sin ayuda y confirmar que imagen local existente sigue usando `filesystem_view_image`; blobs/audio genéricos siguen diferidos.
+3. [[Python 3 - Outputs binarios e imágenes|outputs binarios/imágenes desde Python hacia el modelo]] — **CERRADO end-to-end (P3.0–P3.2)**. Runtime activo `0.1.0-dev-python3` healthy/ready con Python 2 como rollback; Host instalado: 25 tools, bridge v2, `loom.display_image`, sin `outputSchema`; Integration **21/21** contra DLL instalada y suite Release posterior **356/356**. El mixed image result del Host quedó probado correcto; la regresión específica de ChatGPT Code Mode se bordea mediante plugin **0.5.1** (`image(item)` sobre `content_items[type=image]`), publicado por CAS/read-back sin contract drift. Aceptación final: fresh-agent ciego PASS para imagen Python in-memory y control PASS para imagen local con `filesystem_view_image`. `UI_RENDER` inline sigue siendo una limitación externa no bloqueante; blobs/audio genéricos continúan diferidos.
 
 ## Horizonte lejano / post-roadmap actual
 
@@ -66,6 +66,4 @@ Es un tema transversal:
 
 ## Próxima acción
 
-**[[Python 3 - Outputs binarios e imágenes|P3.2: fresh-agent final]].**
-
-Deployment, cutover, suite Release y smoke de persistencia/errores están completados; el workaround visual plugin-only **0.5.1** también está publicado y verificado por CAS/read-back. El único pendiente es abrir un chat nuevo y ejecutar la aceptación **sin mencionar `content_items` ni `image(item)`**: imagen generada completamente en memoria por Python debe llegar visualmente vía `loom.display_image` y la skill 0.5.1; imagen local existente debe seguir usando `filesystem_view_image`. Si ambos pasan, cerrar Python 3 end-to-end.
+Python 3 queda **cerrado end-to-end**. El siguiente bloque del roadmap puede elegirse sin pendientes técnicos de P3. La limitación `UI_RENDER` de imágenes Python in-memory en ChatGPT Web/Code Mode queda documentada como externa y no bloqueante.

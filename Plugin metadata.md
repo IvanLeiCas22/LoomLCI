@@ -273,8 +273,8 @@ Implementado/publicado como patch plugin-only, sin tocar Host ni contrato MCP:
 - `.codex-plugin/plugin.json`: 0.5.1 sincronizado;
 - `mcp.json` / `.mcp.json`: `mcpServers: {}` preservado.
 
-Pendiente para cerrar Python 3 end-to-end: **fresh-agent ciego post-0.5.1 sin mencionar el workaround**, más control de imagen local existente por `filesystem_view_image`.
+Aceptación final post-0.5.1: **PASS**. El fresh-agent ciego identificó correctamente rojo/triángulo antes de revelar el caso 2, demostrando visión real y aplicación autónoma del workaround. El control negativo describió `visual-smoke.png` usando directamente `filesystem_view_image`, sin Python/OCR/base64. `MODEL_VISION` y routing quedan PASS; `UI_RENDER` inline de la imagen Python sigue ausente en ChatGPT Web/Code Mode y se registra como limitación externa no bloqueante.
 
 ### Criterio de cierre
 
-La reconciliación queda cerrada cuando la fuente canónica refleja Python 1 + Python 2, el anti-drift protege loom.fs/loom.process, el paquete 0.4.0 verifica 25 tools sin drift, el plugin existente se actualiza por CAS/read-back y los fresh-agent positives/negatives seleccionan correctamente bridge vs tools top-level.
+La reconciliación queda **cerrada**: la fuente canónica refleja Python 1 + Python 2 + Python 3, el anti-drift protege bridge y routing visual, el paquete 0.5.1 verifica 25 tools sin drift, el mismo plugin fue actualizado por CAS/read-back y los fresh-agent positivos/negativos seleccionan correctamente bridge, workaround visual y tools top-level.

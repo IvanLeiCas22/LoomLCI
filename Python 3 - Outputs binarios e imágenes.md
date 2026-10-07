@@ -1,6 +1,6 @@
 # Python 3 - Outputs binarios e imágenes
 
-> Estado: **P3.0 y P3.1 CERRADOS. P3.2 (evaluation / deployment / plugin) pendiente.** `python_execute` ya entrega mixed `StructuredContent + ImageContentBlock`, aplica el presupuesto MCP de 9 MiB y conserva semántica post-execution recuperable.
+> Estado: **Python 3 CERRADO end-to-end (P3.0–P3.2).** `python_execute` entrega mixed `StructuredContent + ImageContentBlock`, aplica el presupuesto MCP de 9 MiB, conserva semántica post-execution recuperable y el plugin 0.5.1 resuelve el forwarding visual específico de ChatGPT Code Mode.
 
 ## Objetivo
 
@@ -540,7 +540,7 @@ Es la ruta de menor complejidad y reutiliza directamente los dos comportamientos
 
 ### P3.2 — Evaluation / deployment / plugin
 
-> Estado: **investigación/diseño + implementación/deployment/plugin 0.5.1 cerrados; fresh-agent final post-0.5.1 pendiente.** No fue necesario reabrir P3.0/P3.1, redeployar el Host ni agregar una tool MCP.
+> Estado: **CERRADO end-to-end.** Investigación/diseño, implementación, deployment, plugin 0.5.1 y fresh-agent final están completos. No fue necesario reabrir P3.0/P3.1, redeployar el Host ni agregar una tool MCP.
 
 #### Estado real previo al cutover
 
@@ -760,7 +760,7 @@ Prueba ciega controlada en la misma superficie Code Mode: `python_execute` eligi
 
 #### P3.2 follow-up — diseño de workaround 0.5.1
 
-> Estado: **investigación/diseño cerrados; workaround 0.5.1 técnicamente aplicable; implementación pendiente de aprobación.** El probe fresh-agent exacto pasó ciegamente (`test_case_id=10` -> amarillo/cuadrado), por lo que ya existe evidencia de que una skill puede inducir el forwarding visual en ChatGPT Code Mode sin tocar el Host.
+> Estado histórico de esta etapa: la investigación/diseño cerró con el workaround 0.5.1 técnicamente aplicable; posteriormente fue aprobado, implementado y validado. El probe fresh-agent exacto previo había pasado ciegamente (caso 10 -> amarillo/cuadrado), dando evidencia de que una skill podía inducir el forwarding visual en ChatGPT Code Mode sin tocar el Host.
 
 La evidencia cambia el orden recomendado. No conviene publicar 0.5.1 sólo por intuición:
 
@@ -1031,7 +1031,7 @@ Ejecutada tras aprobación:
 - read-back confirmó manifest 0.5.1, skill, README, `.codex-plugin/plugin.json` 0.5.1 y neutralizadores `mcpServers: {}`;
 - no hubo redeploy/cutover del runtime ni cambio en las 25 tools.
 
-El único pendiente es la aceptación fresh-agent **sin mencionar `content_items`, `image(item)` ni el workaround**.
+La aceptación fresh-agent final, sin mencionar `content_items`, `image(item)` ni el workaround, quedó **PASS**.
 
 #### Fresh-agent final
 
@@ -1055,6 +1055,17 @@ Dar la ruta de `artifacts/g11-smoke/visual-smoke.png` y pedir inspección visual
 PASS si usa directamente `filesystem_view_image`, sin Python ni lectura/base64 manual.
 
 Estos dos casos prueban exactamente la nueva decisión de routing introducida por Python 3.
+
+**Resultado final post-0.5.1:**
+
+- caso positivo ciego: **PASS**. El fresh-agent respondió **rojo / triángulo** antes de revelar el caso; el execute posterior devolvió **2**, que corresponde exactamente a rojo/triángulo;
+- no se escribieron archivos temporales ni se usó `filesystem_view_image` para el output Python in-memory;
+- caso negativo: **PASS**. `visual-smoke.png` fue descrito correctamente mediante `filesystem_view_image`, sin Python, shell, OCR ni base64 manual;
+- `MODEL_VISION`: **PASS**;
+- routing `loom.display_image` vs `filesystem_view_image`: **PASS**;
+- `UI_RENDER` de la imagen Python in-memory: **no disponible actualmente en ChatGPT Web/Code Mode**; el modelo sí recibe la imagen mediante el workaround 0.5.1. Esta diferencia queda documentada como limitación externa no bloqueante.
+
+Con esto, **P3.2 / Python 3 queda CERRADO end-to-end**.
 
 #### Criterio de cierre P3.2 / Python 3
 
