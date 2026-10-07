@@ -250,7 +250,30 @@ Implementado/publicado en P3.2:
 
 La ruta Windows volvió a ser rechazada por Plugin Creator antes de mutar el plugin; trasladar el mismo ZIP al entorno de Plugin Creator resolvió el upload sin cambiar el contenido.
 
-Pendiente para cerrar Python 3 end-to-end: fresh-agent visual en chat nuevo, porque el chat que ejecutó el cutover conserva el snapshot anterior de `python_execute`.
+El fresh-agent visual posterior expuso una regresión específica de ChatGPT Code Mode: `python_execute` devolvía correctamente `ImageContentBlock`, pero el consumidor no lo materializaba automáticamente al modelo. La investigación aisló un workaround limpio en la capa de skill y un probe ciego lo validó (`test_case_id=10` -> amarillo/cuadrado).
+
+### Compatibilidad ChatGPT Code Mode - plugin 0.5.1
+
+Implementado/publicado como patch plugin-only, sin tocar Host ni contrato MCP:
+
+- manifest canónico: **0.5.0 -> 0.5.1**;
+- skill: cuando ChatGPT Code Mode expone `content_items`, cada item `type === "image"` se pasa a `image(item)` antes de interpretar la imagen;
+- no se usa `StructuredContent`/`outputs[]` como sustituto de visión y no hay fallback a base64/temp file;
+- README documenta el workaround como compatibilidad del consumidor, no como contrato MCP;
+- verifier + `PluginSkillTracksFinalPythonWorkflow` protegen `ChatGPT Code Mode`, `content_items`, `type === "image"`, `image(item)` y `StructuredContent`;
+- verifier focalizado: **OK**;
+- focused IntegrationTest: **1/1**;
+- suite Release: **356/356**;
+- build contra Host instalado `0.1.0-dev-python3`: **25 tools, snapshot MCP sin drift**;
+- ZIP: **5.331 bytes**, SHA-256 `2faf31f0ea71c2370ea45d0a9236fd3b67053e570c5e5e9bb33224c9a8994566`;
+- plugin id preservado: `plugins_6ac0a247c2b08191bca02893456adf28`;
+- release anterior: `pluginrel_6ac66682d9908191b16d4033923f84fa` (0.5.0);
+- release actual: `pluginrel_6ac67bd0c32c8191b62893bff09c9dac` (0.5.1);
+- update CAS + read-back completo: **OK**;
+- `.codex-plugin/plugin.json`: 0.5.1 sincronizado;
+- `mcp.json` / `.mcp.json`: `mcpServers: {}` preservado.
+
+Pendiente para cerrar Python 3 end-to-end: **fresh-agent ciego post-0.5.1 sin mencionar el workaround**, más control de imagen local existente por `filesystem_view_image`.
 
 ### Criterio de cierre
 

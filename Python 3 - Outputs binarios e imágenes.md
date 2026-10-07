@@ -540,7 +540,7 @@ Es la ruta de menor complejidad y reutiliza directamente los dos comportamientos
 
 ### P3.2 — Evaluation / deployment / plugin
 
-> Estado: **investigación/diseño + implementación/deployment/plugin cerrados; fresh-agent final pendiente.** No fue necesario reabrir P3.0/P3.1 ni agregar una tool MCP.
+> Estado: **investigación/diseño + implementación/deployment/plugin 0.5.1 cerrados; fresh-agent final post-0.5.1 pendiente.** No fue necesario reabrir P3.0/P3.1, redeployar el Host ni agregar una tool MCP.
 
 #### Estado real previo al cutover
 
@@ -742,9 +742,300 @@ La primera llamada a Plugin Creator con la ruta Windows fue rechazada antes de m
 
 El único criterio de cierre aún pendiente es el **fresh-agent visual positivo/negativo** en un chat nuevo que reciba el catálogo Python 3 y la skill 0.5.0.
 
+Primer intento fresh-agent positivo: el agente eligió correctamente `python_execute` + `loom.display_image`, generó el PNG in-memory y comprobó persistencia, pero la UI no mostró la imagen. Tras refrescar herramientas y repetir en otro chat, volvió a ocurrir lo mismo. Por lo tanto **snapshot/caché no explica por sí solo el fallo**.
+
+Investigación más profunda:
+
+- `python_execute` y `filesystem_view_image` construyen el mismo patrón MCP: `StructuredContent` + `TextContentBlock` + `ImageContentBlock`, ambos sin `outputSchema`;
+- los IntegrationTests raw MCP verifican que `python_execute.Content` contiene realmente `ImageContentBlock` con los bytes correctos;
+- sobre el runtime instalado, ambos tools llegan a la capa Code Mode con la misma normalización: `content_items=[text,image]`;
+- una prueba controlada de `python_execute` confirmó que, cuando la orquestación exterior reenvía explícitamente el item `image`, ChatGPT recibe/renderiza el PNG correctamente;
+- si la orquestación exterior sólo emite texto/StructuredContent, el bloque visual queda dentro del resultado anidado y no llega al contexto visual del modelo;
+- la documentación oficial de MCP confirma que `CallToolResult.content` puede contener imágenes y es el contenido destinado al LLM; la documentación oficial de plugins de OpenAI también declara que `content` se expone al modelo, pero no garantiza que todo image block anidado por Code Mode se materialice automáticamente como imagen visible en la conversación;
+- existe además una regresión pública reciente y todavía abierta en ChatGPT Web / Code Mode (openai/codex #46927, observada desde 2026-09-18) donde `content[type=image]` producido correctamente por un MCP llega en Codex CLI pero no al contexto visual de ChatGPT Web, incluso con imágenes mínimas. Esto hace que la capa consumer/orchestration sea actualmente un punto conocido de fragilidad.
+
+Conclusión provisional: **no hay evidencia de un defecto en P3.1/Host/tunnel**. El punto de fallo más probable es la materialización/forwarding del image block en la capa de orquestación de ChatGPT Code Mode. Una modificación de skill/server instructions para exigir forwarding explícito puede servir como workaround en superficies donde el helper de imagen está disponible, pero no debe tratarse todavía como solución garantizada porque hay evidencia externa de una regresión del consumidor. Antes de implementar 0.5.1, la aceptación debe separar dos objetivos: (1) que el modelo reciba realmente la imagen y (2) que la UI la muestre al usuario. El primer objetivo se debe probar con una imagen visualmente aleatoria cuyo resultado no pueda inferirse por el código ni por metadata.
+
+Prueba ciega controlada en la misma superficie Code Mode: `python_execute` eligió criptográficamente al azar uno de cuatro colores sin imprimir ni exponer la elección y devolvió sólo `content_items=[text,image]`. Cuando la orquestación exterior reenvió explícitamente el `ImageContent`, el modelo vio **verde**; un segundo execute reveló luego `blind_secret = green`, confirmando visión real. Repetido sin reenviar el item visual, el resultado anidado siguió conteniendo `image/png`, pero el modelo no recibió ninguna imagen; al revelar después el secreto era **blue**. Esto aísla de forma fuerte la diferencia en el **forwarding del resultado anidado**, no en la generación o serialización MCP.
+
+#### P3.2 follow-up — diseño de workaround 0.5.1
+
+> Estado: **investigación/diseño cerrados; workaround 0.5.1 técnicamente aplicable; implementación pendiente de aprobación.** El probe fresh-agent exacto pasó ciegamente (`test_case_id=10` -> amarillo/cuadrado), por lo que ya existe evidencia de que una skill puede inducir el forwarding visual en ChatGPT Code Mode sin tocar el Host.
+
+La evidencia cambia el orden recomendado. No conviene publicar 0.5.1 sólo por intuición:
+
+- el Host ya devuelve un `CallToolResult.content` estándar con `ImageContentBlock`;
+- el mismo resultado llega a Code Mode normalizado como `content_items=[text,image]`;
+- la capa exterior puede materializar la imagen si reenvía explícitamente ese item;
+- la skill sólo puede influir en la decisión/orquestación del agente; **no puede reparar por sí misma una regresión del runtime consumidor**.
+
+Por eso el siguiente paso previo a implementación es un **probe de capacidad de forwarding explícito usando todavía plugin 0.5.0**.
+
+##### Probe A — forwarding explícito, ciego
+
+En chat nuevo, pedir:
+
+1. LoomLCI + una WorkSession;
+2. `python_execute` debe elegir con `secrets` al azar:
+   - un color de al menos 4 opciones;
+   - una figura de al menos 3 opciones;
+3. guardar la elección en un global `blind_secret`;
+4. **no imprimir, serializar, inspeccionar ni revelar `blind_secret`**;
+5. generar el PNG sólo en memoria y llamar `loom.display_image(...)`;
+6. si el resultado de la tool contiene items visuales, **preservarlos/reenviarlos como contenido de imagen usando el mecanismo visual nativo de Code Mode, sin reducir el resultado a JSON/StructuredContent**;
+7. sin ejecutar Python de nuevo, responder únicamente qué color/figura se ve.
+
+Segundo turno humano: pedir otro `python_execute` que imprima `blind_secret`.
+
+PASS sólo si la descripción visual previa coincide exactamente con el secreto posterior. La probabilidad de acierto casual debe ser <= 1/12.
+
+Si este probe **falla**, no implementar 0.5.1: una skill no dispone de un mecanismo efectivo para salvar la regresión y P3.2 debe registrar la limitación externa del consumidor.
+
+Si este probe **pasa**, hay evidencia de que la orquestación del agente sí puede aplicar el workaround. Recién entonces implementar plugin **0.5.1**.
+
+##### Scope propuesto de 0.5.1 si Probe A pasa
+
+**Plugin-only en primera instancia; no tocar Host/protocolo.**
+
+Skill, sección Python/visual:
+
+- cuando una tool LoomLCI devuelva contenido visual, preservar los image content items como imagen para el modelo;
+- no convertir/stringificar el resultado completo a texto ni usar sólo `StructuredContent` / `outputs[]`;
+- para ChatGPT Code Mode, cuando la capa JS exponga `content_items`, reenviar cada item `type=image` mediante su helper visual nativo antes de interpretar/describir la imagen;
+- metadata `kind/mimeType/sizeBytes` confirma transporte, pero **no sustituye visión**;
+- esto aplica especialmente a `python_execute` después de `loom.display_image`; las tools visuales top-level mantienen su routing actual.
+
+README: documentar la compatibilidad/workaround como comportamiento específico del consumidor, no como requisito MCP.
+
+Verifier + IntegrationTest de skill: proteger markers conceptuales equivalentes a:
+
+- `content_items`;
+- `type=image`;
+- preservar/reenviar contenido visual;
+- no reducir a StructuredContent/metadata;
+- `loom.display_image`.
+
+No modificar inicialmente:
+
+- `PythonTools`;
+- `McpToolResults`;
+- protocol v3;
+- payload limits;
+- `outputSchema`;
+- ServerInstructions/description del Host.
+
+Razón: esos componentes ya cumplen el contrato y tocarlos fuerza contract drift + deployment sin evidencia de que puedan corregir el boundary consumer. Sólo considerar guidance también en ServerInstructions/tool description si la skill 0.5.1 demuestra el workaround pero fresh-agent no la aplica consistentemente.
+
+##### Aceptación de 0.5.1 — prueba ciega sin ayuda
+
+Después de publicar 0.5.1, chat nuevo con un prompt que **no mencione** `loom.display_image`, `content_items`, forwarding ni el helper visual:
+
+- generar una imagen in-memory con color + figura elegidos por `secrets`;
+- guardar el secreto global y no revelarlo;
+- mostrar la imagen;
+- describir sólo lo visto;
+- prohibir archivos temporales y un segundo execute antes de la respuesta visual.
+
+Segundo turno: revelar `blind_secret`.
+
+Criterios separados:
+
+- **MODEL_VISION PASS**: descripción previa == secreto posterior;
+- **ROUTING PASS**: `python_execute` + `loom.display_image`, sin temp files/`filesystem_view_image`;
+- **PERSISTENCE PASS**: el secreto sigue disponible en segundo execute;
+- **UI_RENDER**: registrar aparte si el usuario ve un thumbnail/imagen inline.
+
+Para el objetivo Python 3 “imagen hacia el modelo”, **UI_RENDER no debe bloquear el cierre si MODEL_VISION pasa**. Hay evidencia pública de que consumidores ChatGPT/Codex pueden entregar imagen al modelo sin renderizarla al usuario, y también de regresiones donde image tool output no llega al contexto visual. Deben tratarse como boundaries distintos.
+
+Si Probe A pasa pero el fresh-agent 0.5.1 falla, conservar como workaround best-effort o revertir según utilidad, pero **no seguir cambiando el transporte LoomLCI** sin nueva evidencia.
+
+#### Evaluación crítica de workarounds tras FAIL del forwarding explícito
+
+El probe de guidance genérico también falló: aun pidiendo preservar/reenviar contenido visual, el fresh-agent respondió que no veía ninguna imagen. Esto reduce mucho el valor de seguir agregando wording inespecífico a la skill.
+
+A partir del código actual, la arquitectura y la evidencia del consumidor, las alternativas quedan así:
+
+**A. No workaround / esperar corrección del consumidor — preferida si no pasa un probe más específico.**
+
+- mantiene el contrato MCP estándar ya correcto;
+- no agrega tools, estado, archivos temporales ni semántica específica de ChatGPT al Host;
+- evita diseñar arquitectura permanente alrededor de una regresión externa abierta;
+- costo: P3.2 queda con limitación conocida en ChatGPT Web/Code Mode mientras `filesystem_view_image` sí funciona.
+
+**B. Workaround plugin-only usando el helper visual nativo de Code Mode — única alternativa que merece un probe antes de descartarla.**
+
+La capa Code Mode expone un helper visual explícito para materializar imágenes devueltas por tools. En esta sesión se comprobó que, al tomar el item `type=image` de `content_items` y reenviarlo con ese helper, el modelo recibe visión real. Esta alternativa no cambia Host, protocolo ni catálogo MCP.
+
+Pero el workaround sólo es aceptable si un fresh-agent demuestra que puede aplicarlo de forma reproducible con instrucciones **exactas**, no sólo con “preservar/reenviar”. El probe debe indicar expresamente que, al invocar LoomLCI mediante Code Mode, si el resultado contiene `content_items`, debe ejecutar el helper nativo `image(item)` sobre cada item `type === "image"` antes de razonar sobre la imagen.
+
+Riesgos:
+
+- depende de una primitiva de orquestación de ChatGPT/Code Mode, no del estándar MCP;
+- `content_items` es una normalización del host, no parte del contrato público de LoomLCI;
+- puede variar entre ChatGPT y Codex;
+- por lo tanto, aun si funciona, debe vivir sólo en la **skill/plugin** como workaround condicionado al host, nunca en Core/MCP.
+
+Si este probe exacto falla, **descartar 0.5.1**.
+
+Prueba local de la mecánica exacta en Code Mode: `python_execute` eligió un color aleatorio con `secrets`, devolvió `content_items=[text,image]` y la orquestación ejecutó explícitamente `image(item)` para el item visual. El modelo recibió/renderizó **amarillo**; un segundo `python_execute` reveló luego `blind_name = yellow`. Esto confirma que el helper concreto funciona en esta superficie. Lo que aún falta probar es si un **fresh-agent** puede aplicar esa mecánica por instrucción de skill de forma autónoma y estable.
+
+**C. Temp file administrado + `filesystem_view_image` — rechazado salvo emergencia.**
+
+Funcionaría probablemente porque el camino `filesystem_view_image` ya está validado, pero:
+
+- rompe el objetivo “in-memory image output”;
+- introduce persistencia transitoria de bytes en disco, cleanup y superficie de privacidad;
+- convierte una operación conceptual en dos llamadas;
+- acopla Python 3 a una regresión temporal del consumidor.
+
+Aunque LoomLCI ya usa `%TEMP%` para otros recursos internos, usar disco como transporte visual sería una degradación arquitectónica clara.
+
+**D. Cache in-memory + nueva tool visual (`python_view_image` / handle) — técnicamente limpia en lifecycle, pero no justificada.**
+
+La infraestructura podría soportarla bien: `ResourceRegistry` ya tiene recursos `SessionOwned`, cleanup en `work_close`, handles opacos y leases. Cada output podría registrarse como recurso image y una segunda tool devolverlo visualmente.
+
+Problemas decisivos:
+
+- aumenta el catálogo público (25 -> 26 tools) sólo para bordear un bug del consumidor;
+- obliga a definir handles, múltiple-output, expiración/concurrencia y semántica de release;
+- no hay evidencia de que ChatGPT vaya a materializar una imagen runtime de esa nueva tool mejor que la de `python_execute`; el issue público de Code Mode reproduce justamente con tools runtime-generated;
+- implementar sólo para descubrir si el host la trata distinto sería demasiado invasivo.
+
+No recomendada.
+
+**E. Sobrecargar `filesystem_view_image` con handles/URI virtuales — rechazada.**
+
+Podría intentar aprovechar que esa tool sí funciona, pero contaminaría una capability de filesystem con recursos no-filesystem y dependería de una posible heurística privada del consumidor basada en el nombre/tool. Mala separación de responsabilidades.
+
+**F. MCP Resource/ResourceLink/EmbeddedResource — no recomendada.**
+
+Es estándar MCP para adjuntar o referenciar blobs, pero no hay evidencia de que ChatGPT Web materialice un recurso binario en contexto visual de forma más fiable que `ImageContentBlock`. Añadiría otra superficie pública y otra etapa de dereference sin resolver el boundary conocido.
+
+**G. MCP App/UI widget — rechazada para el objetivo de Python 3.**
+
+Puede resolver “el usuario ve la imagen”, pero no garantiza “el modelo ve la imagen”. El objetivo de `loom.display_image` es visión del modelo, no construir una galería UI. Sería una solución a otro problema.
+
+**H. Base64/data URI como texto — rechazada.**
+
+No convierte bytes en input visual del modelo, desperdicia contexto y empeora los límites de payload.
+
+##### Decisión crítica
+
+No se justifica ningún cambio de Core/MCP/runtime para bordear este problema.
+
+Sólo queda una última hipótesis razonablemente limpia: **plugin-only + helper `image(...)` exacto de Code Mode**. Debe probarse primero sin publicar nada nuevo. Si ese probe pasa, 0.5.1 puede limitarse a skill/README/verifier/test y declararse workaround host-specific/best-effort. Si falla, se abandona el workaround y P3.2 documenta una limitación externa del consumidor.
+
+##### Diseño final propuesto para 0.5.1 tras probe PASS
+
+La evidencia previa al cambio es suficiente para justificar un **patch release plugin-only**:
+
+- el probe fresh-agent explícito con `image(item)` respondió **amarillo/cuadrado** antes de revelar el caso;
+- el segundo turno reveló `test_case_id = 10`, que mapea exactamente a amarillo/cuadrado;
+- no hubo temp files ni `filesystem_view_image` en el caso positivo;
+- el workaround sólo necesita modificar instrucciones; el Host ya entrega el image block correcto.
+
+La documentación oficial de OpenAI respalda el lugar arquitectónico elegido:
+
+- las skills existen precisamente para enseñar secuencias de tools, decision points y manejo de resultados sin mover lógica de workflow al MCP server;
+- `content` de un tool result se expone al modelo/componente;
+- OpenAI recomienda empezar con la forma más pequeña que resuelva el caso de uso.
+
+Al mismo tiempo, `image(item)` / `content_items` deben tratarse como **compatibilidad específica del host ChatGPT Code Mode**, no como parte del contrato MCP de LoomLCI ni como API pública garantizada. El issue público openai/codex #46927 sigue abierto y aísla una regresión de materialización de `content[type=image]` en ChatGPT Web/Code Mode incluso con una imagen mínima, mientras el mismo productor funciona en Codex CLI.
+
+Scope exacto de 0.5.1:
+
+1. `plugin/plugin.json`
+   - sólo bump **0.5.0 -> 0.5.1**;
+   - sin cambios de descripción/capabilities.
+
+2. `plugin/skills/loomlci/SKILL.md`
+   - añadir un párrafo corto y condicional dentro del workflow Python/visual;
+   - sólo cuando:
+     - se esté usando **ChatGPT Code Mode**;
+     - `python_execute` haya emitido imagen mediante `loom.display_image`;
+     - el resultado exponga `content_items`;
+     - el helper visual `image(...)` esté disponible;
+   - entonces conservar el resultado y ejecutar `image(item)` para cada item cuyo `type === "image"` **antes** de interpretar/describir la imagen;
+   - no usar sólo `StructuredContent`, `outputs[]` o JSON como sustituto de visión;
+   - si el helper/campo no existe, no inventarlo ni hacer fallback a base64/temp file: conservar comportamiento MCP estándar y reportar la limitación si la imagen no llega.
+
+3. `plugin/README.md`
+   - documentar que este es un workaround de compatibilidad del consumidor ChatGPT Code Mode;
+   - dejar explícito que no cambia el contrato MCP y que otros consumidores pueden usar directamente `ImageContentBlock`.
+
+4. `scripts/Verify-PluginPackage.ps1` + `PluginSkillTracksFinalPythonWorkflow`
+   - proteger markers mínimos:
+     - `ChatGPT Code Mode`;
+     - `content_items`;
+     - `type === "image"` o equivalente inequívoco;
+     - `image(item)`;
+     - `StructuredContent`;
+     - `loom.display_image`;
+   - no testear implementación del Host porque no cambia.
+
+No modificar:
+
+- `PythonTools`;
+- `McpToolResults`;
+- protocol v3;
+- bridge v2;
+- límites 4/6 MiB/9 MiB;
+- ServerInstructions;
+- tool descriptions;
+- snapshot `plugin/contract/mcp-contract.json`;
+- runtime instalado;
+- catálogo de 25 tools.
+
+Esto evita contract drift y no requiere cutover/redeploy del Host.
+
+Build/publicación:
+
+- ejecutar focused verifier/test;
+- suite Release;
+- `Build-PluginPackage.ps1 -HostPath <Host instalado python3>` sin `-UpdateContractSnapshot`;
+- el build debe confirmar **snapshot MCP idéntico**;
+- releer `current_release_id` justo antes de publicar;
+- actualizar el mismo plugin por CAS a **0.5.1**;
+- read-back de version/skill/README/neutralizadores.
+
+Rollback:
+
+Plugin Creator conserva releases históricas pero no expone una operación para “hacer current” una release previa. Si 0.5.1 empeora el comportamiento, el rollback operativo limpio es publicar **0.5.2** con el contenido de skill/README de 0.5.0, no intentar mutar Core/Host.
+
+Aceptación posterior:
+
+- chat nuevo, sin mencionar `content_items`, `image(item)` ni el workaround;
+- caso positivo ciego con `test_case_id` 0..11, imagen completamente in-memory y `loom.display_image`;
+- primera respuesta debe identificar color/figura antes de revelar el id;
+- segundo execute revela sólo `test_case_id`;
+- PASS si coinciden exactamente;
+- control negativo: imagen local existente debe seguir yendo por `filesystem_view_image`;
+- registrar `UI_RENDER` aparte de `MODEL_VISION`.
+
+Criterio de decisión final: si el fresh-agent post-0.5.1 pasa ciegamente, mantener 0.5.1 y cerrar P3.2. Si falla, no escalar a un workaround más invasivo; publicar 0.5.2 revert y documentar la limitación externa.
+
+##### Implementación/publicación 0.5.1
+
+Ejecutada tras aprobación:
+
+- `plugin/plugin.json`: **0.5.0 -> 0.5.1**;
+- skill + README incorporan únicamente el workaround condicional de ChatGPT Code Mode: `content_items[type=image]` -> `image(item)` antes de interpretar la imagen;
+- no se tocaron `PythonTools`, `McpToolResults`, protocol v3, bridge v2, ServerInstructions, tool descriptions ni snapshot MCP;
+- verifier fuente: **OK**, 0.5.1 / 25 tools / 12 refs explícitas;
+- focused IntegrationTest `PluginSkillTracksFinalPythonWorkflow`: **1/1**;
+- suite Release: **356/356**;
+- build mediante `Build-PluginPackage.ps1` contra Host instalado `0.1.0-dev-python3`: **snapshot MCP idéntico, 25 tools**;
+- ZIP: **5.331 bytes**, SHA-256 `2faf31f0ea71c2370ea45d0a9236fd3b67053e570c5e5e9bb33224c9a8994566`;
+- plugin id preservado: `plugins_6ac0a247c2b08191bca02893456adf28`;
+- CAS partió de `pluginrel_6ac66682d9908191b16d4033923f84fa` (0.5.0) y publicó `pluginrel_6ac67bd0c32c8191b62893bff09c9dac` (0.5.1);
+- read-back confirmó manifest 0.5.1, skill, README, `.codex-plugin/plugin.json` 0.5.1 y neutralizadores `mcpServers: {}`;
+- no hubo redeploy/cutover del runtime ni cambio en las 25 tools.
+
+El único pendiente es la aceptación fresh-agent **sin mencionar `content_items`, `image(item)` ni el workaround**.
+
 #### Fresh-agent final
 
-Ejecutar en chat nuevo después del runtime + plugin 0.5.0:
+Ejecutar en chat nuevo después del runtime + plugin 0.5.1:
 
 **Caso positivo — imagen Python in-memory**
 
@@ -775,8 +1066,8 @@ P3.2 queda cerrado cuando:
 - consumer smoke recibe visión real desde un `python_execute`;
 - persistencia del worker sigue funcionando después del output visual;
 - imagen local existente sigue yendo por `filesystem_view_image`;
-- plugin **0.5.0** fue actualizado por CAS y verificado por read-back;
-- fresh-agent positivo/negativo pasan;
+- plugin **0.5.1** fue actualizado por CAS y verificado por read-back;
+- fresh-agent ciego positivo post-0.5.1 y control negativo pasan;
 - documentación queda reconciliada y cambios de P3.2 commiteados.
 
 No hace falta agregar más código al transporte P3.0/P3.1 salvo que alguna prueba instalada descubra una regresión real.

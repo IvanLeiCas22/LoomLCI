@@ -126,7 +126,12 @@ $requiredPythonWorkflowMarkers = @(
     'imagen local',
     'MCP/tunnel',
     'Process top-level',
-    'Independent'
+    'Independent',
+    'ChatGPT Code Mode',
+    'content_items',
+    'type === "image"',
+    'image(item)',
+    'StructuredContent'
 )
 
 $missingPythonWorkflowMarkers = @(
