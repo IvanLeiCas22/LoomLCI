@@ -226,6 +226,46 @@ public sealed class ProcessContractTests
         Assert.Equal(0, fixture.Provider.StartCount);
     }
 
+    [Fact]
+    public async Task WorkCloseDuringLateProviderStartDoesNotLeakProcess()
+    {
+        await using var fixture = new ProcessFixture();
+        var work = fixture.Sessions.Create(
+            Environment.CurrentDirectory);
+        Assert.True(work.IsSuccess);
+
+        fixture.Provider.BlockStart();
+        fixture.Provider.IgnoreStartCancellation = true;
+
+        var start = fixture.Processes.StartAsync(
+            new ProcessStartRequest(
+                "fake.exe",
+                WorkId: work.Value!.Id));
+
+        await fixture.Provider.StartEntered.Task;
+
+        var closed = await fixture.Sessions.CloseAsync(
+            work.Value.Id);
+        Assert.True(closed.IsSuccess, closed.Error?.Message);
+
+        fixture.Provider.ReleaseStart();
+
+        var result = await start;
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("cancelled", result.Error?.Code);
+
+        var resource = Assert.Single(
+            fixture.Provider.Resources);
+        var fake = Assert.IsType<FakeProcessResource>(resource);
+        Assert.Equal(1, fake.DisposeCount);
+
+        Assert.Empty(
+            fixture.Resources.GetActiveOwnedHandles(
+                ProcessCapability.ResourceKind,
+                work.Value.Id));
+    }
+
     private sealed class ProcessFixture : IAsyncDisposable
     {
         public ProcessFixture()
@@ -254,25 +294,62 @@ public sealed class ProcessContractTests
 
     private sealed class FakeProcessProvider : IProcessProvider
     {
+        private TaskCompletionSource? _startEntered;
+        private TaskCompletionSource? _startRelease;
+
         public ProcessLaunchSpec? LastSpec { get; private set; }
         public int StartCount { get; private set; }
+        public bool IgnoreStartCancellation { get; set; }
         public List<IProcessResource> Resources { get; } = [];
 
-        public Task<LoomResult<IProcessResource>> StartAsync(
+        public TaskCompletionSource StartEntered
+            => _startEntered ??= NewSignal();
+
+        public void BlockStart()
+        {
+            _startEntered = NewSignal();
+            _startRelease = NewSignal();
+        }
+
+        public void ReleaseStart()
+            => _startRelease?.TrySetResult();
+
+        public async Task<LoomResult<IProcessResource>> StartAsync(
             ProcessLaunchSpec spec,
             CancellationToken cancellationToken)
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            if (!IgnoreStartCancellation)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
 
             LastSpec = spec;
             StartCount++;
+            _startEntered?.TrySetResult();
 
-            IProcessResource resource = new FakeProcessResource(spec.IoMode);
+            if (_startRelease is not null)
+            {
+                if (IgnoreStartCancellation)
+                {
+                    await _startRelease.Task.ConfigureAwait(false);
+                }
+                else
+                {
+                    await _startRelease.Task.WaitAsync(
+                        cancellationToken);
+                }
+            }
+
+            IProcessResource resource =
+                new FakeProcessResource(spec.IoMode);
             Resources.Add(resource);
 
-            return Task.FromResult(
-                LoomResult<IProcessResource>.Success(resource));
+            return LoomResult<IProcessResource>.Success(resource);
         }
+
+        private static TaskCompletionSource NewSignal()
+            => new(
+                TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
     private sealed class FakeProcessResource(ProcessIoMode ioMode) : IProcessResource

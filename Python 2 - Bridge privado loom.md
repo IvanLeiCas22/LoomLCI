@@ -1,6 +1,6 @@
 # Python 2 - Bridge privado loom.*
 
-> Estado: **P2.0 y P2.1 cerrados; P2.2 (Process bridge) pendiente de investigación/análisis específico.**
+> Estado: **P2.0, P2.1 y P2.2 cerrados; P2.3 (hardening/evaluation) pendiente de investigación/análisis específico.**
 >
 > Objetivo: permitir que el código ejecutado dentro del worker Python invoque capabilities internas de LoomLCI mediante un módulo privado `loom.*`, conservando WorkSession, validaciones, lifecycle, errores, observabilidad y cancellation, sin volver a entrar por MCP/Secure MCP Tunnel.
 
@@ -818,22 +818,448 @@ El runtime instalado permanece deliberadamente en `0.1.0-dev-python1`; el deploy
 
 ### P2.2 - Process bridge
 
-- `run`;
-- lifecycle durable completo;
-- start forzado SessionOwned;
-- validation de ownership en handles;
-- terminal/write/resize;
-- terminate/release;
-- work_close limpia procesos creados desde Python.
+> Estado: **investigación y diseño específicos cerrados; implementación pendiente de aprobación.**
 
-Acceptance:
+P2.2 reutiliza **Process Core directamente** mediante un nuevo `PythonProcessBridgeModule`. No debe llamar a las tools MCP ni a shell wrappers propios.
 
-- run real;
-- proceso pipes;
-- proceso terminal;
-- handle de otra WorkSession rechazado;
-- independent rechazado;
-- close/expiry sin leaks.
+#### Métodos privados
+
+P2.2 agrega ocho methods:
+
+```text
+process.run
+process.start
+process.status
+process.read
+process.write
+process.resize
+process.terminate
+process.release
+```
+
+Con P2.1 + P2.2, `loom.capabilities()` pasa de 7 a **15 methods** totales, ordenados de forma determinista por el router.
+
+#### API Python
+
+Se mantiene el modelo funcional con handles opacos; no se introduce todavía una clase Python `Process` con estado propio.
+
+```python
+loom.process.run(
+    executable,
+    arguments=None,
+    *,
+    working_directory=None,
+    environment=None,
+    timeout_seconds=30,
+    max_output_chars=65536,
+)
+
+loom.process.start(
+    executable,
+    arguments=None,
+    *,
+    working_directory=None,
+    environment=None,
+    io_mode="pipes",
+    terminal_columns=None,
+    terminal_rows=None,
+)
+
+loom.process.status(process_handle)
+
+loom.process.read(
+    process_handle,
+    *,
+    stdout_cursor=0,
+    stderr_cursor=0,
+    terminal_cursor=0,
+    max_chars=65536,
+)
+
+loom.process.write(process_handle, text)
+loom.process.resize(process_handle, columns, rows)
+loom.process.terminate(process_handle)
+loom.process.release(process_handle)
+```
+
+No se expone `work_id`: siempre se usa la WorkSession del worker.
+
+No se expone `independent`: todo proceso creado por `loom.process.start` es forzosamente `SessionOwned`.
+
+Al igual que las tools MCP, `run`/`start` ejecutan el executable directamente y **no infieren shell**. Para `&&`, pipes, redirection o built-ins debe invocarse explícitamente `cmd.exe`, `powershell.exe` o `pwsh.exe` con sus argumentos correspondientes.
+
+#### Motivo para no usar sólo subprocess
+
+Python ya puede usar `subprocess`, pero `loom.process` aporta capacidades que `subprocess` dentro del worker no conserva:
+
+- Job Object y limpieza del árbol;
+- recursos durables Loom fuera del lifecycle del worker Python;
+- pipes separados o ConPTY real;
+- output retenido con cursors;
+- 64 MiB de spool por stream;
+- post-exit retention;
+- terminate/release estructurados;
+- cleanup automático por `work_close` / expiry.
+
+El bridge no reemplaza `subprocess`; ofrece la semántica administrada de Loom cuando esa semántica importa.
+
+#### Ownership de handles
+
+Éste es el punto de seguridad/lifecycle central de P2.2.
+
+Las operaciones públicas actuales `ProcessCapability.StatusAsync/ReadAsync/WriteAsync/...` resuelven el owner a partir del handle. Por diseño MCP, conocer un handle opaco es suficiente para operar ese recurso.
+
+Dentro del bridge privado se fija una regla más estricta:
+
+> un worker Python sólo puede operar procesos `SessionOwned` cuyo `OwnerWorkId` sea exactamente la WorkSession de ese worker.
+
+Antes de ejecutar cualquiera de:
+
+- status;
+- read;
+- write;
+- resize;
+- terminate;
+- release;
+
+`PythonProcessBridgeModule` debe validar el handle.
+
+Conviene encapsular esto en Process Core, por ejemplo:
+
+```csharp
+internal LoomResult<Unit> ValidateSessionOwnedHandle(
+    ProcessHandle handle,
+    WorkId workId)
+```
+
+Semántica:
+
+1. si el handle no existe -> conservar error Core (`not_found`, `resource_closed`, `resource_expired`, etc.);
+2. si no es un process -> `resource_type_mismatch`;
+3. si es `Independent` o pertenece a otra WorkSession -> `access_denied`, con `details.reason = process_handle_not_owned_by_work_session`;
+4. sólo entonces delegar la operación normal a `ProcessCapability`.
+
+Esto evita que un worker de WorkSession A opere accidentalmente un handle de B o un proceso `Independent` creado por una tool MCP externa. Un proceso `SessionOwned` creado por MCP dentro de **la misma** WorkSession sí puede ser operado luego desde `loom.process`; el ownership, no el origen de creación, es la autoridad.
+
+#### Prerequisite de Process Core: cierre concurrente durante start
+
+La revisión final de P2.2 encontró una carrera real preexistente en `ProcessCapability.StartAsync`.
+
+Hoy la secuencia relevante es:
+
+1. `InvocationRunner` adquiere lease de WorkSession;
+2. el provider lanza el proceso;
+3. `ProcessCapability` registra el recurso SessionOwned;
+4. retorna el handle.
+
+`WorkSessionManager.CloseAsync` no espera que las invocations activas terminen: marca la sesión Closing, cancela su lifetime y ejecuta `CloseOwnedAsync` sobre los recursos visibles en ese instante.
+
+Existe por lo tanto esta carrera:
+
+```text
+process provider termina launch
+           |
+           |   work_close -> cancel lifetime
+           |                CloseOwnedAsync snapshot (process aún no registrado)
+           v
+ProcessCapability registra el process después del snapshot
+```
+
+`WindowsProcessProvider` comprueba cancellation justo después del launch, pero existe una ventana posterior entre ese check y `ResourceRegistry.Register`.
+
+`PythonCapability` ya resuelve el mismo patrón correctamente:
+
+- si el provider devuelve tarde, dispone el worker si cancellation ya está activa;
+- registra bajo try/catch;
+- inmediatamente después de registrar vuelve a comprobar cancellation;
+- si fue cancelado, cierra explícitamente el recurso recién registrado.
+
+Antes de exponer `loom.process.start`, P2.2 debe aplicar el mismo hardening a `ProcessCapability.StartAsync`:
+
+1. envolver `ResourceRegistry.Register` en try/catch y disponer el process si registrar falla;
+2. después de registrar, comprobar nuevamente el cancellation token;
+3. si está cancelado, cerrar el handle mediante ResourceRegistry y propagar cancellation;
+4. publicar `ResourceCreated` sólo después de superar ese check.
+
+Con esto se cubren ambos órdenes posibles:
+
+- si el recurso ya estaba registrado cuando comienza `work_close`, `CloseOwnedAsync` lo encuentra;
+- si `work_close` tomó su snapshot antes del registro, el post-register cancellation check lo cierra explícitamente.
+
+Tests prerequisite:
+
+- equivalente Process de `WorkCloseDuringLateProviderStartDoesNotLeakWorker`;
+- provider fake que puede completar el start ignorando cancellation;
+- `work_close` mientras el provider está bloqueado;
+- al liberar el provider: resultado `cancelled`, resource disposed una vez y cero process handles SessionOwned activos.
+
+Este hardening es de Process Core general, no sólo del bridge, y debe implementarse al inicio de P2.2.
+
+#### Start
+
+`process.start` desde el bridge siempre construye:
+
+```csharp
+new ProcessStartRequest(
+    ...,
+    WorkId: currentWorkId,
+    Ownership: ResourceOwnership.SessionOwned,
+    ...)
+```
+
+Por eso:
+
+- el proceso sobrevive a un `python_reset` porque vive en ResourceRegistry, no dentro del worker; un worker nuevo de la misma WorkSession puede seguir operándolo si conserva/conoce el handle;
+- `work_close` lo termina/libera mediante `CloseOwnedAsync`;
+- expiry de la WorkSession también lo limpia;
+- nunca queda un proceso independent creado desde Python.
+
+El wrapper Python no acepta `independent`. Un payload manual a `loom._bridge_call` con ese campo debe fallar por parsing estricto como `invalid_argument`.
+
+#### Run
+
+`loom.process.run` delega a `ProcessCapability.RunAsync` con el WorkId actual.
+
+Conserva:
+
+- pipes únicamente;
+- sin handle durable;
+- non-zero exit code sigue siendo resultado exitoso;
+- timeout 1..600 s;
+- `max_output_chars` 1..1.048.576;
+- cleanup del process tree en timeout/cancel.
+
+El timeout efectivo queda acotado por ambos niveles: el timeout propio de `process.run` y el timeout restante del `python_execute`. Si expira el execute externo, la cancellation llega a Process Core y el one-shot se limpia.
+
+#### Durable lifecycle
+
+Se conservan sin reinterpretar las semánticas existentes:
+
+- `status` y `read` refrescan post-exit retention;
+- procesos vivos no expiran por falta de polling;
+- `write` escribe verbatim y no agrega newline;
+- `resize` sólo funciona en terminal;
+- `terminate` mata el Job/tree y es seguro repetir;
+- `release` sólo libera un proceso root ya terminal; no detiene uno vivo;
+- pipes exponen stdout/stderr;
+- terminal expone un único stream VT/ANSI;
+- cursors siguen siendo posiciones UTF-16 absolutas; desde Python deben tratarse como tokens numéricos opacos y reutilizar siempre `next_cursor` en vez de derivarlos con `len(text)`, porque Python cuenta code points y un carácter no-BMP puede ocupar dos code units UTF-16;
+- spool sigue limitado a 64 MiB por stream;
+- al superar retención, `retention_limit_reached` y cursors dejan explícita la pérdida.
+
+También se conserva la diferencia Windows ya existente: en terminal, la salida del root cierra la sesión y termina el Job; en pipes, descendientes pueden seguir dentro del Job hasta terminate/release/work-close.
+
+#### Resultados Python
+
+Todos los resultados usan `snake_case`.
+
+A diferencia de varios resultados Filesystem, **no se deben serializar los records de Process Core directamente**. `ProcessStartResult` contiene `ProcessHandle` y `TimeSpan`, y `ProcessStatusResult` vuelve a contener `ProcessHandle`; su JSON bruto no coincide con la API pública deseada. `PythonProcessBridgeModule` debe mapear explícitamente a DTOs privados planos, igual que `ProcessTools` hace para MCP.
+
+`run`:
+
+```python
+{
+    "process_id": 123,
+    "exit_code": 0,
+    "started_at": "...",
+    "exited_at": "...",
+    "stdout": "...",
+    "stderr": "...",
+    "stdout_truncated": False,
+    "stderr_truncated": False,
+    "stdout_observed_chars": 10,
+    "stderr_observed_chars": 0,
+}
+```
+
+`start`:
+
+```python
+{
+    "process_handle": "proc_...",
+    "process_id": 123,
+    "started_at": "...",
+    "state": "running",
+    "io_mode": "pipes",
+    "post_exit_retention_seconds": 900,
+}
+```
+
+`status` y `read` mantienen la misma información que Process Core/MCP con keys snake_case.
+
+`write`, `resize`, `terminate` y `release` devuelven `True` en éxito; errores normales se convierten en `loom.LoomError`.
+
+Los timestamps permanecen strings ISO-8601 JSON; no se crean objetos datetime privados.
+
+#### Parsing y JSON común
+
+P2.1 ya contiene parsing/serialización privados dentro de `PythonFilesystemBridgeModule`. Para no duplicarlos en Process conviene extraer primero un helper Core compartido, por ejemplo `PythonBridgeJson`:
+
+- JsonOptions de input snake_case, case-sensitive y unknown fields disallowed;
+- `Deserialize<T>(method, arguments)`;
+- serialización snake_case + enums string;
+- budget check de `PythonBridgeLimits.MaxResultFrameBytes`;
+- construcción uniforme de `bridge_payload_too_large`.
+
+Luego Filesystem y Process usan ese helper.
+
+Esto es refactor interno sin cambiar la API de P2.1.
+
+#### Límites
+
+P2.2 reutiliza los límites P2.0/P2.1:
+
+- bridge call: 2 MiB;
+- bridge result: 8 MiB;
+- method <=128 chars.
+
+Process Core ya limita `run/read` a 1.048.576 caracteres totales, por lo que los resultados normales quedan por debajo de 8 MiB incluso considerando escaping JSON patológico. El guard genérico de `PythonBridgeJson` se conserva como defensa.
+
+`write` no tiene hoy un límite Core propio; dentro del bridge queda naturalmente acotado por el frame de 2 MiB. No conviene agregar un segundo límite arbitrario en P2.2.
+
+#### Cancellation y recursos creados
+
+Un `process.start` completado crea un recurso SessionOwned inmediatamente. Si después el mismo `python_execute` falla, se cancela o pierde su resultado, ese proceso puede quedar vivo pero sigue atado a la WorkSession y será limpiado por `work_close`/expiry.
+
+No conviene implementar rollback automático de procesos ya creados por callbacks: sería una semántica nueva y podría matar un proceso que el código Python lanzó deliberadamente antes de otra excepción. P2.3 debe evaluar este escenario, pero no es un leak fuera de la WorkSession.
+
+#### Metadata MCP
+
+P2.2 tampoco agrega tools públicas: el catálogo continúa en **25 tools**.
+
+Al implementar P2.2 se actualizan:
+
+- descripción de `python_execute`;
+- server instructions;
+
+para indicar que `import loom.process` ofrece Process administrado desde el worker.
+
+Luego:
+
+- regenerar snapshot MCP;
+- ejecutar verifier del plugin;
+- mantener plugin privado en 0.3.0 hasta la reconciliación final post-Python.
+
+#### Tests requeridos
+
+Core:
+
+- router agrega 8 process methods y total de 15 capabilities;
+- parsing estricto y unknown fields;
+- `run` usa WorkId actual;
+- hardening previo de `ProcessCapability.StartAsync`: late provider completion + `work_close` no deja procesos registrados ni vivos;
+- `start` fuerza SessionOwned;
+- payload con `independent` rechazado;
+- handle de otra WorkSession -> `access_denied`;
+- handle Independent -> `access_denied`;
+- handle missing/closed/expired conserva error Core;
+- mappings snake_case de start/run/status/read;
+- bool de write/resize/terminate/release;
+- errores Process Core pasan como LoomError sin invalidar worker.
+
+Integración Windows/Host:
+
+1. `loom.process.run` real con stdout/stderr y non-zero exit;
+2. start pipes + read con cursors;
+3. write stdin y salida posterior;
+4. start terminal + read/write/resize;
+5. terminate;
+6. release post-exit;
+7. proceso creado desde Python muere con `work_close`;
+8. proceso durable sobrevive a `python_reset` y puede retomarse desde un worker nuevo de la misma WorkSession usando el mismo handle;
+9. proceso SessionOwned creado por MCP en la misma WorkSession puede operarse desde `loom.process`;
+10. proceso de otra WorkSession rechazado;
+11. proceso Independent creado desde MCP rechazado por el bridge;
+12. error normal capturable y segundo execute conserva worker sano.
+
+Expiry con fake clock debe comprobarse en Core para no volver lenta/inestable la integración.
+
+#### Criterio de cierre P2.2
+
+P2.2 queda cerrado cuando el Host Release del repo pueda hacer, desde un worker persistente:
+
+```python
+import loom.process
+
+quick = loom.process.run(
+    "cmd.exe",
+    ["/d", "/s", "/c", "echo quick"],
+)
+
+proc = loom.process.start(
+    "powershell.exe",
+    ["-NoProfile", "-Command", "-"],
+)
+
+loom.process.write(
+    proc["process_handle"],
+    "Write-Output READY\n",
+)
+
+out = loom.process.read(
+    proc["process_handle"],
+)
+```
+
+y además validar terminal/resize, ownership entre WorkSessions, rechazo de Independent, terminate/release y cleanup por work_close/expiry.
+
+No requiere deployment/cutover del runtime instalado; eso continúa reservado para P2.4.
+
+#### Implementación y validación de P2.2 — CERRADO
+
+P2.2 quedó implementado con:
+
+- hardening general de `ProcessCapability.StartAsync` frente a `work_close` concurrente:
+  - dispose inmediato si cancellation llega al volver del provider;
+  - `ResourceRegistry.Register` protegido por try/catch;
+  - segundo check de cancellation después del registro;
+  - cierre explícito del handle recién registrado si la sesión ya entró en cierre;
+  - `ResourceCreated` publicado sólo después de superar ese punto;
+- nuevo `ResourceRegistry.Inspect` para leer kind/owner/ownership/state incluso sobre tombstones sin reabrir el recurso; se usa para validar ownership seguro de `release` idempotente;
+- `ProcessCapability.ValidateSessionOwnedHandle`:
+  - conserva errores Core de missing/closed/expired;
+  - rechaza otra WorkSession e `Independent` con `access_denied` + `reason=process_handle_not_owned_by_work_session`;
+  - permite un proceso SessionOwned creado por otra superficie (por ejemplo MCP) si pertenece a la misma WorkSession;
+- refactor común `PythonBridgeJson` para parsing snake_case estricto, unknown fields disallowed, serialización uniforme y guard de payload;
+- nuevo `PythonProcessBridgeModule` con ocho methods privados:
+  - `process.run`
+  - `process.start`
+  - `process.status`
+  - `process.read`
+  - `process.write`
+  - `process.resize`
+  - `process.terminate`
+  - `process.release`;
+- `process.start` siempre fuerza `ResourceOwnership.SessionOwned` y usa el WorkId del worker; no acepta `independent`;
+- DTOs privados explícitos para Process, con handles planos, timestamps ISO y keys `snake_case`;
+- submódulo `loom.process` registrado en `sys.modules`, con API funcional basada en handles opacos;
+- `loom.capabilities()` pasa a **15 methods** totales (7 filesystem + 8 process), ordenados determinísticamente;
+- metadata pública de `python_execute`/server instructions actualizada para `loom.process`;
+- snapshot MCP regenerado/verificado: **25 tools** públicas, plugin privado sigue en **0.3.0**.
+
+Validación:
+
+- Core: **122/122**;
+- Windows: **159/159**;
+- Integration: **19/19**;
+- Launcher: **20/20**;
+- MCP: **5/5**;
+- PdfWorker: **6/6**;
+- suite Release serial (`-m:1`): **331/331**;
+- test de carrera `WorkCloseDuringLateProviderStartDoesNotLeakProcess`: **OK**;
+- integración MCP real P2.2: **OK** con:
+  - `loom.process.run` + non-zero exit;
+  - pipes + stdin + cursors;
+  - handle durable sobreviviendo `python_reset`;
+  - proceso SessionOwned creado por MCP operado desde Python en la misma WorkSession;
+  - rechazo de otra WorkSession;
+  - rechazo de `Independent`;
+  - terminal + write + read + resize;
+  - terminate/release;
+  - cleanup por `work_close` y process tree realmente finalizado;
+- smoke Host Release combinado con environment Python v2 reutilizado + NumPy **2.5.3** + Pandas **3.0.6** + `loom.fs` + `loom.process`: **`P22_SMOKE_OK`**.
+
+El runtime instalado permanece deliberadamente en `0.1.0-dev-python1`; el deployment/cutover de Python 2 sigue reservado para P2.4.
 
 ### P2.3 - Hardening / evaluation
 

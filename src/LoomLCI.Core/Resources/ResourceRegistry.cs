@@ -23,6 +23,13 @@ public sealed record ResourceLease<T>(
     ResourceOwnership Ownership)
     where T : class;
 
+public sealed record ResourceMetadata(
+    ResourceHandle Handle,
+    string Kind,
+    WorkId? OwnerWorkId,
+    ResourceOwnership Ownership,
+    ResourceState State);
+
 public sealed class ResourceOperationLease<T> : IDisposable
     where T : class
 {
@@ -132,6 +139,40 @@ public sealed class ResourceRegistry : IAsyncDisposable
                 value.Resource,
                 value.Entry.OwnerWorkId,
                 value.Entry.Ownership));
+    }
+
+    public LoomResult<ResourceMetadata> Inspect(
+        ResourceHandle handle,
+        string expectedKind)
+    {
+        if (!_entries.TryGetValue(handle.Value, out var entry))
+        {
+            return LoomResult<ResourceMetadata>.Failure(
+                LoomErrors.NotFound(
+                    $"Resource '{handle}' was not found."));
+        }
+
+        lock (entry.Sync)
+        {
+            if (!string.Equals(
+                    entry.Kind,
+                    expectedKind,
+                    StringComparison.Ordinal))
+            {
+                return LoomResult<ResourceMetadata>.Failure(
+                    LoomErrors.ResourceTypeMismatch(
+                        handle.Value,
+                        expectedKind));
+            }
+
+            return LoomResult<ResourceMetadata>.Success(
+                new ResourceMetadata(
+                    entry.Handle,
+                    entry.Kind,
+                    entry.OwnerWorkId,
+                    entry.Ownership,
+                    entry.State));
+        }
     }
 
     public LoomResult<ResourceOperationLease<T>> Acquire<T>(

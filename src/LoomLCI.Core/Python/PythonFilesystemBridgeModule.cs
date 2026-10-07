@@ -1,6 +1,4 @@
-using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using LoomLCI.Core.Filesystem;
 using LoomLCI.Core.VisualFiles;
 
@@ -18,17 +16,6 @@ public sealed class PythonFilesystemBridgeModule : IPythonBridgeModule
         "fs.read_pdf",
         "fs.search_text"
     ];
-
-    private static readonly JsonSerializerOptions InputJsonOptions =
-        new(JsonSerializerDefaults.Web)
-        {
-            PropertyNameCaseInsensitive = false,
-            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-            UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
-        };
-
-    private static readonly JsonSerializerOptions ResultJsonOptions =
-        CreateResultJsonOptions();
 
     private readonly FilesystemCapability _filesystem;
     private readonly VisualFilesCapability _visualFiles;
@@ -88,7 +75,7 @@ public sealed class PythonFilesystemBridgeModule : IPythonBridgeModule
         JsonElement arguments,
         CancellationToken cancellationToken)
     {
-        var parsed = Deserialize<ListTreeArguments>(
+        var parsed = PythonBridgeJson.Deserialize<ListTreeArguments>(
             arguments,
             "fs.list_tree");
         if (!parsed.IsSuccess)
@@ -108,7 +95,7 @@ public sealed class PythonFilesystemBridgeModule : IPythonBridgeModule
                 cancellationToken)
             .ConfigureAwait(false);
 
-        return MapResult(
+        return PythonBridgeJson.MapResult(
             "fs.list_tree",
             result);
     }
@@ -118,7 +105,7 @@ public sealed class PythonFilesystemBridgeModule : IPythonBridgeModule
         JsonElement arguments,
         CancellationToken cancellationToken)
     {
-        var parsed = Deserialize<FindPathsArguments>(
+        var parsed = PythonBridgeJson.Deserialize<FindPathsArguments>(
             arguments,
             "fs.find_paths");
         if (!parsed.IsSuccess)
@@ -167,7 +154,7 @@ public sealed class PythonFilesystemBridgeModule : IPythonBridgeModule
                 cancellationToken)
             .ConfigureAwait(false);
 
-        return MapResult(
+        return PythonBridgeJson.MapResult(
             "fs.find_paths",
             result);
     }
@@ -177,7 +164,7 @@ public sealed class PythonFilesystemBridgeModule : IPythonBridgeModule
         JsonElement arguments,
         CancellationToken cancellationToken)
     {
-        var parsed = Deserialize<SearchTextArguments>(
+        var parsed = PythonBridgeJson.Deserialize<SearchTextArguments>(
             arguments,
             "fs.search_text");
         if (!parsed.IsSuccess)
@@ -208,7 +195,7 @@ public sealed class PythonFilesystemBridgeModule : IPythonBridgeModule
                 cancellationToken)
             .ConfigureAwait(false);
 
-        return MapResult(
+        return PythonBridgeJson.MapResult(
             "fs.search_text",
             result);
     }
@@ -218,7 +205,7 @@ public sealed class PythonFilesystemBridgeModule : IPythonBridgeModule
         JsonElement arguments,
         CancellationToken cancellationToken)
     {
-        var parsed = Deserialize<ReadFilesArguments>(
+        var parsed = PythonBridgeJson.Deserialize<ReadFilesArguments>(
             arguments,
             "fs.read_files");
         if (!parsed.IsSuccess)
@@ -247,7 +234,7 @@ public sealed class PythonFilesystemBridgeModule : IPythonBridgeModule
                 cancellationToken)
             .ConfigureAwait(false);
 
-        return MapResult(
+        return PythonBridgeJson.MapResult(
             "fs.read_files",
             result,
             "Use smaller line ranges or split files across calls.");
@@ -258,7 +245,7 @@ public sealed class PythonFilesystemBridgeModule : IPythonBridgeModule
         JsonElement arguments,
         CancellationToken cancellationToken)
     {
-        var parsed = Deserialize<ApplyPatchArguments>(
+        var parsed = PythonBridgeJson.Deserialize<ApplyPatchArguments>(
             arguments,
             "fs.apply_patch");
         if (!parsed.IsSuccess)
@@ -307,7 +294,7 @@ public sealed class PythonFilesystemBridgeModule : IPythonBridgeModule
                 cancellationToken)
             .ConfigureAwait(false);
 
-        return MapResult(
+        return PythonBridgeJson.MapResult(
             "fs.apply_patch",
             result);
     }
@@ -317,7 +304,7 @@ public sealed class PythonFilesystemBridgeModule : IPythonBridgeModule
         JsonElement arguments,
         CancellationToken cancellationToken)
     {
-        var parsed = Deserialize<ManageDirectoryArguments>(
+        var parsed = PythonBridgeJson.Deserialize<ManageDirectoryArguments>(
             arguments,
             "fs.manage_directory");
         if (!parsed.IsSuccess)
@@ -364,7 +351,7 @@ public sealed class PythonFilesystemBridgeModule : IPythonBridgeModule
                     "action must be 'create' or 'delete'."));
         }
 
-        return MapResult(
+        return PythonBridgeJson.MapResult(
             "fs.manage_directory",
             result);
     }
@@ -374,7 +361,7 @@ public sealed class PythonFilesystemBridgeModule : IPythonBridgeModule
         JsonElement arguments,
         CancellationToken cancellationToken)
     {
-        var parsed = Deserialize<ReadPdfArguments>(
+        var parsed = PythonBridgeJson.Deserialize<ReadPdfArguments>(
             arguments,
             "fs.read_pdf");
         if (!parsed.IsSuccess)
@@ -398,100 +385,9 @@ public sealed class PythonFilesystemBridgeModule : IPythonBridgeModule
                 cancellationToken)
             .ConfigureAwait(false);
 
-        return MapResult(
+        return PythonBridgeJson.MapResult(
             "fs.read_pdf",
             result);
-    }
-
-    private static LoomResult<T> Deserialize<T>(
-        JsonElement arguments,
-        string method)
-        where T : class
-    {
-        try
-        {
-            var value = arguments.Deserialize<T>(
-                InputJsonOptions);
-
-            return value is not null
-                ? LoomResult<T>.Success(value)
-                : LoomResult<T>.Failure(
-                    LoomErrors.InvalidArgument(
-                        $"{method} arguments are invalid."));
-        }
-        catch (JsonException ex)
-        {
-            return LoomResult<T>.Failure(
-                LoomErrors.InvalidArgument(
-                    $"{method} arguments are invalid: {ex.Message}"));
-        }
-        catch (NotSupportedException ex)
-        {
-            return LoomResult<T>.Failure(
-                LoomErrors.InvalidArgument(
-                    $"{method} arguments are invalid: {ex.Message}"));
-        }
-    }
-
-    private static LoomResult<JsonElement> MapResult<T>(
-        string method,
-        LoomResult<T> result,
-        string? sizeHint = null)
-    {
-        if (!result.IsSuccess)
-        {
-            return LoomResult<JsonElement>.Failure(
-                result.Error!);
-        }
-
-        JsonElement element;
-        try
-        {
-            element = JsonSerializer.SerializeToElement(
-                result.Value,
-                ResultJsonOptions);
-        }
-        catch (Exception ex) when (
-            ex is JsonException or
-            NotSupportedException)
-        {
-            return LoomResult<JsonElement>.Failure(
-                LoomErrors.Internal(
-                    $"Could not serialize Python bridge result: {ex.Message}"));
-        }
-
-        var serializedBytes = Encoding.UTF8.GetByteCount(
-            element.GetRawText());
-
-        if (serializedBytes >
-            PythonBridgeLimits.MaxResultFrameBytes)
-        {
-            var message =
-                $"Python bridge result for '{method}' exceeds " +
-                $"{PythonBridgeLimits.MaxResultFrameBytes} bytes.";
-
-            if (!string.IsNullOrWhiteSpace(sizeHint))
-            {
-                message += $" {sizeHint}";
-            }
-
-            return LoomResult<JsonElement>.Failure(
-                new LoomError(
-                    "unsupported",
-                    message,
-                    false,
-                    new Dictionary<string, object?>
-                    {
-                        ["reason"] = "bridge_payload_too_large",
-                        ["method"] = method,
-                        ["serialized_result_bytes"] =
-                            serializedBytes,
-                        ["max_bridge_result_bytes"] =
-                            PythonBridgeLimits.MaxResultFrameBytes
-                    }));
-        }
-
-        return LoomResult<JsonElement>.Success(element);
     }
 
     private static bool TryParseMatchMode(
@@ -561,22 +457,6 @@ public sealed class PythonFilesystemBridgeModule : IPythonBridgeModule
 
         operation = default;
         return false;
-    }
-
-    private static JsonSerializerOptions CreateResultJsonOptions()
-    {
-        var options = new JsonSerializerOptions(
-            JsonSerializerDefaults.Web)
-        {
-            PropertyNamingPolicy =
-                JsonNamingPolicy.SnakeCaseLower
-        };
-
-        options.Converters.Add(
-            new JsonStringEnumConverter(
-                JsonNamingPolicy.SnakeCaseLower));
-
-        return options;
     }
 
     private sealed class ListTreeArguments

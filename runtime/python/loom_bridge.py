@@ -63,15 +63,19 @@ def _install(
     )
 
     fs = _create_filesystem_module()
+    process = _create_process_module()
     loom.fs = fs
+    loom.process = process
     loom.__all__ = [
         "LoomError",
         "capabilities",
         "fs",
+        "process",
     ]
 
     sys.modules["loom"] = loom
     sys.modules["loom.fs"] = fs
+    sys.modules["loom.process"] = process
     return loom
 
 
@@ -369,6 +373,163 @@ def _create_filesystem_module() -> types.ModuleType:
         }
     )
     return fs
+
+
+def _process_run(
+    executable: str,
+    arguments: list[str] | tuple[str, ...] | None = None,
+    *,
+    working_directory: str | None = None,
+    environment: dict[str, str | None] | None = None,
+    timeout_seconds: int = 30,
+    max_output_chars: int = 65_536,
+) -> dict[str, Any]:
+    """Run a short Loom-managed pipe process and return bounded output."""
+    return _bridge_call(
+        "process.run",
+        {
+            "executable": executable,
+            "arguments": arguments,
+            "working_directory": working_directory,
+            "environment": environment,
+            "timeout_seconds": timeout_seconds,
+            "max_output_chars": max_output_chars,
+        },
+    )
+
+
+def _process_start(
+    executable: str,
+    arguments: list[str] | tuple[str, ...] | None = None,
+    *,
+    working_directory: str | None = None,
+    environment: dict[str, str | None] | None = None,
+    io_mode: str = "pipes",
+    terminal_columns: int | None = None,
+    terminal_rows: int | None = None,
+) -> dict[str, Any]:
+    """Start a durable SessionOwned Loom process."""
+    return _bridge_call(
+        "process.start",
+        {
+            "executable": executable,
+            "arguments": arguments,
+            "working_directory": working_directory,
+            "environment": environment,
+            "io_mode": io_mode,
+            "terminal_columns": terminal_columns,
+            "terminal_rows": terminal_rows,
+        },
+    )
+
+
+def _process_status(
+    process_handle: str,
+) -> dict[str, Any]:
+    """Return current Loom process state and retention metadata."""
+    return _bridge_call(
+        "process.status",
+        {"process_handle": process_handle},
+    )
+
+
+def _process_read(
+    process_handle: str,
+    *,
+    stdout_cursor: int = 0,
+    stderr_cursor: int = 0,
+    terminal_cursor: int = 0,
+    max_chars: int = 65_536,
+) -> dict[str, Any]:
+    """Read retained output. Treat returned cursors as opaque UTF-16 positions."""
+    return _bridge_call(
+        "process.read",
+        {
+            "process_handle": process_handle,
+            "stdout_cursor": stdout_cursor,
+            "stderr_cursor": stderr_cursor,
+            "terminal_cursor": terminal_cursor,
+            "max_chars": max_chars,
+        },
+    )
+
+
+def _process_write(
+    process_handle: str,
+    text: str,
+) -> bool:
+    """Write text verbatim to process stdin or terminal input."""
+    return _bridge_call(
+        "process.write",
+        {
+            "process_handle": process_handle,
+            "text": text,
+        },
+    )
+
+
+def _process_resize(
+    process_handle: str,
+    columns: int,
+    rows: int,
+) -> bool:
+    """Resize a terminal-mode Loom process."""
+    return _bridge_call(
+        "process.resize",
+        {
+            "process_handle": process_handle,
+            "columns": columns,
+            "rows": rows,
+        },
+    )
+
+
+def _process_terminate(
+    process_handle: str,
+) -> bool:
+    """Terminate a Loom process and its managed descendant tree."""
+    return _bridge_call(
+        "process.terminate",
+        {"process_handle": process_handle},
+    )
+
+
+def _process_release(
+    process_handle: str,
+) -> bool:
+    """Release a terminal process handle and discard retained state/output."""
+    return _bridge_call(
+        "process.release",
+        {"process_handle": process_handle},
+    )
+
+
+def _create_process_module() -> types.ModuleType:
+    process = types.ModuleType("loom.process")
+    process.__package__ = "loom"
+    process.__dict__.update(
+        {
+            "run": _process_run,
+            "start": _process_start,
+            "status": _process_status,
+            "read": _process_read,
+            "write": _process_write,
+            "resize": _process_resize,
+            "terminate": _process_terminate,
+            "release": _process_release,
+            "__all__": [
+                "run",
+                "start",
+                "status",
+                "read",
+                "write",
+                "resize",
+                "terminate",
+                "release",
+            ],
+        }
+    )
+    return process
 
 
 def capabilities() -> list[str]:

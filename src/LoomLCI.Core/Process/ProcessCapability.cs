@@ -37,6 +37,61 @@ public sealed class ProcessCapability
 
     public TimeSpan PostExitRetention => _lifetimeOptions.ProcessPostExitRetention;
 
+    internal LoomResult<Unit> ValidateSessionOwnedHandle(
+        ProcessHandle handle,
+        WorkId workId,
+        bool allowTombstone = false)
+    {
+        WorkId? ownerWorkId;
+        ResourceOwnership ownership;
+
+        if (allowTombstone)
+        {
+            var metadata = _resources.Inspect(
+                handle.AsResourceHandle(),
+                ResourceKind);
+            if (!metadata.IsSuccess)
+            {
+                return LoomResult<Unit>.Failure(
+                    metadata.Error!);
+            }
+
+            ownerWorkId = metadata.Value!.OwnerWorkId;
+            ownership = metadata.Value.Ownership;
+        }
+        else
+        {
+            var resolved = Resolve(handle);
+            if (!resolved.IsSuccess)
+            {
+                return LoomResult<Unit>.Failure(
+                    resolved.Error!);
+            }
+
+            ownerWorkId = resolved.Value!.OwnerWorkId;
+            ownership = resolved.Value.Ownership;
+        }
+
+        if (ownership != ResourceOwnership.SessionOwned ||
+            ownerWorkId != workId)
+        {
+            return LoomResult<Unit>.Failure(
+                new LoomError(
+                    "access_denied",
+                    "Process handle is not session-owned by the active WorkSession.",
+                    false,
+                    new Dictionary<string, object?>
+                    {
+                        ["reason"] =
+                            "process_handle_not_owned_by_work_session",
+                        ["process_handle"] = handle.Value,
+                        ["work_id"] = workId.Value
+                    }));
+        }
+
+        return LoomResult<Unit>.Success(Unit.Value);
+    }
+
     public Task<LoomResult<ProcessStartResult>> StartAsync(
         ProcessStartRequest request,
         CancellationToken cancellationToken = default)
@@ -77,16 +132,39 @@ public sealed class ProcessCapability
                 }
 
                 var resource = started.Value!;
+                if (token.IsCancellationRequested)
+                {
+                    await resource.DisposeAsync().ConfigureAwait(false);
+                    token.ThrowIfCancellationRequested();
+                }
+
                 WorkId? owner = request.Ownership == ResourceOwnership.SessionOwned
                     ? session!.Id
                     : null;
-                var rawHandle = _resources.Register(
-                    "proc",
-                    ResourceKind,
-                    resource,
-                    owner,
-                    request.Ownership,
-                    resource.DisposeAsync);
+
+                ResourceHandle rawHandle;
+                try
+                {
+                    rawHandle = _resources.Register(
+                        "proc",
+                        ResourceKind,
+                        resource,
+                        owner,
+                        request.Ownership,
+                        resource.DisposeAsync);
+                }
+                catch
+                {
+                    await resource.DisposeAsync().ConfigureAwait(false);
+                    throw;
+                }
+
+                if (token.IsCancellationRequested)
+                {
+                    await _resources.CloseAsync(rawHandle).ConfigureAwait(false);
+                    token.ThrowIfCancellationRequested();
+                }
+
                 var handle = new ProcessHandle(rawHandle.Value);
                 var result = resource.Snapshot(handle);
 

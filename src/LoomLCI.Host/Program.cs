@@ -82,6 +82,7 @@ builder.Services.AddSingleton<IVisualFilesProvider>(
     _ => new WindowsVisualFilesProvider(pdfWorkerLaunch));
 builder.Services.AddSingleton<VisualFilesCapability>();
 builder.Services.AddSingleton<IPythonBridgeModule, PythonFilesystemBridgeModule>();
+builder.Services.AddSingleton<IPythonBridgeModule, PythonProcessBridgeModule>();
 builder.Services.AddSingleton<IPythonBridgeDispatcher, PythonBridgeDispatcher>();
 builder.Services.AddSingleton<PythonCapability>();
 builder.Services.AddHostedService<LifetimeSweeperService>();

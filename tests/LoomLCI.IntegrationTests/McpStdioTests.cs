@@ -2340,7 +2340,7 @@ public sealed class McpStdioTests
                     bridgeResult,
                     "status").GetString());
             Assert.Equal(
-                "1\n7\nfs.apply_patch\nfs.search_text\n",
+                "1\n15\nfs.apply_patch\nprocess.write\n",
                 GetRequiredProperty(
                     bridgeResult,
                     "stdout").GetString());
@@ -2614,6 +2614,14 @@ expected = [
     "fs.read_files",
     "fs.read_pdf",
     "fs.search_text",
+    "process.read",
+    "process.release",
+    "process.resize",
+    "process.run",
+    "process.start",
+    "process.status",
+    "process.terminate",
+    "process.write",
 ]
 assert loom.capabilities() == expected
 
@@ -2810,6 +2818,575 @@ print("P21_FS_OK")
                 }
             }
         }
+    }
+
+    [Fact]
+    public async Task StdioAdapterCanUseProcessBridgeInsidePython()
+    {
+        var repoRoot = FindRepoRoot();
+        var hostDll = GetHostDll(repoRoot);
+        Assert.True(File.Exists(hostDll), $"Host was not built: {hostDll}");
+
+        var scratch = Path.Combine(
+            Path.GetTempPath(),
+            $"loom-python-process-bridge-{Guid.NewGuid():N}");
+        var hostWorkingDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"loom-python-process-host-{Guid.NewGuid():N}");
+
+        Directory.CreateDirectory(scratch);
+        Directory.CreateDirectory(hostWorkingDirectory);
+
+        try
+        {
+            var transport = new StdioClientTransport(
+                new StdioClientTransportOptions
+                {
+                    Name = "LoomLCI Python process bridge integration test",
+                    Command = "dotnet",
+                    Arguments = [hostDll],
+                    WorkingDirectory = hostWorkingDirectory,
+                    ShutdownTimeout = TimeSpan.FromSeconds(5)
+                });
+
+            await using var client =
+                await McpClient.CreateAsync(transport);
+
+            async Task<string> CreateWorkAsync(string label)
+            {
+                var created = await client.CallToolAsync(
+                    "work_create",
+                    new Dictionary<string, object?>
+                    {
+                        ["baseDirectory"] = scratch,
+                        ["label"] = label
+                    });
+
+                var root = GetStructured(
+                    created.StructuredContent);
+                Assert.True(
+                    GetRequiredProperty(
+                        root,
+                        "ok").GetBoolean());
+
+                return GetRequiredProperty(
+                        GetRequiredProperty(
+                            root,
+                            "result"),
+                        "workId")
+                    .GetString()!;
+            }
+
+            var workA = await CreateWorkAsync(
+                "python-process-a");
+            var workB = await CreateWorkAsync(
+                "python-process-b");
+
+            var firstCode = """
+import time
+import loom
+import loom.process
+
+assert len(loom.capabilities()) == 15
+
+quick = loom.process.run(
+    "cmd.exe",
+    ["/d", "/s", "/c", "echo quick-out & echo quick-err 1>&2 & exit /b 7"],
+    timeout_seconds=5,
+    max_output_chars=4096,
+)
+assert quick["exit_code"] == 7
+assert "quick-out" in quick["stdout"]
+assert "quick-err" in quick["stderr"]
+
+proc = loom.process.start(
+    "powershell.exe",
+    ["-NoProfile", "-Command", "-"],
+    io_mode="pipes",
+)
+handle = proc["process_handle"]
+loom.process.write(handle, "Write-Output PIPE_READY\n")
+
+stdout_cursor = 0
+stderr_cursor = 0
+captured = ""
+for _ in range(100):
+    read = loom.process.read(
+        handle,
+        stdout_cursor=stdout_cursor,
+        stderr_cursor=stderr_cursor,
+        max_chars=4096,
+    )
+    captured += "".join(
+        chunk["text"] for chunk in read["stdout"]["chunks"]
+    )
+    stdout_cursor = read["stdout"]["next_cursor"]
+    stderr_cursor = read["stderr"]["next_cursor"]
+    if "PIPE_READY" in captured:
+        break
+    time.sleep(0.02)
+
+assert "PIPE_READY" in captured
+print(handle)
+print(proc["process_id"])
+print("P22_PIPE_OK")
+""";
+
+            var first = await client.CallToolAsync(
+                "python_execute",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workA,
+                    ["code"] = firstCode,
+                    ["timeoutSeconds"] = 120
+                });
+
+            var firstRoot = GetStructured(
+                first.StructuredContent);
+            Assert.True(
+                GetRequiredProperty(
+                    firstRoot,
+                    "ok").GetBoolean());
+
+            var firstResult = GetRequiredProperty(
+                firstRoot,
+                "result");
+            Assert.Equal(
+                "completed",
+                GetRequiredProperty(
+                    firstResult,
+                    "status").GetString());
+
+            var firstLines = GetRequiredProperty(
+                    firstResult,
+                    "stdout")
+                .GetString()!
+                .Split(
+                    ['\r', '\n'],
+                    StringSplitOptions.RemoveEmptyEntries);
+
+            Assert.Equal(3, firstLines.Length);
+            var pipeHandle = firstLines[0];
+            Assert.True(
+                int.TryParse(
+                    firstLines[1],
+                    out var pipePid));
+            Assert.Equal(
+                "P22_PIPE_OK",
+                firstLines[2]);
+
+            var reset = await client.CallToolAsync(
+                "python_reset",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workA
+                });
+            Assert.True(
+                GetRequiredProperty(
+                    GetStructured(
+                        reset.StructuredContent),
+                    "ok").GetBoolean());
+
+            var pipeHandleLiteral =
+                JsonSerializer.Serialize(pipeHandle);
+            var afterResetCode =
+                "import time, loom.process\n" +
+                $"h = {pipeHandleLiteral}\n" +
+                "status = loom.process.status(h)\n" +
+                "assert status['state'] == 'running'\n" +
+                "loom.process.write(h, 'Write-Output AFTER_RESET\\n')\n" +
+                "cursor = 0\n" +
+                "captured = ''\n" +
+                "for _ in range(100):\n" +
+                "    read = loom.process.read(h, stdout_cursor=cursor, max_chars=4096)\n" +
+                "    captured += ''.join(chunk['text'] for chunk in read['stdout']['chunks'])\n" +
+                "    cursor = read['stdout']['next_cursor']\n" +
+                "    if 'AFTER_RESET' in captured:\n" +
+                "        break\n" +
+                "    time.sleep(0.02)\n" +
+                "assert 'AFTER_RESET' in captured\n" +
+                "print('P22_RESET_OK')";
+
+            var afterReset = await client.CallToolAsync(
+                "python_execute",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workA,
+                    ["code"] = afterResetCode,
+                    ["timeoutSeconds"] = 120
+                });
+
+            var afterResetRoot = GetStructured(
+                afterReset.StructuredContent);
+            Assert.True(
+                GetRequiredProperty(
+                    afterResetRoot,
+                    "ok").GetBoolean());
+            Assert.Equal(
+                "P22_RESET_OK\n",
+                GetRequiredProperty(
+                    GetRequiredProperty(
+                        afterResetRoot,
+                        "result"),
+                    "stdout").GetString());
+
+            var sameSession = await client.CallToolAsync(
+                "process_start",
+                new Dictionary<string, object?>
+                {
+                    ["executable"] = "powershell.exe",
+                    ["arguments"] = new[]
+                    {
+                        "-NoProfile",
+                        "-Command",
+                        "Start-Sleep -Seconds 30"
+                    },
+                    ["workId"] = workA
+                });
+
+            var sameSessionRoot = GetStructured(
+                sameSession.StructuredContent);
+            Assert.True(
+                GetRequiredProperty(
+                    sameSessionRoot,
+                    "ok").GetBoolean());
+            var sameSessionHandle = GetRequiredProperty(
+                    GetRequiredProperty(
+                        sameSessionRoot,
+                        "result"),
+                    "processHandle")
+                .GetString()!;
+
+            var sameHandleLiteral =
+                JsonSerializer.Serialize(
+                    sameSessionHandle);
+            var sameSessionCheck =
+                await client.CallToolAsync(
+                    "python_execute",
+                    new Dictionary<string, object?>
+                    {
+                        ["workId"] = workA,
+                        ["code"] =
+                            "import loom.process\n" +
+                            $"h = {sameHandleLiteral}\n" +
+                            "assert loom.process.status(h)['state'] == 'running'\n" +
+                            "print('SAME_SESSION_OK')"
+                    });
+
+            Assert.Equal(
+                "SAME_SESSION_OK\n",
+                GetRequiredProperty(
+                    GetRequiredProperty(
+                        GetStructured(
+                            sameSessionCheck.StructuredContent),
+                        "result"),
+                    "stdout").GetString());
+
+            var deniedOther =
+                await client.CallToolAsync(
+                    "python_execute",
+                    new Dictionary<string, object?>
+                    {
+                        ["workId"] = workB,
+                        ["code"] =
+                            "import loom\n" +
+                            "import loom.process\n" +
+                            $"h = {sameHandleLiteral}\n" +
+                            "try:\n" +
+                            "    loom.process.status(h)\n" +
+                            "    raise AssertionError('unexpected success')\n" +
+                            "except loom.LoomError as exc:\n" +
+                            "    print(exc.code)"
+                    });
+
+            Assert.Equal(
+                "access_denied\n",
+                GetRequiredProperty(
+                    GetRequiredProperty(
+                        GetStructured(
+                            deniedOther.StructuredContent),
+                        "result"),
+                    "stdout").GetString());
+
+            var independent = await client.CallToolAsync(
+                "process_start",
+                new Dictionary<string, object?>
+                {
+                    ["executable"] = "powershell.exe",
+                    ["arguments"] = new[]
+                    {
+                        "-NoProfile",
+                        "-Command",
+                        "Start-Sleep -Seconds 30"
+                    },
+                    ["independent"] = true
+                });
+
+            var independentRoot = GetStructured(
+                independent.StructuredContent);
+            Assert.True(
+                GetRequiredProperty(
+                    independentRoot,
+                    "ok").GetBoolean());
+            var independentHandle =
+                GetRequiredProperty(
+                        GetRequiredProperty(
+                            independentRoot,
+                            "result"),
+                        "processHandle")
+                    .GetString()!;
+            var independentLiteral =
+                JsonSerializer.Serialize(
+                    independentHandle);
+
+            var deniedIndependent =
+                await client.CallToolAsync(
+                    "python_execute",
+                    new Dictionary<string, object?>
+                    {
+                        ["workId"] = workA,
+                        ["code"] =
+                            "import loom\n" +
+                            "import loom.process\n" +
+                            $"h = {independentLiteral}\n" +
+                            "try:\n" +
+                            "    loom.process.status(h)\n" +
+                            "    raise AssertionError('unexpected success')\n" +
+                            "except loom.LoomError as exc:\n" +
+                            "    print(exc.code)"
+                    });
+
+            Assert.Equal(
+                "access_denied\n",
+                GetRequiredProperty(
+                    GetRequiredProperty(
+                        GetStructured(
+                            deniedIndependent.StructuredContent),
+                        "result"),
+                    "stdout").GetString());
+
+            var terminateIndependent =
+                await client.CallToolAsync(
+                    "process_terminate",
+                    new Dictionary<string, object?>
+                    {
+                        ["processHandle"] =
+                            independentHandle
+                    });
+            Assert.True(
+                GetRequiredProperty(
+                    GetStructured(
+                        terminateIndependent.StructuredContent),
+                    "ok").GetBoolean());
+
+            var releaseIndependent =
+                await client.CallToolAsync(
+                    "process_release",
+                    new Dictionary<string, object?>
+                    {
+                        ["processHandle"] =
+                            independentHandle
+                    });
+            Assert.True(
+                GetRequiredProperty(
+                    GetStructured(
+                        releaseIndependent.StructuredContent),
+                    "ok").GetBoolean());
+
+            var terminalCode = """
+import time
+import loom.process
+
+term = loom.process.start(
+    "cmd.exe",
+    ["/q"],
+    io_mode="terminal",
+    terminal_columns=80,
+    terminal_rows=24,
+)
+h = term["process_handle"]
+assert loom.process.resize(h, 100, 30) is True
+assert loom.process.write(h, "echo TERM_OK\r\n") is True
+
+cursor = 0
+captured = ""
+for _ in range(100):
+    read = loom.process.read(
+        h,
+        terminal_cursor=cursor,
+        max_chars=4096,
+    )
+    captured += "".join(
+        chunk["text"] for chunk in read["terminal"]["chunks"]
+    )
+    cursor = read["terminal"]["next_cursor"]
+    if "TERM_OK" in captured:
+        break
+    time.sleep(0.02)
+
+assert "TERM_OK" in captured
+assert loom.process.terminate(h) is True
+assert loom.process.release(h) is True
+print("P22_TERM_OK")
+""";
+
+            var terminal = await client.CallToolAsync(
+                "python_execute",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workA,
+                    ["code"] = terminalCode,
+                    ["timeoutSeconds"] = 120
+                });
+
+            Assert.Equal(
+                "P22_TERM_OK\n",
+                GetRequiredProperty(
+                    GetRequiredProperty(
+                        GetStructured(
+                            terminal.StructuredContent),
+                        "result"),
+                    "stdout").GetString());
+
+            var cleanup = await client.CallToolAsync(
+                "python_execute",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workA,
+                    ["code"] =
+                        "import loom.process\n" +
+                        "p = loom.process.start(" +
+                        "'powershell.exe'," +
+                        " ['-NoProfile','-Command','Start-Sleep -Seconds 30'])\n" +
+                        "print(p['process_handle'])\n" +
+                        "print(p['process_id'])"
+                });
+
+            var cleanupLines =
+                GetRequiredProperty(
+                        GetRequiredProperty(
+                            GetStructured(
+                                cleanup.StructuredContent),
+                            "result"),
+                        "stdout")
+                    .GetString()!
+                    .Split(
+                        ['\r', '\n'],
+                        StringSplitOptions.RemoveEmptyEntries);
+
+            Assert.Equal(2, cleanupLines.Length);
+            var cleanupHandle = cleanupLines[0];
+            Assert.True(
+                int.TryParse(
+                    cleanupLines[1],
+                    out var cleanupPid));
+
+            var closeA = await client.CallToolAsync(
+                "work_close",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workA
+                });
+            Assert.True(
+                GetRequiredProperty(
+                    GetStructured(
+                        closeA.StructuredContent),
+                    "ok").GetBoolean());
+
+            var afterClose = await client.CallToolAsync(
+                "process_status",
+                new Dictionary<string, object?>
+                {
+                    ["processHandle"] =
+                        cleanupHandle
+                });
+            var afterCloseRoot = GetStructured(
+                afterClose.StructuredContent);
+            Assert.False(
+                GetRequiredProperty(
+                    afterCloseRoot,
+                    "ok").GetBoolean());
+            Assert.Equal(
+                "resource_closed",
+                GetRequiredProperty(
+                        GetRequiredProperty(
+                            afterCloseRoot,
+                            "error"),
+                        "code")
+                    .GetString());
+
+            await WaitForProcessGoneAsync(
+                cleanupPid);
+            await WaitForProcessGoneAsync(
+                pipePid);
+
+            var closeB = await client.CallToolAsync(
+                "work_close",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workB
+                });
+            Assert.True(
+                GetRequiredProperty(
+                    GetStructured(
+                        closeB.StructuredContent),
+                    "ok").GetBoolean());
+        }
+        finally
+        {
+            foreach (var path in new[]
+                     {
+                         scratch,
+                         hostWorkingDirectory
+                     })
+            {
+                try
+                {
+                    if (Directory.Exists(path))
+                    {
+                        Directory.Delete(
+                            path,
+                            recursive: true);
+                    }
+                }
+                catch (IOException)
+                {
+                }
+                catch (UnauthorizedAccessException)
+                {
+                }
+            }
+        }
+    }
+
+    private static bool IsProcessAlive(int pid)
+    {
+        try
+        {
+            using var process =
+                global::System.Diagnostics.Process.GetProcessById(pid);
+            return !process.HasExited;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    private static async Task WaitForProcessGoneAsync(int pid)
+    {
+        for (var i = 0; i < 200; i++)
+        {
+            if (!IsProcessAlive(pid))
+            {
+                return;
+            }
+
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException(
+            $"Process {pid} remained alive.");
     }
 
     private static void CreateSimplePdf(string path, params string[] pageTexts)
