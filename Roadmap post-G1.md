@@ -22,7 +22,7 @@ Orden preliminar:
 1. mejorar UX del Launcher — **CERRADO end-to-end**: modo `--pause` opt-in para accesos directos, shortcuts de iniciar/detener, mensajes simplificados, salida UTF-8 y README portable con encoding estable;
 2. [[Instalador Windows|instalador Windows convencional]] — **CERRADO end-to-end**: Inno Setup 7.1.0, instalación per-user sin admin, registro en Aplicaciones instaladas, uninstall real y reutilización de `SetupService`;
 3. [[Auto-update firmado|base de auto-update con validación y rollback]] — **CERRADO end-to-end**: manifest firmado ECDSA, `sequence` anti-rollback, `update check/apply`, rollback transaccional, journal/crash recovery, limpieza `active + previous` y E2E real contra GitHub Releases;
-4. [[Plugin metadata|mecanismo de generación/verificación de metadata y skill del plugin]] — **CERRADO end-to-end**: fuente canónica en repo, export real `initialize + tools/list`, snapshot de contrato, build/verifier anti-drift, neutralización del wiring Debug histórico, plugin privado **0.4.0** actualizado por CAS/read-back y evaluación fresh-agent **4/4 PASS**.
+4. [[Plugin metadata|mecanismo de generación/verificación de metadata y skill del plugin]] — **CERRADO end-to-end**: fuente canónica en repo, export real `initialize + tools/list`, snapshot de contrato, build/verifier anti-drift, neutralización del wiring Debug histórico y plugin privado actualizado por CAS/read-back a **0.5.0**. La evaluación fresh-agent histórica 0.4.0 fue 4/4 PASS; la aceptación visual específica de Python 3 queda en P3.2.
 
 ### 3. Python
 
@@ -30,7 +30,7 @@ Orden preliminar:
 
 1. [[Python 1 - Paquetes administrados|paquetes de terceros administrados/versionados por LoomLCI]] — **CERRADO**: `uv` privado fijado/verificado, environments inmutables con locks+hashes, `python_packages_prepare`, binding por WorkSession, reset explícito al cambiar environment, GC protegido y deployment instalado validado;
 2. [[Python 2 - Bridge privado loom|bridge privado `loom.*` entre el worker Python y capabilities de LoomLCI]] — **CERRADO end-to-end (P2.0–P2.4)**: protocolo privado v2, router modular, `loom.fs`, `loom.process`, lifecycle/ownership administrado, hardening, deployment real, consumer smoke y fresh-agent smoke completados;
-3. [[Python 3 - Outputs binarios e imágenes|outputs binarios/imágenes desde Python hacia el modelo]] — **P3.0 y P3.1 CERRADOS; P3.2 pendiente**. `loom.display_image` usa protocol v3 / bridge API v2 y `python_execute` ya entrega mixed StructuredContent + `ImageContentBlock`, sin `outputSchema`, con detector PNG/JPEG/WebP compartido y guard exacto de **9 MiB** incluso en text-only. Suite Release **356/356**, Host Release focalizado **3/3**, contrato **25 tools** con drift intencional revisado. Deployment/consumer smoke/plugin 0.5.0 quedan para P3.2; blobs/audio genéricos siguen diferidos.
+3. [[Python 3 - Outputs binarios e imágenes|outputs binarios/imágenes desde Python hacia el modelo]] — **P3.0 y P3.1 CERRADOS; P3.2 implementado/deployado, fresh-agent final pendiente**. Runtime activo `0.1.0-dev-python3` healthy/ready con Python 2 como rollback; Host instalado: 25 tools, bridge v2, `loom.display_image`, sin `outputSchema`; Integration **21/21** contra DLL instalada y suite Release posterior **356/356**. Plugin privado ya está en **0.5.0** por CAS/read-back. Falta únicamente aceptar en chat nuevo el mixed image result real y confirmar routing `loom.display_image` vs `filesystem_view_image`; blobs/audio genéricos siguen diferidos.
 
 ## Horizonte lejano / post-roadmap actual
 
@@ -66,6 +66,6 @@ Es un tema transversal:
 
 ## Próxima acción
 
-**[[Python 3 - Outputs binarios e imágenes|P3.2: evaluation / deployment / plugin]].**
+**[[Python 3 - Outputs binarios e imágenes|P3.2: fresh-agent final]].**
 
-P3.1 queda **CERRADO** en código y Host Release: mixed `python_execute`, detector compartido, payload hardening de 9 MiB y contrato de 25 tools ya están validados. El siguiente bloque debe hacer el cutover controlado del runtime, consumer smoke real por Secure MCP Tunnel, fresh-agent visual y reconciliación/publicación del plugin (probablemente 0.5.0).
+Deployment, cutover, suite Release, smoke de persistencia/errores y plugin **0.5.0** ya están completados. El único pendiente es abrir un chat nuevo con catálogo/plugin refrescados y ejecutar los dos casos de aceptación: imagen generada completamente en memoria por Python debe llegar vía `loom.display_image`; imagen local existente debe seguir usando `filesystem_view_image`. Si ambos pasan, reconciliar documentación final y cerrar Python 3 end-to-end.

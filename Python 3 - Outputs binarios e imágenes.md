@@ -540,27 +540,246 @@ Es la ruta de menor complejidad y reutiliza directamente los dos comportamientos
 
 ### P3.2 — Evaluation / deployment / plugin
 
-Tests:
+> Estado: **investigación/diseño + implementación/deployment/plugin cerrados; fresh-agent final pendiente.** No fue necesario reabrir P3.0/P3.1 ni agregar una tool MCP.
 
-- Core: validación/tamaños/aggregate;
-- Windows protocol: v3, base64, count, malformed/oversize, combined-frame edge;
-- runtime: display_image, multiple images, normal exception + image, stale child thread, reset;
-- MCP Integration: `ImageContentBlock` round-trip, `OutputSchema == null`, metadata estructurada preservada, oversize recoverable y worker sano;
-- suite Release serial;
-- portable/deployment sobre runtime instalado;
-- consumer smoke Secure MCP Tunnel;
-- fresh-agent visual real.
+#### Estado real previo al cutover
 
-Consumer smoke mínimo:
+Repo:
+
+- HEAD: `e63316a feat: expose Python image outputs over MCP`;
+- working tree limpio al iniciar esta investigación;
+- P3.1 ya validado con suite Release **356/356**, Integration **21/21** y Host Release focalizado **3/3**;
+- snapshot MCP canónico ya contiene P3.1: 25 tools, `python_execute.outputSchema` ausente, descripción/ServerInstructions con `loom.display_image`.
+
+Instalación actualmente activa:
+
+- `activeVersion = 0.1.0-dev-python2`, sequence **0**;
+- `previousVersion = 0.1.0-dev-python1`, sequence **0**;
+- `highestSequence = 3`;
+- runtime `loomlci-installed`: `process_running=true`, `healthy=true`, `ready=true`;
+- mismo tunnel existente;
+- el Host instalado sigue en contrato Python 2: 25 tools pero `python_execute.outputSchema` todavía presente y description/ServerInstructions sin `loom.display_image`;
+- dentro del worker instalado: `loom.__bridge_version__ == 1` y `hasattr(loom, "display_image") == False`.
+
+Por lo tanto P3.2 sí necesita un cutover real: no alcanza con refresh del catálogo.
+
+#### Estrategia de deployment recomendada
+
+Usar el mismo flujo **portable side-by-side** validado por Python 1/Python 2, con una versión clara como:
+
+`0.1.0-dev-python3`, sequence **0**.
+
+Razones:
+
+- P3 sólo cambia Host + assets Python embebidos; no requiere cambiar el modelo de instalación;
+- `worker.py` y `loom_bridge.py` están embebidos y se materializan por hash, por lo que el Host nuevo crea automáticamente assets P3 sin reemplazar CPython 3.14.8 ni environments existentes;
+- conserva rollback directo a `0.1.0-dev-python2`;
+- permite validar el runtime antes de publicar una release GitHub;
+- replica exactamente el camino ya probado en P2.4.
+
+No usar `update apply` durante P3.2. El estado actual ya muestra una particularidad operativa: al tener active sequence 0 y `highestSequence=3`, `update check` considera la antigua release pública `0.1.0-dev-github-e2e` sequence 3 como “actualización disponible”. Aplicarla reinstalaría un Host anterior. Una publicación firmada de Python 3 tendría que usar sequence >=4; eso es un flujo de release distinto y no es necesario para cerrar P3.2.
+
+Ese comportamiento de sequence en builds dev side-by-side es un follow-up de deployment, no un blocker de Python 3.
+
+#### Orden concreto de implementación/validación
+
+**Fase 1 — package + preflight**
+
+1. suite Release serial sobre HEAD aprobado;
+2. `Build-PortablePackage.ps1 -Version 0.1.0-dev-python3 -Sequence 0`;
+3. dejar que el builder ejecute Launcher tests + IntegrationTests contra el Host publicado;
+4. registrar tamaño/SHA-256 del ZIP y hash de `LoomLCI.Host.dll`.
+
+**Fase 2 — setup side-by-side**
+
+1. ejecutar setup desde el paquete nuevo reutilizando tunnel id y runtime-key file existentes, sin exponer la key en command line;
+2. comprobar:
+   - active = python3;
+   - previous = python2;
+   - highestSequence sigue en 3;
+   - Host instalado coincide por hash con el package;
+3. correr IntegrationTests contra la DLL instalada: esperado **21/21**;
+4. exportar contrato desde el Host instalado y exigir:
+   - 25 tools;
+   - `python_execute.outputSchema == null`;
+   - description + ServerInstructions con `loom.display_image`.
+
+Setup no detiene el runtime actual; el cutover se hace después.
+
+**Fase 3 — cutover**
+
+El stop/start/status debe hacerse con **IvanSpace sólo como cutover/fallback**, porque detener LoomLCI desde la propia conexión LoomLCI corta la herramienta que coordina el cambio.
+
+Secuencia:
+
+1. `stop`;
+2. `start`;
+3. `status`;
+4. exigir `healthy=true`, `ready=true`, tunnel esperado y active python3;
+5. si falla, rollback inmediato a python2.
+
+**Fase 4 — consumer smoke por Secure MCP Tunnel**
+
+Primero validar el runtime antes de tocar el plugin:
 
 1. WorkSession;
-2. `python_execute` genera un PNG pequeño en memoria;
-3. `loom.display_image(...)`;
-4. ChatGPT recibe la imagen directamente en ese mismo tool result y la describe;
-5. segundo execute prueba persistencia del worker;
-6. caso negativo: imagen local existente sigue eligiendo `filesystem_view_image`.
+2. primer `python_execute`:
+   - confirmar `loom.__bridge_version__ == 2`;
+   - confirmar `loom.display_image`;
+   - crear PNG pequeño totalmente en memoria;
+   - guardar un marker global;
+   - llamar `loom.display_image(...)`;
+3. ChatGPT debe recibir y **ver/describir** la imagen dentro del mismo tool result;
+4. segundo `python_execute` debe leer el marker y demostrar persistencia;
+5. caso post-execution negativo opcional: bytes inválidos -> `unsupported_image_format` + worker sano;
+6. control negativo: una imagen local existente debe seguir usando `filesystem_view_image`, no Python/base64 manual.
 
-Luego reconciliar plugin/skill, probablemente como **0.5.0**, porque aparece una capability/workflow Python nueva.
+La prueba visual debe hacerse en un chat/catalog refresh que realmente reciba la metadata nueva; chats ya abiertos pueden conservar el snapshot viejo, como ocurrió en P2.4.
+
+#### Plugin 0.5.0
+
+El plugin privado publicado sigue correctamente en **0.4.0**, pero su guidance visual quedó obsoleto para P3:
+
+- skill 0.4.0 dice todavía que para imágenes se usen siempre visuales top-level;
+- README dice lo mismo;
+- el verifier/test actual protege `loom.fs`/`loom.process`, pero **no** protege `loom.display_image`.
+
+Cambios de P3.2:
+
+- bump único `plugin/plugin.json`: **0.4.0 -> 0.5.0**;
+- skill:
+  - imagen generada **en memoria dentro de Python** -> `loom.display_image`;
+  - imagen local ya existente -> `filesystem_view_image`;
+  - página PDF existente -> `filesystem_render_pdf_page`;
+  - no cargar un archivo local a Python sólo para mostrarlo;
+- README con la misma distinción;
+- extender `Verify-PluginPackage.ps1` y `PluginSkillTracksFinalPythonWorkflow` para exigir al menos:
+  - `loom.display_image`;
+  - `filesystem_view_image`;
+  - `filesystem_render_pdf_page`;
+  - guidance in-memory vs archivo existente.
+
+No hace falta modificar manifest description/keywords salvo el bump: “Python + contenido visual” ya describe correctamente el producto.
+
+#### Orden de publicación del plugin
+
+No publicar 0.5.0 antes del cutover: mientras el runtime activo siga en Python 2, esa skill enseñaría una API que todavía no existe.
+
+Después del consumer smoke:
+
+1. modificar skill/README/verifier/test;
+2. focused tests + suite Release;
+3. ejecutar `Build-PluginPackage.ps1` contra el **Host instalado Python 3** mediante `-HostPath`, para que el anti-drift pruebe el runtime real y no sólo el repo;
+4. debe confirmar 25 tools y snapshot P3.1 sin drift;
+5. releer justo antes de publicar el `current_release_id` del plugin privado;
+6. actualizar el mismo plugin por CAS como **0.5.0**;
+7. read-back de manifest/skill/README + neutralizadores MCP;
+8. no crear un plugin nuevo ni modificar el wiring del tunnel.
+
+Estado observado durante investigación:
+
+- plugin id actual: el mismo plugin privado existente;
+- versión publicada: **0.4.0**;
+- release actual: `pluginrel_6ac5e253c70081918df6046afb0572fa`.
+
+El release id debe releerse antes del CAS y no tratarse como constante.
+
+#### Resultado de implementación / deployment / plugin
+
+Package y preflight:
+
+- suite Release serial posterior a cambios: **356/356**;
+- portable: `0.1.0-dev-python3`, sequence **0**;
+- ZIP: **81.313.386 bytes**;
+- SHA-256: `bc2637d2be39fc57409ef56dae39efbfcf348059a9f6b99fa23d2b73a39f6401`;
+- Launcher builder: **20/20**;
+- IntegrationTests contra Host publicado: **21/21**.
+
+Instalación/cutover:
+
+- setup side-by-side: **OK**;
+- `activeVersion = 0.1.0-dev-python3`;
+- `previousVersion = 0.1.0-dev-python2`;
+- `highestSequence = 3` preservado;
+- hash de `LoomLCI.Host.dll` package vs instalación: idéntico, `5587be0ab1a1ee6f400ed7238b07e4370c394d25d565531f0e959f4a2c6f5000`;
+- IntegrationTests contra DLL instalada: **21/21**;
+- contrato instalado: **25 tools**, `python_execute.outputSchema == null`, description + ServerInstructions con `loom.display_image`;
+- cutover mediante IvanSpace sólo para `stop/start/status`: **OK**;
+- runtime final: `process_running=true`, `healthy=true`, `ready=true`, mismo tunnel.
+
+Consumer smoke en el chat de implementación:
+
+- `loom.__bridge_version__ == 2`;
+- `loom.display_image` presente y acepta PNG generado completamente en memoria;
+- StructuredContent reportó `outputs=[{kind:image,mimeType:image/png,...}]`;
+- marker global persistió en un segundo `python_execute`;
+- bytes inválidos devolvieron `unsupported_image_format` y el worker siguió sano;
+- el control de archivo local existente se ejecutó directamente con `filesystem_view_image` y se inspeccionó visualmente correctamente;
+- este chat conservó el descriptor viejo de `python_execute` tras el cutover, por lo que su binding Code Mode no expuso el `ImageContentBlock` del mixed result al modelo. Esto reproduce la aspereza conocida de snapshot/caché del consumidor y obliga a hacer la aceptación visual positiva en un chat nuevo.
+
+Plugin 0.5.0:
+
+- `plugin/plugin.json`: **0.4.0 -> 0.5.0**;
+- skill + README distinguen:
+  - imagen generada in-memory en Python -> `loom.display_image`;
+  - imagen local existente -> `filesystem_view_image`;
+  - página PDF existente -> `filesystem_render_pdf_page`;
+- verifier + `PluginSkillTracksFinalPythonWorkflow` protegen esos markers;
+- verifier fuente: **OK**, 0.5.0 / 25 tools / 12 refs explícitas;
+- tests focalizados: **2/2**;
+- build contra Host **instalado Python 3**: snapshot MCP sin drift;
+- ZIP final: **4.896 bytes**, SHA-256 `7d608a2e3cbcdc55a4eb76e0eea8ce1f573c118ebed6f5683312e1f08fd844ad`;
+- plugin id preservado: `plugins_6ac0a247c2b08191bca02893456adf28`;
+- release anterior: `pluginrel_6ac5e253c70081918df6046afb0572fa` (0.4.0);
+- release actual: `pluginrel_6ac66682d9908191b16d4033923f84fa` (0.5.0);
+- update CAS: **OK**;
+- read-back completo: **OK**;
+- `.codex-plugin/plugin.json` sincronizado en 0.5.0;
+- `mcp.json` / `.mcp.json` siguen neutralizados con `mcpServers: {}`;
+- no se creó otro plugin ni se modificó el wiring del tunnel.
+
+La primera llamada a Plugin Creator con la ruta Windows fue rechazada antes de mutar el plugin, igual que en 0.4.0. El ZIP se trasladó al entorno de Plugin Creator conservando los bytes y el segundo intento CAS fue exitoso.
+
+El único criterio de cierre aún pendiente es el **fresh-agent visual positivo/negativo** en un chat nuevo que reciba el catálogo Python 3 y la skill 0.5.0.
+
+#### Fresh-agent final
+
+Ejecutar en chat nuevo después del runtime + plugin 0.5.0:
+
+**Caso positivo — imagen Python in-memory**
+
+Prompt sin nombrar `loom.display_image`: pedir generar una imagen simple en memoria con Python, mostrarla directamente y no escribirla a disco.
+
+PASS si el agente:
+
+- usa `python_execute`;
+- descubre/usa `loom.display_image`;
+- la imagen llega visualmente al modelo;
+- no usa temp files ni `filesystem_view_image` para el output in-memory.
+
+**Caso negativo — imagen local existente**
+
+Dar la ruta de `artifacts/g11-smoke/visual-smoke.png` y pedir inspección visual.
+
+PASS si usa directamente `filesystem_view_image`, sin Python ni lectura/base64 manual.
+
+Estos dos casos prueban exactamente la nueva decisión de routing introducida por Python 3.
+
+#### Criterio de cierre P3.2 / Python 3
+
+P3.2 queda cerrado cuando:
+
+- runtime instalado está en python3, healthy/ready, con python2 como rollback;
+- Host instalado anuncia exactamente el contrato P3.1 de 25 tools;
+- `loom.__bridge_version__ == 2` y `loom.display_image` existen en el worker instalado;
+- consumer smoke recibe visión real desde un `python_execute`;
+- persistencia del worker sigue funcionando después del output visual;
+- imagen local existente sigue yendo por `filesystem_view_image`;
+- plugin **0.5.0** fue actualizado por CAS y verificado por read-back;
+- fresh-agent positivo/negativo pasan;
+- documentación queda reconciliada y cambios de P3.2 commiteados.
+
+No hace falta agregar más código al transporte P3.0/P3.1 salvo que alguna prueba instalada descubra una regresión real.
 
 ## Criterio de cierre Python 3
 

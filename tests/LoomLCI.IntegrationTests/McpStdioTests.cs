@@ -160,8 +160,12 @@ public sealed class McpStdioTests
             "python_reset",
             "loom.fs",
             "loom.process",
+            "loom.display_image",
+            "filesystem_view_image",
+            "filesystem_render_pdf_page",
+            "completamente en memoria",
+            "imagen local",
             "MCP/tunnel",
-            "tools visuales top-level",
             "Process top-level",
             "Independent"
         })

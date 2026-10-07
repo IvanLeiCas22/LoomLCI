@@ -677,6 +677,39 @@ Cierre final:
 
 Con esto **Python 2 queda CERRADO end-to-end**. La reconciliación final del plugin/skill privado también quedó cerrada posteriormente en **0.4.0**, con evaluación fresh-agent **4/4 PASS**.
 
+## Update Python 3 - Outputs binarios e imágenes (2026-10-07)
+
+P3.2 desplegó Python 3 sobre la instalación real usando nuevamente el flujo portable side-by-side:
+
+- versión: `0.1.0-dev-python3`, sequence **0**;
+- portable: `artifacts/portable-p32/LoomLCI-0.1.0-dev-python3-win-x64.zip`;
+- tamaño ZIP: **81.313.386 bytes**;
+- SHA-256: `bc2637d2be39fc57409ef56dae39efbfcf348059a9f6b99fa23d2b73a39f6401`;
+- Launcher builder: **20/20**;
+- IntegrationTests contra Host publicado: **21/21**;
+- setup side-by-side: **OK**;
+- hash de `LoomLCI.Host.dll` package vs instalación: idéntico, `5587be0ab1a1ee6f400ed7238b07e4370c394d25d565531f0e959f4a2c6f5000`;
+- IntegrationTests contra `versions/0.1.0-dev-python3/LoomLCI.Host.dll`: **21/21**;
+- contrato instalado: 25 tools, `python_execute.outputSchema == null`, metadata de `loom.display_image` presente;
+- cutover ejecutado sólo con IvanSpace mediante `stop/start/status`: **OK**;
+- runtime activo: `0.1.0-dev-python3`, `healthy=true`, `ready=true`;
+- rollback: `0.1.0-dev-python2`;
+- `highestSequence` permanece en **3**;
+- tunnel preservado.
+
+Consumer smoke del runtime nuevo:
+
+- bridge API **v2**;
+- `loom.display_image` disponible;
+- PNG in-memory aceptado por `python_execute`;
+- persistencia de globals comprobada en execute posterior;
+- formato inválido recuperable sin matar worker;
+- imagen local existente sigue funcionando directamente con `filesystem_view_image`.
+
+El chat del cutover conservó el snapshot viejo de `python_execute`, por lo que la aceptación visual del mixed `ImageContentBlock` queda deliberadamente para un chat nuevo/fresh-agent. Es la misma clase de caché externa observada en P2.4, no un fallo del Host instalado.
+
+No se usó `update apply`: el feed firmado público todavía apunta a `0.1.0-dev-github-e2e` sequence 3 mientras los builds Python side-by-side usan sequence 0. Una futura release firmada de Python 3 deberá usar sequence >=4.
+
 ## Fuera de alcance inicial
 
 - autoarranque al login;

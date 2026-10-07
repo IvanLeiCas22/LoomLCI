@@ -227,6 +227,31 @@ Follow-up futuro recomendado: mejorar autodocumentación/discoverability in-work
 
 **Evaluación fresh-agent final: 4/4 PASS.** La skill 0.4.0 selecciona correctamente bridge privado dentro de Python cuando corresponde y conserva Filesystem/Visual/Process top-level para los casos donde son la superficie adecuada. No se observó sobreuso de Python/bridge ni regresión que justifique repetir el benchmark completo de Work Plan.
 
+### Reconciliación Python 3 - plugin 0.5.0
+
+Implementado/publicado en P3.2:
+
+- manifest canónico: **0.4.0 -> 0.5.0**;
+- skill y README incorporan `loom.display_image` sólo para imágenes generadas completamente en memoria por Python;
+- imagen local existente conserva `filesystem_view_image`;
+- página PDF existente conserva `filesystem_render_pdf_page`;
+- verifier e IntegrationTest protegen los tres markers y la distinción in-memory vs archivo local;
+- verifier fuente: **OK**, 25 tools / 12 refs explícitas;
+- suite Release posterior: **356/356**;
+- build del plugin contra Host instalado `0.1.0-dev-python3`: **OK, sin drift MCP**;
+- paquete: **4.896 bytes**, SHA-256 `7d608a2e3cbcdc55a4eb76e0eea8ce1f573c118ebed6f5683312e1f08fd844ad`;
+- plugin id preservado: `plugins_6ac0a247c2b08191bca02893456adf28`;
+- release anterior: `pluginrel_6ac5e253c70081918df6046afb0572fa` (0.4.0);
+- release actual: `pluginrel_6ac66682d9908191b16d4033923f84fa` (0.5.0);
+- update CAS: **OK**;
+- read-back de manifest/skill/README/neutralizadores: **OK**;
+- `.codex-plugin/plugin.json`: 0.5.0 sincronizado;
+- `mcp.json` / `.mcp.json`: `mcpServers: {}` preservado.
+
+La ruta Windows volvió a ser rechazada por Plugin Creator antes de mutar el plugin; trasladar el mismo ZIP al entorno de Plugin Creator resolvió el upload sin cambiar el contenido.
+
+Pendiente para cerrar Python 3 end-to-end: fresh-agent visual en chat nuevo, porque el chat que ejecutó el cutover conserva el snapshot anterior de `python_execute`.
+
 ### Criterio de cierre
 
 La reconciliación queda cerrada cuando la fuente canónica refleja Python 1 + Python 2, el anti-drift protege loom.fs/loom.process, el paquete 0.4.0 verifica 25 tools sin drift, el plugin existente se actualiza por CAS/read-back y los fresh-agent positives/negatives seleccionan correctamente bridge vs tools top-level.
