@@ -2877,6 +2877,26 @@ print("P21_FS_OK")
                     .GetString()!;
             }
 
+            async Task<int> ReadPidFileAsync(string path)
+            {
+                for (var i = 0; i < 200; i++)
+                {
+                    if (File.Exists(path))
+                    {
+                        var text = (await File.ReadAllTextAsync(path)).Trim();
+                        if (int.TryParse(text, out var pid))
+                        {
+                            return pid;
+                        }
+                    }
+
+                    await Task.Delay(25);
+                }
+
+                throw new TimeoutException(
+                    $"PID file was not written: {path}");
+            }
+
             var workA = await CreateWorkAsync(
                 "python-process-a");
             var workB = await CreateWorkAsync(
@@ -3248,6 +3268,92 @@ print("P22_TERM_OK")
                         "result"),
                     "stdout").GetString());
 
+            var runTimeoutPidPath = Path.Combine(
+                scratch,
+                "run-timeout.pid");
+            var runTimeoutPidLiteral =
+                JsonSerializer.Serialize(runTimeoutPidPath);
+            var runTimeoutCode =
+                "import loom.process\n" +
+                $"path = {runTimeoutPidLiteral}\n" +
+                "cmd = \"Set-Content -LiteralPath '\" + path.replace(\"'\", \"''\") + \"' -Value $PID; Start-Sleep -Seconds 30\"\n" +
+                "loom.process.run(" +
+                "'powershell.exe'," +
+                " ['-NoProfile','-Command',cmd]," +
+                " timeout_seconds=30)";
+
+            var runTimeout = await client.CallToolAsync(
+                "python_execute",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workA,
+                    ["code"] = runTimeoutCode,
+                    ["timeoutSeconds"] = 1
+                });
+            var runTimeoutRoot = GetStructured(
+                runTimeout.StructuredContent);
+            Assert.False(
+                GetRequiredProperty(
+                    runTimeoutRoot,
+                    "ok").GetBoolean());
+            Assert.Equal(
+                "deadline_exceeded",
+                GetRequiredProperty(
+                        GetRequiredProperty(
+                            runTimeoutRoot,
+                            "error"),
+                        "code")
+                    .GetString());
+
+            var runTimeoutPid =
+                await ReadPidFileAsync(runTimeoutPidPath);
+            await WaitForProcessGoneAsync(runTimeoutPid);
+
+            var durableTimeoutPidPath = Path.Combine(
+                scratch,
+                "durable-timeout.pid");
+            var durableTimeoutPidLiteral =
+                JsonSerializer.Serialize(
+                    durableTimeoutPidPath);
+            var durableTimeoutCode =
+                "import os, time, loom.process\n" +
+                $"path = {durableTimeoutPidLiteral}\n" +
+                "cmd = \"Set-Content -LiteralPath '\" + path.replace(\"'\", \"''\") + \"' -Value $PID; Start-Sleep -Seconds 30\"\n" +
+                "loom.process.start(" +
+                "'powershell.exe'," +
+                " ['-NoProfile','-Command',cmd])\n" +
+                "deadline = time.time() + 5\n" +
+                "while not os.path.exists(path) and time.time() < deadline:\n" +
+                "    time.sleep(0.02)\n" +
+                "time.sleep(30)";
+
+            var durableTimeout = await client.CallToolAsync(
+                "python_execute",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workA,
+                    ["code"] = durableTimeoutCode,
+                    ["timeoutSeconds"] = 1
+                });
+            var durableTimeoutRoot = GetStructured(
+                durableTimeout.StructuredContent);
+            Assert.False(
+                GetRequiredProperty(
+                    durableTimeoutRoot,
+                    "ok").GetBoolean());
+            Assert.Equal(
+                "deadline_exceeded",
+                GetRequiredProperty(
+                        GetRequiredProperty(
+                            durableTimeoutRoot,
+                            "error"),
+                        "code")
+                    .GetString());
+
+            var durableTimeoutPid =
+                await ReadPidFileAsync(durableTimeoutPidPath);
+            Assert.True(IsProcessAlive(durableTimeoutPid));
+
             var cleanup = await client.CallToolAsync(
                 "python_execute",
                 new Dictionary<string, object?>
@@ -3319,6 +3425,8 @@ print("P22_TERM_OK")
                 cleanupPid);
             await WaitForProcessGoneAsync(
                 pipePid);
+            await WaitForProcessGoneAsync(
+                durableTimeoutPid);
 
             var closeB = await client.CallToolAsync(
                 "work_close",

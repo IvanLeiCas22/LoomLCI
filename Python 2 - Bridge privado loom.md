@@ -1,6 +1,6 @@
 # Python 2 - Bridge privado loom.*
 
-> Estado: **P2.0, P2.1 y P2.2 cerrados; P2.3 (hardening/evaluation) pendiente de investigación/análisis específico.**
+> Estado: **P2.0, P2.1, P2.2 y P2.3 CERRADOS; P2.4 (deployment / consumer smoke) pendiente.**
 >
 > Objetivo: permitir que el código ejecutado dentro del worker Python invoque capabilities internas de LoomLCI mediante un módulo privado `loom.*`, conservando WorkSession, validaciones, lifecycle, errores, observabilidad y cancellation, sin volver a entrar por MCP/Secure MCP Tunnel.
 
@@ -818,7 +818,7 @@ El runtime instalado permanece deliberadamente en `0.1.0-dev-python1`; el deploy
 
 ### P2.2 - Process bridge
 
-> Estado: **investigación y diseño específicos cerrados; implementación pendiente de aprobación.**
+> Estado: **CERRADO. Implementación, tests, integración y smoke completados.**
 
 P2.2 reutiliza **Process Core directamente** mediante un nuevo `PythonProcessBridgeModule`. No debe llamar a las tools MCP ni a shell wrappers propios.
 
@@ -1263,15 +1263,347 @@ El runtime instalado permanece deliberadamente en `0.1.0-dev-python1`; el deploy
 
 ### P2.3 - Hardening / evaluation
 
-- concurrency y threads;
-- payload limits;
-- cancellation en callback;
-- crash/broken pipe;
-- worker reset;
-- package environment change;
-- repeated bridge calls;
-- benchmark básico de overhead local;
-- suite completa Release.
+> Estado: **CERRADO. Implementación, regression/stress tests, suite Release y smoke combinado completados.**
+
+P2.3 no requiere rediseñar el protocolo v2 ni cambiar la API privada `loom.*`. La mayor parte de los invariantes de concurrencia/cancellation ya quedó cubierta por P2.0–P2.2; esta etapa debe concentrarse en combinaciones cross-feature, límites y un único hueco real encontrado durante la evaluación.
+
+#### Cobertura ya existente que no debe duplicarse
+
+El código/tests actuales ya garantizan:
+
+- un solo worker persistente por WorkSession;
+- creación concurrente del primer worker -> un único recurso;
+- segundo `python_execute` simultáneo sobre el mismo worker -> `busy`;
+- excepción Python normal -> worker reutilizable;
+- timeout/cancellation -> worker invalidado y descartado;
+- worker unhealthy/crash -> siguiente execute crea uno nuevo;
+- `python_reset` idempotente;
+- `python_reset` espera el lease de una ejecución activa antes de disponer el worker;
+- cambio de package environment -> `workerRestartRequired`, execute bloqueado hasta reset y old/new environments protegidos de GC;
+- thread creado durante un execute puede usar `loom.*`;
+- thread viejo no puede usar el bridge en un execute posterior -> `bridge_unavailable`;
+- el resultado final no adelanta un callback activo;
+- timeout durante callback cancela el callback y descarta el worker;
+- `os._exit()` fuera de callback invalida el worker y la siguiente ejecución se recupera;
+- framing, strict UTF-8/JSON, requestId/callId, frame bounds y errores estructurados están cubiertos por tests de protocolo.
+
+Por lo tanto P2.3 no debe agregar bridge paralelo, múltiples requests simultáneos por worker ni mecanismos de interrupción asíncrona dentro de CPython.
+
+#### Hallazgo real: worker crash durante callback largo
+
+La evaluación Release encontró un hueco de detección.
+
+Escenario real ejecutado:
+
+```python
+import os, threading, time, loom.process
+
+def die():
+    time.sleep(0.2)
+    os._exit(23)
+
+threading.Thread(target=die, daemon=True).start()
+
+loom.process.run(
+    "powershell.exe",
+    ["-NoProfile", "-Command", "Start-Sleep -Seconds 5"],
+    timeout_seconds=5,
+)
+```
+
+Resultado observado:
+
+- el worker Python murió aproximadamente a los 200 ms;
+- `python_execute` devolvió correctamente `execution_failed`;
+- pero recién después de **~5.05 s**, cuando terminó el callback `process.run`.
+
+Causa:
+
+- `WindowsPythonWorkerResource.ExecuteAsync` lee un `bridge_call`;
+- luego hace `await bridgeHandler(...)`;
+- mientras ese callback está pendiente no observa el pipe ni la terminación del process Python;
+- la muerte del worker sólo se descubre al intentar escribir el `bridge_result` una vez terminado el callback.
+
+Es seguro respecto de corrupción, pero un callback de hasta 600 s podría retener innecesariamente la invocación después de que el worker ya murió.
+
+#### Hardening requerido: exit-aware callback cancellation
+
+P2.3 debe agregar una primitive explícita de espera de salida del root process, separada del drenaje de output.
+
+Diseño recomendado:
+
+```csharp
+IProcessResource.WaitForExitAsync(CancellationToken)
+```
+
+- `WindowsProcessResource` la implementa reutilizando su `_exitObserver` existente;
+- `WaitForExitAndOutputAsync` pasa a hacer:
+  1. `WaitForExitAsync`;
+  2. sólo después, drain de stdout/stderr;
+- no usar polling de `Snapshot()`;
+- no usar `WaitForExitAndOutputAsync` como monitor porque descendants podrían mantener pipes abiertos y retrasar el drain aun cuando el root Python ya murió.
+
+En `WindowsPythonWorkerResource`, mientras se ejecuta cada bridge callback:
+
+1. iniciar el callback con un CTS ligado al cancellation externo;
+2. iniciar en paralelo el monitor `WaitForExitAsync`;
+3. `Task.WhenAny(callback, workerExit)`;
+4. si gana worker exit:
+   - cancelar el callback;
+   - esperar su cleanup cooperativo;
+   - invalidar el worker;
+   - devolver `execution_failed` sin esperar el timeout natural del callback;
+5. si gana el callback:
+   - cancelar/retirar el monitor;
+   - escribir normalmente el `bridge_result`.
+
+No se debe abandonar en background un callback que ignore cancellation: eso podría mutar recursos después de haber cerrado el execute. El hardening sigue siendo cooperativo, pero las capabilities built-in deben responder a cancellation.
+
+Acceptance específico:
+
+- repetir el escenario `os._exit(23)` durante un `loom.process.run` de 5–30 s;
+- `execution_failed` debe llegar rápidamente (objetivo de test holgado <2 s, no microbenchmark);
+- el child process de `process.run` debe quedar limpio;
+- el siguiente execute debe crear un worker nuevo y funcionar.
+
+#### Cancellation y recursos durables
+
+Evaluación real:
+
+1. `loom.process.run` con proceso de 30 s + `python_execute(timeout=1s)`:
+   - resultado: `deadline_exceeded`;
+   - PID root verificado como terminado;
+   - **OK**.
+
+2. `loom.process.start` completa y luego el mismo `python_execute` expira:
+   - worker Python es descartado;
+   - el proceso SessionOwned creado por `start` sigue vivo;
+   - `work_close` lo termina;
+   - **OK y deliberado**.
+
+P2.3 debe convertir ambos escenarios en integración permanente.
+
+No agregar rollback automático de callbacks ya completados: un recurso durable creado correctamente pertenece a la WorkSession, no al lifetime de un execute individual.
+
+También agregar:
+
+- `work_close` mientras un bridge callback está activo -> callback cancelado, worker cerrado y ningún recurso SessionOwned queda filtrado;
+- callback normal que devuelve `LoomError` -> worker sigue sano.
+
+#### Concurrency / threads
+
+El bridge usa un único Named Pipe y `_transaction_lock`; múltiples threads dentro del worker pueden invocar `loom.*`, pero sus transactions se serializan.
+
+Evaluación Release real:
+
+- 500 `loom.capabilities()` secuenciales:
+  - ~66–72 ms total;
+  - orden de magnitud ~0.13–0.14 ms/call;
+- 8 threads × 50 callbacks:
+  - ~61–71 ms total para 400 calls;
+  - **0 errores**;
+  - sin mismatches de requestId/callId.
+
+Conclusión:
+
+- el modelo serial actual es suficientemente rápido;
+- no introducir pipelining/multiple in-flight bridge calls en Python 2;
+- agregar stress permanente con cientos/miles de callbacks y threads;
+- no fijar SLA de microsegundos en CI: sólo watchdog amplio contra regresiones catastróficas.
+
+#### Overhead de módulos reales
+
+Evaluación Release indicativa:
+
+- 200 `loom.fs.read_files` de un archivo pequeño: **~92 ms** total;
+- 200 `loom.process.status` sobre un proceso vivo: **~48 ms** total.
+
+El costo del bridge local no justifica optimización arquitectónica en P2.3.
+
+Conviene guardar un harness de evaluación reproducible, pero no fallar CI por pequeños cambios de timing.
+
+#### Payload limits
+
+Estado actual:
+
+- call frame: 2 MiB;
+- result frame: 8 MiB;
+- execute request: 2 MiB;
+- final Python response: 32 MiB;
+- Python source: 256 KiB;
+- method <=128 chars.
+
+Evaluación real:
+
+- call >2 MiB devuelve `loom.LoomError(code="unsupported")`;
+- el mismo worker pudo ejecutar `loom.capabilities()` inmediatamente después;
+- **oversize call es recuperable**.
+
+Hay un borde de consistencia en results:
+
+- `PythonBridgeJson` mide el JSON del **valor** contra 8 MiB;
+- `PythonWorkerProtocol.WriteBridgeResultAsync` mide el **envelope completo** contra 8 MiB;
+- por lo tanto un value apenas por debajo de 8 MiB puede superar el frame por el overhead de `type/requestId/callId/ok/error`;
+- el writer ya cae de forma segura a un error `unsupported`, pero hoy ese fallback pierde los details uniformes de `bridge_payload_too_large`.
+
+P2.3 debe mantener 8 MiB como límite de **frame**, no prometer 8 MiB de payload útil.
+
+Hardening recomendado:
+
+- hacer al writer del protocolo la autoridad final del límite;
+- unificar el fallback oversized con:
+  - `code=unsupported`;
+  - `details.reason=bridge_payload_too_large`;
+  - `max_bridge_result_bytes`;
+- mantener el early guard Core sólo como fast-fail/size hint, sin asumir que garantiza que el envelope final entra.
+
+Tests:
+
+- call justo debajo y encima de 2 MiB;
+- result normal grande;
+- result cuyo value entra pero envelope supera 8 MiB;
+- worker reutilizable después de todos los oversize recoverables;
+- corrupted/invalid frame sigue siendo fatal y recrea worker.
+
+#### Crash / broken pipe
+
+Ya existe cobertura real para `os._exit()` fuera de callback y framing fatal.
+
+P2.3 debe sumar:
+
+- worker crash **durante** callback largo (hallazgo anterior);
+- pipe cerrado mientras callback está activo;
+- callback cancelado por worker exit limpia sus recursos antes de retornar;
+- siguiente execute recrea worker.
+
+No hace falta introducir protocolo v3: el problema está en el lifecycle del Host mientras espera el callback, no en el wire format.
+
+#### Reset + bridge resources
+
+Ya está validado:
+
+- reset espera una ejecución activa;
+- reset cambia PID y limpia namespace;
+- un process handle SessionOwned creado por `loom.process.start` sobrevive a reset y puede retomarse desde el worker nuevo de la misma WorkSession.
+
+P2.3 sólo necesita congelar esta combinación como regression test; no cambiar semántica.
+
+#### Packages + ejecución activa
+
+`python_packages_prepare` puede correr mientras existe un worker con el environment anterior:
+
+- el worker activo conserva su environment cargado;
+- Prepare cambia el desired environment de la WorkSession;
+- ambos environments quedan protegidos de GC;
+- `workerRestartRequired=true` si el snapshot ve el worker anterior;
+- el execute ya iniciado puede terminar normalmente con el environment viejo;
+- el próximo execute ve mismatch y devuelve `conflict` hasta `python_reset`;
+- después del reset, el worker nuevo arranca con el environment deseado.
+
+P2.3 debe agregar un test de concurrencia explícito para esa secuencia.
+
+No recomiendo introducir un lock global entre execute/prepare/reset: la semántica actual es segura y permite preparar paquetes mientras corre Python. Bajo una carrera deliberada `prepare` vs `reset`, `workerRestartRequired` debe tratarse como información point-in-time; un `true` conservador aunque el reset termine inmediatamente después es aceptable y no compromete integridad.
+
+#### Threads tardíos y stdout/stderr
+
+Un thread que hereda el context del execute:
+
+- puede usar bridge durante ese execute;
+- luego recibe `bridge_unavailable`;
+- no puede inyectar frames al execute siguiente.
+
+Los buffers de stdout/stderr se cierran al finalizar el execute. Un thread tardío que siga imprimiendo puede caer al stream diagnóstico del worker, pero no contamina el resultado estructurado de otro execute.
+
+No recomiendo agregar un thread-killer: Python no ofrece una interrupción segura de threads arbitrarios. `python_reset` / timeout / work_close siguen siendo el mecanismo fuerte para destruir el worker completo.
+
+#### Alcance de implementación P2.3
+
+Orden recomendado:
+
+1. **worker-exit-aware callback cancellation**
+   - `IProcessResource.WaitForExitAsync`;
+   - race callback vs worker exit;
+   - cleanup cooperativo y recuperación;
+
+2. **payload/error hardening**
+   - consistencia del error oversized a nivel frame;
+   - tests near-limit / over-limit / recovery;
+
+3. **cross-feature regression tests**
+   - repeated callbacks;
+   - multi-thread callbacks;
+   - run timeout cleanup;
+   - durable start + execute timeout + work_close;
+   - work_close durante callback;
+   - reset + durable process handle;
+   - active execute + package environment transition;
+
+4. **evaluation harness**
+   - capacidades;
+   - small filesystem;
+   - process status;
+   - threads;
+   - registrar baseline informativa, sin SLA estricto;
+
+5. **suite Release completa + smoke combinado**
+   - NumPy/Pandas;
+   - `loom.fs`;
+   - `loom.process`;
+   - oversize recoverable;
+   - crash/recovery.
+
+P2.3 no agrega tools MCP ni cambia el catálogo de **25 tools** y no requiere deployment/cutover. Eso sigue reservado para P2.4.
+
+#### Criterio de cierre P2.3
+
+P2.3 queda cerrado cuando:
+
+- worker crash durante callback largo se detecta/cancela rápido;
+- timeout/cancel/work_close no dejan callbacks o procesos one-shot filtrados;
+- recursos durables siguen contenidos por WorkSession;
+- calls/results oversized son recoverables cuando corresponda y no rompen el worker;
+- corrupción de protocolo sigue siendo fatal y recreable;
+- threads concurrentes/repetidos no corrompen correlación;
+- package transition concurrente con execute conserva old/new environments y exige reset de forma segura;
+- reset conserva correctamente recursos Loom externos al worker;
+- benchmark local no revela una regresión material;
+- suite Release y smoke combinado quedan verdes.
+
+#### Resultado de implementación P2.3
+
+Implementado:
+
+- `IProcessResource.WaitForExitAsync(CancellationToken)` separa la salida real del root process del drenaje de stdout/stderr;
+- `WindowsPythonWorkerResource` monitorea en paralelo cada bridge callback y la salida del worker;
+- worker exit, timeout, caller cancellation y `work_close` cancelan el callback y esperan su cleanup cooperativo antes de retornar/inutilizar el worker;
+- crash del worker durante callback largo deja de esperar el timeout natural del callback;
+- `WriteBridgeResultAsync` mantiene 8 MiB como límite de frame y devuelve fallback estructurado `unsupported` con `details.reason=bridge_payload_too_large`;
+- no hubo cambios de protocolo, API `loom.*` ni catálogo MCP.
+
+Regression/hardening agregado:
+
+- oversize call recuperable + worker reusable;
+- oversized result envelope con error estructurado;
+- 8 threads × 50 bridge calls sin pérdida de correlación;
+- worker `os._exit()` durante callback bloqueado -> callback cancelado, `execution_failed` rápido y worker nuevo funcional;
+- `work_close` durante callback -> cleanup observado y worker eliminado;
+- package environment cambia mientras un execute está activo -> ejecución vieja termina, old/new envs quedan protegidos, siguiente execute exige reset y worker nuevo usa el env deseado;
+- integración real: `loom.process.run` one-shot se limpia al expirar `python_execute`;
+- integración real: `loom.process.start` durable sobrevive al worker cancelado y es limpiado por `work_close`.
+
+Validación final:
+
+- Core: **123/123**;
+- Windows: **164/164**;
+- Integration: **19/19**;
+- Launcher: **20/20**;
+- MCP: **5/5**;
+- PdfWorker: **6/6**;
+- suite Release serial: **337/337**;
+- `git diff --check`: **OK**;
+- smoke Host Release con environment reutilizado NumPy **2.5.3** + Pandas **3.0.6** + `loom.fs` + `loom.process` + oversize recuperable + segundo execute persistente: **`P23_COMBINED_SMOKE_OK`**.
+
+El runtime instalado permanece deliberadamente en `0.1.0-dev-python1`. P2.3 no requiere cutover; deployment e instalación de Python 2 siguen reservados para P2.4.
 
 ### P2.4 - Deployment / consumer smoke
 

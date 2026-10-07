@@ -276,6 +276,7 @@ internal static class PythonWorkerProtocol
         var payload = SerializeFramePayload(envelope);
         if (payload.Length > MaxBridgeResultFrameBytes)
         {
+            var oversizedPayloadBytes = payload.Length;
             envelope = new
             {
                 type = "bridge_result",
@@ -286,9 +287,14 @@ internal static class PythonWorkerProtocol
                 error = new
                 {
                     code = "unsupported",
-                    message = $"Python bridge result exceeds {MaxBridgeResultFrameBytes} bytes.",
+                    message = $"Python bridge result frame exceeds {MaxBridgeResultFrameBytes} bytes.",
                     retryable = false,
-                    details = (object?)null
+                    details = new
+                    {
+                        reason = "bridge_payload_too_large",
+                        serialized_result_bytes = oversizedPayloadBytes,
+                        max_bridge_result_bytes = MaxBridgeResultFrameBytes
+                    }
                 }
             };
             payload = SerializeFramePayload(envelope);

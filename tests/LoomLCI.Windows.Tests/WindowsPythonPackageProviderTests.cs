@@ -562,9 +562,13 @@ public sealed class WindowsPythonPackageProviderTests
                     _stderr),
                 null);
 
-        public Task WaitForExitAndOutputAsync(
+        public Task WaitForExitAsync(
             CancellationToken cancellationToken)
             => Task.CompletedTask;
+
+        public Task WaitForExitAndOutputAsync(
+            CancellationToken cancellationToken)
+            => WaitForExitAsync(cancellationToken);
 
         public Task<LoomResult<Unit>> WriteAsync(
             string text,

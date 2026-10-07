@@ -558,11 +558,14 @@ public sealed class ProcessRetentionTests
                     Empty(terminalCursor));
         }
 
-        public Task WaitForExitAndOutputAsync(CancellationToken cancellationToken)
+        public Task WaitForExitAsync(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             return Task.CompletedTask;
         }
+
+        public Task WaitForExitAndOutputAsync(CancellationToken cancellationToken)
+            => WaitForExitAsync(cancellationToken);
 
         public Task<LoomResult<Unit>> WriteAsync(
             string text,

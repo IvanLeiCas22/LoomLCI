@@ -139,25 +139,12 @@ internal sealed class WindowsPythonWorkerResource : IPythonWorkerResource
                             "Python worker returned an unknown execution message.");
                     }
 
-                    LoomResult<System.Text.Json.JsonElement> bridgeResult;
-                    try
-                    {
-                        bridgeResult = await bridgeHandler(
+                    var bridgeResult =
+                        await ExecuteBridgeCallbackAsync(
+                                bridgeHandler,
                                 bridgeCall.Call,
                                 cancellationToken)
                             .ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        throw;
-                    }
-                    catch
-                    {
-                        bridgeResult =
-                            LoomResult<System.Text.Json.JsonElement>.Failure(
-                                LoomErrors.Internal(
-                                    "Python bridge dispatcher failed."));
-                    }
 
                     await PythonWorkerProtocol.WriteBridgeResultAsync(
                             _pipe,
@@ -194,6 +181,106 @@ internal sealed class WindowsPythonWorkerResource : IPythonWorkerResource
         finally
         {
             Volatile.Write(ref _executing, 0);
+        }
+    }
+
+    private async Task<LoomResult<System.Text.Json.JsonElement>>
+        ExecuteBridgeCallbackAsync(
+            PythonBridgeHandler bridgeHandler,
+            PythonBridgeCall call,
+            CancellationToken cancellationToken)
+    {
+        using var callbackCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken);
+        using var exitMonitorCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken);
+
+        var callbackTask = InvokeBridgeHandlerAsync(
+            bridgeHandler,
+            call,
+            callbackCancellation.Token);
+        var exitTask = _process.WaitForExitAsync(
+            exitMonitorCancellation.Token);
+
+        var completed = await Task.WhenAny(
+                callbackTask,
+                exitTask)
+            .ConfigureAwait(false);
+
+        if (completed == callbackTask)
+        {
+            exitMonitorCancellation.Cancel();
+            try
+            {
+                await exitTask.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+                when (exitMonitorCancellation.IsCancellationRequested)
+            {
+            }
+
+            return await callbackTask.ConfigureAwait(false);
+        }
+
+        var workerExited = false;
+        try
+        {
+            await exitTask.ConfigureAwait(false);
+            workerExited = true;
+        }
+        catch (OperationCanceledException)
+            when (cancellationToken.IsCancellationRequested)
+        {
+        }
+
+        callbackCancellation.Cancel();
+        try
+        {
+            await callbackTask.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+            when (callbackCancellation.IsCancellationRequested)
+        {
+        }
+        catch
+        {
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (workerExited)
+        {
+            throw new InvalidOperationException(
+                "Python worker exited while a bridge callback was active.");
+        }
+
+        throw new OperationCanceledException(cancellationToken);
+    }
+
+    private static async Task<LoomResult<System.Text.Json.JsonElement>>
+        InvokeBridgeHandlerAsync(
+            PythonBridgeHandler bridgeHandler,
+            PythonBridgeCall call,
+            CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await bridgeHandler(
+                    call,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return LoomResult<System.Text.Json.JsonElement>.Failure(
+                LoomErrors.Internal(
+                    "Python bridge dispatcher failed."));
         }
     }
 

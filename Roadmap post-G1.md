@@ -31,7 +31,7 @@ La reconciliación final del plugin/skill se cerrará después de incorporar las
 Orden preliminar:
 
 1. [[Python 1 - Paquetes administrados|paquetes de terceros administrados/versionados por LoomLCI]] — **CERRADO**: `uv` privado fijado/verificado, environments inmutables con locks+hashes, `python_packages_prepare`, binding por WorkSession, reset explícito al cambiar environment, GC protegido y deployment instalado validado;
-2. [[Python 2 - Bridge privado loom|bridge privado `loom.*` entre el worker Python y capabilities de LoomLCI]] — **P2.0 + P2.1 + P2.2 CERRADOS**: protocolo privado v2, router modular, `loom.fs` y `loom.process` con lifecycle/ownership administrado; P2.3 hardening/evaluation pendiente;
+2. [[Python 2 - Bridge privado loom|bridge privado `loom.*` entre el worker Python y capabilities de LoomLCI]] — **P2.0 + P2.1 + P2.2 + P2.3 CERRADOS**: protocolo privado v2, router modular, `loom.fs`, `loom.process`, lifecycle/ownership administrado y hardening/evaluation cerrado; P2.4 deployment/consumer smoke pendiente;
 3. outputs binarios/imágenes desde Python hacia el modelo.
 
 La ruta binaria debe reutilizar las lecciones de Visual Files y respetar los límites MCP/tunnel ya fijados.
@@ -70,6 +70,6 @@ Es un tema transversal:
 
 ## Próxima acción
 
-**[[Python 2 - Bridge privado loom|P2.3: Hardening / evaluation]] — investigar y analizar antes de implementar.**
+**[[Python 2 - Bridge privado loom|P2.4: Deployment / consumer smoke]] — realizar investigación/análisis específico antes del cutover.**
 
-P2.0 + P2.1 + P2.2 quedaron cerrados en código: protocolo v2, router modular, `loom.fs`, `loom.process`, ownership estricto por WorkSession, hardening de Process Start y suite Release serial **331/331**. Integration está en **19/19** y el smoke combinado NumPy/Pandas + filesystem/process bridge pasó con **`P22_SMOKE_OK`**. El runtime instalado continúa deliberadamente en `0.1.0-dev-python1` hasta P2.4. [[Python 1 - Paquetes administrados]] permanece **CERRADO end-to-end** y el catálogo MCP público sigue en **25 tools**. [[Plugin metadata]] sigue cerrado; el plugin privado permanece en `0.3.0` hasta la reconciliación final posterior al bloque Python.
+P2.0 + P2.1 + P2.2 + P2.3 quedaron cerrados en código: protocolo v2, router modular, `loom.fs`, `loom.process`, ownership estricto por WorkSession y hardening de callback lifecycle/payloads. La suite Release serial está en **337/337**, Integration en **19/19** y el smoke combinado NumPy 2.5.3 + Pandas 3.0.6 + filesystem/process bridge + oversize recuperable pasó con **`P23_COMBINED_SMOKE_OK`**. El runtime instalado continúa deliberadamente en `0.1.0-dev-python1` hasta P2.4. [[Python 1 - Paquetes administrados]] permanece **CERRADO end-to-end** y el catálogo MCP público sigue en **25 tools**. [[Plugin metadata]] sigue cerrado; el plugin privado permanece en `0.3.0` hasta la reconciliación final posterior al bloque Python.

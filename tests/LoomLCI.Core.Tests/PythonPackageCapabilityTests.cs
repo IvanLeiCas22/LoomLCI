@@ -189,6 +189,74 @@ public sealed class PythonPackageCapabilityTests
         Assert.Equal(0, fixture.PackageProvider.PrepareCount);
     }
 
+    [Fact]
+    public async Task ChangingEnvironmentDuringActiveExecuteFinishesOldWorkerAndRequiresReset()
+    {
+        await using var fixture = new Fixture();
+        var work = fixture.CreateWork();
+
+        var initial = await fixture.Packages.PrepareAsync(
+            new PythonPackagesPrepareRequest(
+                work.Id,
+                [new PythonPackageRequirement("numpy", "2.5.3")],
+                TimeSpan.FromMinutes(1)));
+        Assert.True(initial.IsSuccess, initial.Error?.Message);
+
+        fixture.Runtime.BlockNextWorker();
+        var execution = fixture.Python.ExecuteAsync(
+            new PythonExecuteRequest(
+                work.Id,
+                "active-old-environment",
+                TimeSpan.FromSeconds(30)));
+
+        var activeWorker = await fixture.Runtime.WorkerStarted.WaitAsync(
+            TimeSpan.FromSeconds(5));
+        await activeWorker.ExecutionEntered.Task.WaitAsync(
+            TimeSpan.FromSeconds(5));
+
+        var changed = await fixture.Packages.PrepareAsync(
+            new PythonPackagesPrepareRequest(
+                work.Id,
+                [new PythonPackageRequirement("pandas", "3.0.6")],
+                TimeSpan.FromMinutes(1)));
+
+        Assert.True(changed.IsSuccess, changed.Error?.Message);
+        Assert.True(changed.Value!.WorkerRestartRequired);
+        Assert.Contains(
+            "env-numpy-2.5.3",
+            fixture.PackageProvider.LastProtectedEnvironmentIds);
+        Assert.Contains(
+            "env-pandas-3.0.6",
+            fixture.PackageProvider.LastProtectedEnvironmentIds);
+
+        activeWorker.ReleaseExecution();
+        var activeResult = await execution;
+        Assert.True(activeResult.IsSuccess, activeResult.Error?.Message);
+        Assert.Equal(
+            "active-old-environment",
+            activeResult.Value!.Stdout);
+
+        var blocked = await fixture.Python.ExecuteAsync(
+            new PythonExecuteRequest(
+                work.Id,
+                "blocked",
+                TimeSpan.FromSeconds(10)));
+        Assert.False(blocked.IsSuccess);
+        Assert.Equal("conflict", blocked.Error?.Code);
+
+        Assert.True((await fixture.Python.ResetAsync(work.Id)).IsSuccess);
+
+        var afterReset = await fixture.Python.ExecuteAsync(
+            new PythonExecuteRequest(
+                work.Id,
+                "new-environment",
+                TimeSpan.FromSeconds(10)));
+        Assert.True(afterReset.IsSuccess, afterReset.Error?.Message);
+        Assert.Equal(
+            "env-pandas-3.0.6",
+            fixture.Runtime.LastSpec?.PackageEnvironment?.EnvironmentId);
+    }
+
     private sealed class Fixture : IAsyncDisposable
     {
         public Fixture()
@@ -310,10 +378,17 @@ public sealed class PythonPackageCapabilityTests
     private sealed class FakeRuntimeProvider : IPythonRuntimeProvider
     {
         private int _startCount;
+        private int _blockNextWorker;
+        private readonly TaskCompletionSource<FakeWorker> _workerStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public int StartCount => Volatile.Read(ref _startCount);
         public PythonWorkerStartSpec? LastSpec { get; private set; }
         public List<FakeWorker> Workers { get; } = [];
+        public Task<FakeWorker> WorkerStarted => _workerStarted.Task;
+
+        public void BlockNextWorker()
+            => Interlocked.Exchange(ref _blockNextWorker, 1);
 
         public Task<LoomResult<IPythonWorkerResource>> StartAsync(
             PythonWorkerStartSpec spec,
@@ -324,7 +399,13 @@ public sealed class PythonPackageCapabilityTests
 
             var worker = new FakeWorker(
                 spec.PackageEnvironment?.EnvironmentId);
+            if (Interlocked.Exchange(ref _blockNextWorker, 0) != 0)
+            {
+                worker.BlockExecution();
+            }
+
             Workers.Add(worker);
+            _workerStarted.TrySetResult(worker);
 
             return Task.FromResult(
                 LoomResult<IPythonWorkerResource>.Success(
@@ -335,6 +416,7 @@ public sealed class PythonPackageCapabilityTests
     private sealed class FakeWorker : IPythonWorkerResource
     {
         private bool _healthy = true;
+        private TaskCompletionSource? _executionRelease;
 
         public FakeWorker(string? packageEnvironmentId)
         {
@@ -343,25 +425,48 @@ public sealed class PythonPackageCapabilityTests
 
         public bool IsHealthy => _healthy;
         public string? PackageEnvironmentId { get; }
+        public TaskCompletionSource ExecutionEntered { get; private set; } =
+            NewSignal();
 
-        public Task<LoomResult<PythonExecutionResult>> ExecuteAsync(
+        public void BlockExecution()
+        {
+            ExecutionEntered = NewSignal();
+            _executionRelease = NewSignal();
+        }
+
+        public void ReleaseExecution()
+            => _executionRelease?.TrySetResult();
+
+        public async Task<LoomResult<PythonExecutionResult>> ExecuteAsync(
             PythonWorkerExecuteSpec request,
             PythonBridgeHandler bridgeHandler,
             CancellationToken cancellationToken)
-            => Task.FromResult(
-                LoomResult<PythonExecutionResult>.Success(
-                    new PythonExecutionResult(
-                        PythonExecutionStatus.Completed,
-                        request.Code,
-                        string.Empty,
-                        false,
-                        false,
-                        null)));
+        {
+            ExecutionEntered.TrySetResult();
+            if (_executionRelease is not null)
+            {
+                await _executionRelease.Task.WaitAsync(cancellationToken);
+            }
+
+            return LoomResult<PythonExecutionResult>.Success(
+                new PythonExecutionResult(
+                    PythonExecutionStatus.Completed,
+                    request.Code,
+                    string.Empty,
+                    false,
+                    false,
+                    null));
+        }
 
         public ValueTask DisposeAsync()
         {
             _healthy = false;
+            _executionRelease?.TrySetResult();
             return ValueTask.CompletedTask;
         }
+
+        private static TaskCompletionSource NewSignal()
+            => new(
+                TaskCreationOptions.RunContinuationsAsynchronously);
     }
 }

@@ -395,7 +395,7 @@ public sealed class ProcessContractTests
                     null,
                     Empty(terminalCursor));
 
-        public Task WaitForExitAndOutputAsync(CancellationToken cancellationToken)
+        public Task WaitForExitAsync(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             _state = ManagedProcessState.Exited;
@@ -403,6 +403,9 @@ public sealed class ProcessContractTests
             _exitedAt = DateTimeOffset.UtcNow;
             return Task.CompletedTask;
         }
+
+        public Task WaitForExitAndOutputAsync(CancellationToken cancellationToken)
+            => WaitForExitAsync(cancellationToken);
 
         public Task<LoomResult<Unit>> WriteAsync(
             string text,

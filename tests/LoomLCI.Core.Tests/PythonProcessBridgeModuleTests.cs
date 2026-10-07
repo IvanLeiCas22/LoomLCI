@@ -492,7 +492,7 @@ public sealed class PythonProcessBridgeModuleTests
                 terminal);
         }
 
-        public Task WaitForExitAndOutputAsync(
+        public Task WaitForExitAsync(
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -501,6 +501,10 @@ public sealed class PythonProcessBridgeModuleTests
             _exitedAt = DateTimeOffset.UtcNow;
             return Task.CompletedTask;
         }
+
+        public Task WaitForExitAndOutputAsync(
+            CancellationToken cancellationToken)
+            => WaitForExitAsync(cancellationToken);
 
         public Task<LoomResult<Unit>> WriteAsync(
             string text,

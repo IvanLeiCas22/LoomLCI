@@ -301,6 +301,41 @@ public sealed class PythonRuntimeProviderTests
     }
 
     [Fact]
+    public async Task OversizedBridgeCallIsRecoverableAndWorkerStaysAlive()
+    {
+        await using var fixture = new PythonFixture();
+        var work = fixture.CreateWork(
+            Environment.CurrentDirectory);
+
+        var result = await fixture.ExecuteAsync(
+            work.Id,
+            "import loom\n" +
+            "try:\n" +
+            "    loom._bridge_call('bridge.capabilities', {'x': 'x' * (2 * 1024 * 1024)})\n" +
+            "except loom.LoomError as exc:\n" +
+            "    print(exc.code)\n" +
+            "print(len(loom.capabilities()))");
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(
+            "unsupported\n0\n",
+            result.Value!.Stdout);
+
+        var firstPid = fixture.ActiveWorker(work.Id).ProcessId;
+        var next = await fixture.ExecuteAsync(
+            work.Id,
+            "print('alive-after-oversize')");
+
+        Assert.True(next.IsSuccess, next.Error?.Message);
+        Assert.Equal(
+            "alive-after-oversize\n",
+            next.Value!.Stdout);
+        Assert.Equal(
+            firstPid,
+            fixture.ActiveWorker(work.Id).ProcessId);
+    }
+
+    [Fact]
     public async Task ThreadCreatedDuringExecuteCanUseBridge()
     {
         await using var fixture = new PythonFixture();
@@ -321,6 +356,38 @@ public sealed class PythonRuntimeProviderTests
         Assert.True(result.IsSuccess, result.Error?.Message);
         Assert.Equal(
             "[[]]\n",
+            result.Value!.Stdout);
+    }
+
+    [Fact]
+    public async Task RepeatedThreadedBridgeCallsStayCorrelated()
+    {
+        await using var fixture = new PythonFixture();
+        var work = fixture.CreateWork(
+            Environment.CurrentDirectory);
+
+        var result = await fixture.ExecuteAsync(
+            work.Id,
+            "import threading, loom\n" +
+            "errors = []\n" +
+            "def probe():\n" +
+            "    try:\n" +
+            "        for _ in range(50):\n" +
+            "            if loom.capabilities() != []:\n" +
+            "                errors.append('bad-result')\n" +
+            "    except BaseException as exc:\n" +
+            "        errors.append(type(exc).__name__)\n" +
+            "threads = [threading.Thread(target=probe) for _ in range(8)]\n" +
+            "for thread in threads:\n" +
+            "    thread.start()\n" +
+            "for thread in threads:\n" +
+            "    thread.join()\n" +
+            "print(errors)",
+            TimeSpan.FromSeconds(30));
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(
+            "[]\n",
             result.Value!.Stdout);
     }
 
@@ -413,6 +480,88 @@ public sealed class PythonRuntimeProviderTests
             fixture.Resources.GetActiveOwnedHandles(
                 PythonCapability.ResourceKind,
                 work.Id));
+        await AssertProcessGoneAsync(workerPid);
+    }
+
+    [Fact]
+    public async Task WorkerExitDuringBridgeCallbackCancelsCallbackAndRecoversPromptly()
+    {
+        var dispatcher = new BlockingBridgeDispatcher();
+        await using var fixture = new PythonFixture(
+            bridgeDispatcher: dispatcher);
+        var work = fixture.CreateWork(
+            Environment.CurrentDirectory);
+
+        var execution = fixture.ExecuteAsync(
+            work.Id,
+            "import os, threading, time, loom\n" +
+            "def die():\n" +
+            "    time.sleep(0.2)\n" +
+            "    os._exit(23)\n" +
+            "threading.Thread(target=die, daemon=True).start()\n" +
+            "loom.capabilities()",
+            TimeSpan.FromSeconds(15));
+
+        await dispatcher.Entered.Task.WaitAsync(
+            TimeSpan.FromSeconds(5));
+        var firstPid = fixture.ActiveWorker(work.Id).ProcessId;
+
+        var result = await execution.WaitAsync(
+            TimeSpan.FromSeconds(2));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(
+            "execution_failed",
+            result.Error?.Code);
+        await dispatcher.Cancelled.Task.WaitAsync(
+            TimeSpan.FromSeconds(2));
+        await AssertProcessGoneAsync(firstPid);
+
+        var recovered = await fixture.ExecuteAsync(
+            work.Id,
+            "print('recovered-after-callback-crash')");
+
+        Assert.True(
+            recovered.IsSuccess,
+            recovered.Error?.Message);
+        Assert.Equal(
+            "recovered-after-callback-crash\n",
+            recovered.Value!.Stdout);
+        Assert.NotEqual(
+            firstPid,
+            fixture.ActiveWorker(work.Id).ProcessId);
+    }
+
+    [Fact]
+    public async Task WorkCloseCancelsActiveBridgeCallbackAndKillsWorker()
+    {
+        var dispatcher = new BlockingBridgeDispatcher();
+        await using var fixture = new PythonFixture(
+            bridgeDispatcher: dispatcher);
+        var work = fixture.CreateWork(
+            Environment.CurrentDirectory);
+
+        var execution = fixture.ExecuteAsync(
+            work.Id,
+            "import loom\nloom.capabilities()",
+            TimeSpan.FromSeconds(30));
+
+        await dispatcher.Entered.Task.WaitAsync(
+            TimeSpan.FromSeconds(5));
+        var workerPid = fixture.ActiveWorker(work.Id).ProcessId;
+
+        var closed = await fixture.Sessions.CloseAsync(work.Id);
+        Assert.True(
+            closed.IsSuccess,
+            closed.Error?.Message);
+
+        var result = await execution;
+        Assert.False(result.IsSuccess);
+        Assert.Equal(
+            "cancelled",
+            result.Error?.Code);
+        await dispatcher.Cancelled.Task.WaitAsync(
+            TimeSpan.FromSeconds(2));
         await AssertProcessGoneAsync(workerPid);
     }
 
@@ -679,6 +828,9 @@ public sealed class PythonRuntimeProviderTests
         public TaskCompletionSource Release { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        public TaskCompletionSource Cancelled { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public async Task<LoomResult<JsonElement>> DispatchAsync(
             WorkId workId,
             PythonBridgeCall call,
@@ -695,7 +847,16 @@ public sealed class PythonRuntimeProviderTests
             }
 
             Entered.TrySetResult();
-            await Release.Task.WaitAsync(cancellationToken);
+            try
+            {
+                await Release.Task.WaitAsync(cancellationToken);
+            }
+            catch (OperationCanceledException)
+                when (cancellationToken.IsCancellationRequested)
+            {
+                Cancelled.TrySetResult();
+                throw;
+            }
 
             return LoomResult<JsonElement>.Success(
                 JsonSerializer.SerializeToElement(

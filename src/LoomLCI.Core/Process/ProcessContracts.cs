@@ -108,6 +108,7 @@ public interface IProcessResource : IAsyncDisposable
         long stderrCursor,
         long terminalCursor,
         int maxChars);
+    Task WaitForExitAsync(CancellationToken cancellationToken);
     Task WaitForExitAndOutputAsync(CancellationToken cancellationToken);
     Task<LoomResult<Unit>> WriteAsync(string text, CancellationToken cancellationToken);
     Task<LoomResult<Unit>> ResizeAsync(int columns, int rows, CancellationToken cancellationToken);

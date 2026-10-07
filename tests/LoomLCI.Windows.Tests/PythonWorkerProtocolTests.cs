@@ -255,6 +255,52 @@ public sealed class PythonWorkerProtocolTests
     }
 
     [Fact]
+    public async Task BridgeResultOversizedEnvelopeReturnsStructuredRecoverableError()
+    {
+        await using var stream = new MemoryStream();
+
+        var value = System.Text.Json.JsonSerializer.SerializeToElement(
+            new string(
+                'x',
+                PythonWorkerProtocol.MaxBridgeResultFrameBytes - 32));
+        Assert.True(
+            Encoding.UTF8.GetByteCount(value.GetRawText()) <=
+            PythonWorkerProtocol.MaxBridgeResultFrameBytes);
+
+        await PythonWorkerProtocol.WriteBridgeResultAsync(
+            stream,
+            "req_1",
+            "call_1",
+            LoomResult<System.Text.Json.JsonElement>.Success(value),
+            CancellationToken.None);
+
+        stream.Position = 0;
+        using var document = await PythonWorkerProtocol.ReadRawFrameAsync(
+            stream,
+            PythonWorkerProtocol.MaxBridgeResultFrameBytes);
+
+        var root = document.RootElement;
+        Assert.False(root.GetProperty("ok").GetBoolean());
+
+        var error = root.GetProperty("error");
+        Assert.Equal(
+            "unsupported",
+            error.GetProperty("code").GetString());
+        Assert.False(error.GetProperty("retryable").GetBoolean());
+
+        var details = error.GetProperty("details");
+        Assert.Equal(
+            "bridge_payload_too_large",
+            details.GetProperty("reason").GetString());
+        Assert.True(
+            details.GetProperty("serialized_result_bytes").GetInt32() >
+            PythonWorkerProtocol.MaxBridgeResultFrameBytes);
+        Assert.Equal(
+            PythonWorkerProtocol.MaxBridgeResultFrameBytes,
+            details.GetProperty("max_bridge_result_bytes").GetInt32());
+    }
+
+    [Fact]
     public async Task RealWorkerHandshakeAndNamespacePersistenceWork()
     {
         await using var worker = await WorkerHarness.StartAsync();
