@@ -52,7 +52,7 @@ No se necesita un plugin local `loomlci@personal`, un plugin cloud adicional ni 
 
 La integración fue validada primero con smoke tests y finalmente con una prueba fresh-agent integral en un chat nuevo.
 
-La validación fresh-agent de la baseline descubrió y ejercitó las **15 capabilities públicas** de Work, Filesystem y Process. Python Runtime E1 llevó el catálogo a **17 tools** y Agent Support a **19 tools**. Visual Files G1 llevó el Host a **22 tools** con Work Plan habilitado. `process_run` elevó el catálogo a **23 tools** y [[Ergonomía - Work Plan patch]] agrega `work_plan_patch`, por lo que el Host instalado actual expone **24 tools**. F1.3 cerró previamente con el benchmark real-world final 4/4 positivos, 3/3 controles simples y escalada correcta 8A sin plan -> 8B con plan.
+La validación fresh-agent de la baseline descubrió y ejercitó las **15 capabilities públicas** de Work, Filesystem y Process. Python Runtime E1 llevó el catálogo a **17 tools** y Agent Support a **19 tools**. Visual Files G1 llevó el Host a **22 tools** con Work Plan habilitado. `process_run` elevó el catálogo a **23 tools**, [[Ergonomía - Work Plan patch]] a **24 tools** y [[Python 1 - Paquetes administrados]] agrega `python_packages_prepare`, por lo que el Host instalado actual expone **25 tools**. F1.3 cerró previamente con el benchmark real-world final 4/4 positivos, 3/3 controles simples y escalada correcta 8A sin plan -> 8B con plan. Tras el cutover de Python 1, ChatGPT mantuvo inicialmente un catálogo cacheado de 24 tools; el refresco manual actualizó correctamente a 25 y habilitó el smoke directo de `python_packages_prepare`.
 
 Ver [[Validacion final fresh-agent]], [[Bloque E - Python Runtime]] y [[Bloque F - Agent Support]].
 

@@ -623,7 +623,7 @@ Python 1 se desplegó sobre la instalación real mediante el flujo portable exis
 - IntegrationTests contra la DLL instalada: **17/17**;
 - smoke MCP contra el Host instalado: `python_packages_prepare` con NumPy/Pandas, reuse, cambio de environment, conflicto pre-reset y ejecución post-reset: **OK (`PYTHON1_SMOKE_OK`)**.
 
-La conversación que realizó el cutover conserva el catálogo previo y no puede invocar directamente la tool nueva sin abrir un chat con catálogo MCP refrescado; esto queda como smoke de consumidor no bloqueante.
+El catálogo de tools de ChatGPT no se refrescó automáticamente tras el cutover; un refresco manual llevó el catálogo visible de 24 a 25 tools. Después de ese refresco se ejecutó directamente `python_packages_prepare` desde ChatGPT y el smoke pasó correctamente. Esto se documenta como aspereza externa de caché/refresco del consumidor, no como pendiente de Python 1.
 
 ## Fuera de alcance inicial
 

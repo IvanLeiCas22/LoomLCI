@@ -72,4 +72,4 @@ Es un tema transversal:
 
 **Python 2: bridge privado `loom.*` entre el worker Python y capabilities de LoomLCI.**
 
-[[Python 1 - Paquetes administrados]] quedó implementado e instalado en `0.1.0-dev-python1`: suite Release **298/298**, Host instalado healthy/ready, IntegrationTests contra la DLL instalada **17/17** y snapshot MCP actual de **25 tools**. El smoke directo de la nueva tool desde ChatGPT requiere un chat nuevo para refrescar el catálogo y queda como verificación de consumidor no bloqueante. [[Plugin metadata]] sigue cerrado; el plugin privado permanece en `0.3.0` hasta la reconciliación final posterior al bloque Python.
+[[Python 1 - Paquetes administrados]] quedó **CERRADO end-to-end** en `0.1.0-dev-python1`: suite Release **298/298**, Host instalado healthy/ready, IntegrationTests contra la DLL instalada **17/17**, snapshot MCP actual de **25 tools** y smoke directo desde ChatGPT con `python_packages_prepare` + `python_execute` **OK** tras refrescar manualmente el catálogo. [[Plugin metadata]] sigue cerrado; el plugin privado permanece en `0.3.0` hasta la reconciliación final posterior al bloque Python.

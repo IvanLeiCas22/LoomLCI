@@ -165,7 +165,7 @@ Validación multi-PC cerrada: el mismo paquete se instaló desde cero en una not
 - runtime instalado `0.1.0-dev-python1`, healthy/ready, rollback hacia `0.1.0-dev-github-e2e`;
 - IntegrationTests contra la DLL instalada: **17/17**.
 
-El smoke directo de `python_packages_prepare` desde ChatGPT queda pendiente únicamente de abrir un chat nuevo para refrescar el catálogo MCP; no bloquea el cierre técnico. La próxima etapa de [[Roadmap post-G1]] es **Python 2: bridge privado `loom.*`**. La reconciliación final de la skill sigue después del bloque Python.
+El smoke directo de `python_packages_prepare` desde ChatGPT quedó completado con catálogo MCP refrescado: environment NumPy 2.5.3 + Pandas 3.0.6 reutilizado correctamente y `python_execute` ejecutó imports/cálculo real. **Python 1 queda CERRADO end-to-end.** La próxima etapa de [[Roadmap post-G1]] es **Python 2: bridge privado `loom.*`**. La reconciliación final de la skill sigue después del bloque Python.
 
 ## Visual Files G1 - CERRADO
 

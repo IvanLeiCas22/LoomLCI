@@ -1,6 +1,6 @@
 # Python 1 - Paquetes administrados
 
-> Estado: **implementado, instalado y validado.** El único pendiente no bloqueante es el smoke directo de `python_packages_prepare` desde un chat nuevo con catálogo MCP refrescado.
+> Estado: **CERRADO end-to-end.** Implementado, instalado y validado, incluido smoke directo desde ChatGPT con catálogo MCP refrescado.
 >
 > Objetivo: permitir que el Python privado de LoomLCI use paquetes de terceros durante una tarea sin depender del Python del sistema, sin mutar el runtime base y conservando aislamiento, versionado, hashes, lifecycle y reproducibilidad.
 
