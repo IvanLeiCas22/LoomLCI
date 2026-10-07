@@ -78,6 +78,16 @@ public delegate Task<LoomResult<JsonElement>> PythonBridgeHandler(
     PythonBridgeCall call,
     CancellationToken cancellationToken);
 
+public interface IPythonBridgeModule
+{
+    IReadOnlyList<string> Methods { get; }
+
+    Task<LoomResult<JsonElement>> DispatchAsync(
+        WorkId workId,
+        PythonBridgeCall call,
+        CancellationToken cancellationToken);
+}
+
 public interface IPythonBridgeDispatcher
 {
     Task<LoomResult<JsonElement>> DispatchAsync(

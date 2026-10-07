@@ -1,6 +1,6 @@
 # Python 2 - Bridge privado loom.*
 
-> Estado: **P2.0 implementado y validado; P2.1 (Filesystem bridge) pendiente.**
+> Estado: **P2.0 y P2.1 cerrados; P2.2 (Process bridge) pendiente de investigación/análisis específico.**
 >
 > Objetivo: permitir que el código ejecutado dentro del worker Python invoque capabilities internas de LoomLCI mediante un módulo privado `loom.*`, conservando WorkSession, validaciones, lifecycle, errores, observabilidad y cancellation, sin volver a entrar por MCP/Secure MCP Tunnel.
 
@@ -445,24 +445,376 @@ Tests:
 - stale thread de execute anterior no puede usar ejecución nueva;
 - final result espera callback ya iniciado.
 
-### P2.1 - Filesystem bridge
+## Investigación y diseño específico de P2.1
 
-- `loom.fs.list_tree`;
-- `find_paths`;
-- `search_text`;
-- `read_files`;
-- `apply_patch`;
-- `manage_directory`;
-- `read_pdf`;
-- mismos límites y baseDirectory que Core;
-- namespace reservado `loom` en Python package environments.
+P2.1 reutiliza **Filesystem Core directamente**. No debe duplicar acceso a disco ni llamar a las tools MCP.
 
-Acceptance:
+### Routing modular del bridge
 
-- read/search relativos a WorkSession;
-- patch real;
-- error capturable como `LoomError`;
-- NumPy/Pandas + `import loom` coexistiendo.
+Antes de agregar métodos reales conviene convertir `PythonBridgeDispatcher` en un router de módulos privados:
+
+```text
+PythonBridgeDispatcher
+  -> bridge.capabilities
+  -> PythonFilesystemBridgeModule   (P2.1)
+  -> PythonProcessBridgeModule      (P2.2)
+```
+
+Contrato conceptual:
+
+```csharp
+IPythonBridgeModule
+    IReadOnlyList<string> Methods
+    DispatchAsync(workId, call, cancellationToken)
+```
+
+Los módulos se registran como singletons y el dispatcher recibe `IEnumerable<IPythonBridgeModule>`. `bridge.capabilities` agrega sus methods en orden determinista. Esto evita que el dispatcher central crezca con todos los métodos de Filesystem + Process y deja P2.2 sin rediseño.
+
+No hay ciclo de DI: `FilesystemCapability` y `VisualFilesCapability` no dependen de Python.
+
+### Reentrancia y WorkSession
+
+Cada callback P2.1 recibe únicamente el `WorkId` del worker. Python no puede elegir otro WorkId.
+
+El módulo llama a:
+
+- `FilesystemCapability` para árbol, paths, search, read, patch y directorios;
+- `VisualFilesCapability.ReadPdfTextAsync` para PDF textual.
+
+Estas capabilities vuelven a entrar a `InvocationRunner` con el mismo WorkId. El modelo actual admite múltiples invocation leases simultáneas sobre una WorkSession y expiry exige `activeInvocationCount == 0`, por lo que la nested invocation es segura y mantiene:
+
+- resolución relativa contra `WorkSession.BaseDirectory`;
+- cancellation de WorkSession;
+- eventos/telemetría Core;
+- validaciones existentes;
+- providers Windows actuales.
+
+### Métodos privados del protocolo
+
+P2.1 agrega exactamente estos methods:
+
+```text
+fs.list_tree
+fs.find_paths
+fs.search_text
+fs.read_files
+fs.apply_patch
+fs.manage_directory
+fs.read_pdf
+```
+
+Por lo tanto `loom.capabilities()` devuelve esos siete strings en orden estable.
+
+No se agregan methods para imágenes ni render PDF en P2.1.
+
+### API Python
+
+El asset privado registra `loom.fs` como submódulo en `sys.modules` y como atributo de `loom`. Deben funcionar tanto:
+
+```python
+import loom
+loom.fs.list_tree(".")
+```
+
+como:
+
+```python
+import loom.fs
+loom.fs.list_tree(".")
+```
+
+Firmas propuestas:
+
+```python
+loom.fs.list_tree(
+    path=".",
+    *,
+    include_generated=False,
+    exclude_directories=None,
+    max_depth=3,
+    max_entries=1000,
+    cursor=None,
+)
+
+loom.fs.find_paths(
+    path,
+    queries,
+    *,
+    match_mode="substring",
+    type="any",
+    include_generated=False,
+    exclude_directories=None,
+    max_depth=12,
+    max_results=100,
+    cursor=None,
+)
+
+loom.fs.search_text(
+    path,
+    queries,
+    *,
+    case_sensitive=False,
+    include_generated=False,
+    exclude_directories=None,
+    max_depth=12,
+    max_results=100,
+    context_lines=1,
+    cursor=None,
+)
+
+loom.fs.read_files(files)
+loom.fs.apply_patch(changes)
+loom.fs.manage_directory(action, path)
+
+loom.fs.read_pdf(
+    path,
+    *,
+    start_page=1,
+    max_pages=10,
+)
+```
+
+`read_files(files)` mantiene una forma estructurada simple y explícita:
+
+```python
+loom.fs.read_files([
+    {"path": "a.txt"},
+    {"path": "b.txt", "offset": 10, "limit": 20},
+])
+```
+
+`apply_patch(changes)` usa el mismo vocabulario lógico que la tool MCP:
+
+```python
+loom.fs.apply_patch([
+    {
+        "op": "replace",
+        "path": "file.txt",
+        "old_text": "old",
+        "new_text": "new",
+        "expected_occurrences": 1,
+    }
+])
+```
+
+No se agrega todavía azúcar adicional como `read_file()`, `mkdir()` o `rm()`; primero se mantiene una superficie pequeña y paralela a Core.
+
+Los wrappers tienen firmas explícitas y docstrings, normalizan sólo ergonomía local y llaman al método privado correspondiente. La validación autoritativa sigue estando en Core.
+
+### Parsing de argumentos
+
+Aunque los wrappers generan payloads válidos, `loom._bridge_call` sigue siendo accesible técnicamente y el dispatcher debe tratar todo payload como no confiable.
+
+Cada método necesita parsing estricto:
+
+- `arguments` debe ser object;
+- tipos JSON exactos;
+- campos requeridos explícitos;
+- defaults iguales a Core/MCP;
+- enums sólo por strings soportados;
+- arrays con límites equivalentes;
+- campos desconocidos -> `invalid_argument` para detectar typos y drift.
+
+No conviene deserializar directamente DTOs de MCP. Los contratos privados pueden ser records/classes Core con nombres JSON snake_case y `UnmappedMemberHandling=Disallow`, o parsing equivalente explícito.
+
+### Forma de resultados
+
+Errores no vuelven como `{"ok": false}` al usuario Python: el asset convierte automáticamente el envelope privado a `loom.LoomError`.
+
+Los éxitos retornan `dict/list` nativos con keys **snake_case** estables.
+
+Ejemplo de `list_tree`:
+
+```python
+{
+    "root": r"C:\...",
+    "max_depth": 3,
+    "max_entries": 1000,
+    "entries": [
+        {
+            "path": "src/file.cs",
+            "name": "file.cs",
+            "type": "file",
+            "size": 1234,
+            "depth": 2,
+            "children_excluded": None,
+        }
+    ],
+    "truncated": False,
+    "next_cursor": None,
+}
+```
+
+Las claves nullable se mantienen presentes con `None` en Python para hacer el shape predecible.
+
+Mapping fijado:
+
+- enum entry type -> `file | directory | symlink`;
+- match mode -> `substring | suffix`;
+- DTOs MCP no se reutilizan;
+- `read_pdf` devuelve metadata + `pages[]` textual, sin bytes/imágenes.
+
+### Límites del bridge vs Filesystem Core
+
+P2.0 fijó:
+
+- `bridge_call`: 2 MiB;
+- `bridge_result`: 8 MiB.
+
+Esto implica dos diferencias deliberadas con la tool MCP:
+
+1. `loom.fs.apply_patch` no puede transportar un patch cercano al límite Core de 16 MiB si el frame total supera 2 MiB.
+2. `loom.fs.read_files` no puede devolver hasta el presupuesto interno de 64 MiB ni el presupuesto MCP de ~9 MiB: el resultado privado debe caber en 8 MiB.
+
+Esto es aceptable para P2.1: el bridge está orientado a operaciones estructuradas normales dentro de scripts, no a transporte masivo. Para archivos grandes Python ya puede trabajar localmente con `open()`, y los rangos/cursors permiten mantener llamadas estructuradas acotadas.
+
+Pero el fallo debe ser explícito y recuperable.
+
+Agregar en Core un contrato compartido de límites, por ejemplo `PythonBridgeLimits`, y hacer que Windows Protocol use esos mismos valores para evitar drift.
+
+Antes de enviar un resultado, el módulo Filesystem debe medir el JSON mapeado. Si excede el budget:
+
+```text
+code: unsupported
+details.reason: bridge_payload_too_large
+details.max_bridge_result_bytes: 8388608
+```
+
+Para `read_files`, el mensaje debe recomendar reducir `limit` o dividir archivos entre llamadas.
+
+El guard genérico de `WriteBridgeResultAsync` permanece como última defensa.
+
+### Semántica que se conserva
+
+`loom.fs` hereda de Core:
+
+- paths relativos a `BaseDirectory`;
+- paths absolutos permitidos;
+- pruning generated por default;
+- cursores opacos y detección de stale cursor;
+- `search_text` literal OR, no regex;
+- excerpts de search limitados a 500 chars por línea/context;
+- lectura de texto con ranges 1-based;
+- apply_patch validado y rollback best-effort;
+- create directory con padres;
+- delete directory sólo si está vacío;
+- PDF textual crash-isolated, sin OCR;
+- límite PDF 64 MiB, hasta 25 páginas/call y output textual agregado acotado.
+
+No se replica manualmente ninguna de esas reglas en Python salvo la validación superficial del wrapper.
+
+### Errores
+
+Los `LoomError` de Filesystem pasan sin cambiar sus códigos:
+
+- `invalid_argument`;
+- `not_found`;
+- `conflict`;
+- `access_denied`;
+- `unsupported`;
+- etc.
+
+`details` se conserva estructurado. Los errores propios del bridge usan keys snake_case.
+
+Un error normal no descarta el worker.
+
+### Metadata MCP
+
+P2.1 no agrega tools: el catálogo sigue en **25**.
+
+Sí vuelve útil la superficie `loom.*`, por lo que al implementar P2.1 conviene actualizar la descripción pública de `python_execute` y las server instructions para indicar que `import loom` permite Filesystem estructurado dentro del worker.
+
+Eso modifica metadata del contrato MCP, por lo que:
+
+- regenerar snapshot canónico;
+- correr verifier del plugin;
+- no publicar todavía una nueva versión del plugin privado; la reconciliación final sigue al cierre del bloque Python.
+
+### Tests necesarios
+
+#### Core
+
+- router agrega methods determinísticamente;
+- método duplicado entre modules falla al construir/inicializar;
+- unknown method -> `unsupported`;
+- parsing inválido/unknown fields -> `invalid_argument`;
+- mapping snake_case de cada resultado;
+- errores Core pasan a bridge sin convertirse en `internal`;
+- payload >8 MiB -> `unsupported` recuperable.
+
+#### Worker/bridge
+
+- `import loom.fs`;
+- wrappers generan method/arguments correctos;
+- LoomError sigue sano;
+- llamadas repetidas en el mismo execute;
+- calls desde thread heredado continúan funcionando con `loom.fs`.
+
+#### Integración Host real
+
+En una WorkSession temporal:
+
+1. `loom.fs.list_tree(".")` relativo a BaseDirectory;
+2. `find_paths` + cursor;
+3. `search_text` + cursor;
+4. `read_files` con ranges;
+5. `apply_patch` real y verificación;
+6. `manage_directory` create/delete;
+7. `read_pdf` textual sobre fixture real;
+8. error `not_found` capturado y segundo execute exitoso;
+9. environment Python v2 con NumPy/Pandas + `loom.fs` coexistiendo.
+
+### Criterio de cierre de P2.1
+
+P2.1 queda cerrado cuando el Host Release del repo pueda ejecutar, en un único worker persistente:
+
+```python
+import loom
+
+tree = loom.fs.list_tree(".", max_depth=2)
+hits = loom.fs.search_text(".", ["PythonBridge"], max_results=10)
+files = loom.fs.read_files([{"path": "README.md", "limit": 20}])
+
+print(tree["root"])
+print(len(hits["matches"]))
+print(files["files"][0]["has_more_after"])
+```
+
+y además realizar un patch real, leer PDF textual, recuperar un `LoomError` normal sin perder el worker y coexistir con un environment NumPy/Pandas.
+
+No requiere deployment/cutover del runtime instalado; eso sigue reservado para P2.4.
+
+### P2.1 - Filesystem bridge — CERRADO
+
+Implementado y validado:
+
+- `PythonBridgeDispatcher` convertido en router modular mediante `IPythonBridgeModule`, con detección de methods duplicados y `loom.capabilities()` determinista;
+- nuevo `PythonFilesystemBridgeModule` sobre `FilesystemCapability` + `VisualFilesCapability`, sin reentrada por MCP;
+- siete methods privados: `fs.list_tree`, `fs.find_paths`, `fs.search_text`, `fs.read_files`, `fs.apply_patch`, `fs.manage_directory`, `fs.read_pdf`;
+- submódulo privado `loom.fs`, disponible con `import loom` y `import loom.fs`;
+- wrappers Python explícitos con defaults equivalentes a Core/MCP;
+- parsing estricto JSON con campos desconocidos rechazados;
+- resultados nativos `dict/list` con keys `snake_case` y enums string;
+- `LoomError` de Core preservado sin invalidar el worker;
+- `PythonBridgeLimits` compartido entre Core y Windows: 2 MiB call / 8 MiB result / method <=128 chars;
+- oversize estructurado convertido en `unsupported` con `reason=bridge_payload_too_large` antes del guard de protocolo;
+- paths relativos conservan `WorkSession.BaseDirectory`, cursors y validaciones Core;
+- PDF textual reutiliza el worker aislado existente, sin OCR ni bytes visuales;
+- descripción MCP de `python_execute` y server instructions actualizadas; snapshot canónico regenerado y plugin `0.3.0` verificado con **25 tools**.
+
+Validación P2.1:
+
+- Core: **113/113**;
+- Windows: **159/159**;
+- Integration: **18/18**;
+- Launcher: **20/20**;
+- MCP: **5/5**;
+- PdfWorker: **6/6**;
+- suite Release serial (`-m:1`): **321/321**;
+- integración real `loom.fs`: árbol/cursor, path search/cursor, text search/cursor, read ranges, patch, directorios, PDF textual, error `not_found` recuperable y segundo execute con worker persistente: **OK**;
+- smoke Host Release con environment Python v2 reutilizado + NumPy **2.5.3** + Pandas **3.0.6** + `loom.fs`: **`P21_SMOKE_OK`**.
+
+El runtime instalado permanece deliberadamente en `0.1.0-dev-python1`; el deployment/cutover de Python 2 sigue reservado para P2.4.
 
 ### P2.2 - Process bridge
 

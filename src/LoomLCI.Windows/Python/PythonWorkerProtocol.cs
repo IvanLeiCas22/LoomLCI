@@ -33,13 +33,13 @@ internal static class PythonWorkerProtocol
     public const int ProtocolVersion = 2;
     public const int MaxRequestFrameBytes = 2 * 1024 * 1024;
     public const int MaxResponseFrameBytes = 32 * 1024 * 1024;
-    public const int MaxBridgeCallFrameBytes = 2 * 1024 * 1024;
-    public const int MaxBridgeResultFrameBytes = 8 * 1024 * 1024;
+    public const int MaxBridgeCallFrameBytes = PythonBridgeLimits.MaxCallFrameBytes;
+    public const int MaxBridgeResultFrameBytes = PythonBridgeLimits.MaxResultFrameBytes;
     public const int MaxHelloFrameBytes = 16 * 1024;
     public const int MaxCodeUtf8Bytes = PythonCapability.MaxCodeUtf8Bytes;
     public const int MaxRequestIdChars = 128;
     public const int MaxCallIdChars = 128;
-    public const int MaxBridgeMethodChars = 128;
+    public const int MaxBridgeMethodChars = PythonBridgeLimits.MaxMethodChars;
     public const int MaxExceptionMessageChars = 16 * 1024;
     public const int MaxTracebackChars = 64 * 1024;
 

@@ -2322,8 +2322,11 @@ public sealed class McpStdioTests
                     ["workId"] = workId,
                     ["code"] =
                         "import loom\n" +
+                        "caps = loom.capabilities()\n" +
                         "print(loom.__bridge_version__)\n" +
-                        "print(loom.capabilities())"
+                        "print(len(caps))\n" +
+                        "print(caps[0])\n" +
+                        "print(caps[-1])"
                 });
 
             var bridgeRoot = GetStructured(bridge.StructuredContent);
@@ -2337,7 +2340,7 @@ public sealed class McpStdioTests
                     bridgeResult,
                     "status").GetString());
             Assert.Equal(
-                "1\n[]\n",
+                "1\n7\nfs.apply_patch\nfs.search_text\n",
                 GetRequiredProperty(
                     bridgeResult,
                     "stdout").GetString());
@@ -2526,6 +2529,285 @@ public sealed class McpStdioTests
             }
             catch (UnauthorizedAccessException)
             {
+            }
+        }
+    }
+
+    [Fact]
+    public async Task StdioAdapterCanUseFilesystemBridgeInsidePython()
+    {
+        var repoRoot = FindRepoRoot();
+        var hostDll = GetHostDll(repoRoot);
+        Assert.True(File.Exists(hostDll), $"Host was not built: {hostDll}");
+
+        var scratch = Path.Combine(
+            Path.GetTempPath(),
+            $"loom-python-fs-bridge-{Guid.NewGuid():N}");
+        var hostWorkingDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"loom-python-fs-host-{Guid.NewGuid():N}");
+
+        Directory.CreateDirectory(
+            Path.Combine(scratch, "src"));
+        Directory.CreateDirectory(hostWorkingDirectory);
+
+        await File.WriteAllTextAsync(
+            Path.Combine(scratch, "src", "a.txt"),
+            "first line\nneedle one\nlast line");
+        await File.WriteAllTextAsync(
+            Path.Combine(scratch, "src", "b.txt"),
+            "needle two");
+        await File.WriteAllTextAsync(
+            Path.Combine(scratch, "root.txt"),
+            "root text");
+        CreateSimplePdf(
+            Path.Combine(scratch, "sample.pdf"),
+            "Bridge PDF text");
+
+        try
+        {
+            var transport = new StdioClientTransport(
+                new StdioClientTransportOptions
+                {
+                    Name = "LoomLCI Python filesystem bridge integration test",
+                    Command = "dotnet",
+                    Arguments = [hostDll],
+                    WorkingDirectory = hostWorkingDirectory,
+                    ShutdownTimeout = TimeSpan.FromSeconds(5)
+                });
+
+            await using var client =
+                await McpClient.CreateAsync(transport);
+
+            var create = await client.CallToolAsync(
+                "work_create",
+                new Dictionary<string, object?>
+                {
+                    ["baseDirectory"] = scratch,
+                    ["label"] = "python-filesystem-bridge-test"
+                });
+
+            var createRoot =
+                GetStructured(create.StructuredContent);
+            Assert.True(
+                GetRequiredProperty(
+                    createRoot,
+                    "ok").GetBoolean());
+            var workId = GetRequiredProperty(
+                    GetRequiredProperty(
+                        createRoot,
+                        "result"),
+                    "workId")
+                .GetString();
+            Assert.False(
+                string.IsNullOrWhiteSpace(workId));
+
+            var code = """
+import loom
+import loom.fs
+
+expected = [
+    "fs.apply_patch",
+    "fs.find_paths",
+    "fs.list_tree",
+    "fs.manage_directory",
+    "fs.read_files",
+    "fs.read_pdf",
+    "fs.search_text",
+]
+assert loom.capabilities() == expected
+
+tree1 = loom.fs.list_tree(".", max_depth=2, max_entries=2)
+assert tree1["truncated"] is True
+assert tree1["next_cursor"]
+tree2 = loom.fs.list_tree(
+    ".",
+    max_depth=2,
+    max_entries=100,
+    cursor=tree1["next_cursor"],
+)
+assert not (
+    {item["path"] for item in tree1["entries"]}
+    & {item["path"] for item in tree2["entries"]}
+)
+
+found1 = loom.fs.find_paths(
+    ".",
+    [".txt"],
+    match_mode="suffix",
+    type="file",
+    max_results=1,
+)
+assert found1["truncated"] is True
+found2 = loom.fs.find_paths(
+    ".",
+    [".txt"],
+    match_mode="suffix",
+    type="file",
+    max_results=10,
+    cursor=found1["next_cursor"],
+)
+assert found2["matches"]
+
+search1 = loom.fs.search_text(
+    ".",
+    ["needle"],
+    max_results=1,
+    context_lines=1,
+)
+assert search1["result_limit_reached"] is True
+assert search1["next_cursor"]
+search2 = loom.fs.search_text(
+    ".",
+    ["needle"],
+    max_results=10,
+    context_lines=1,
+    cursor=search1["next_cursor"],
+)
+assert search2["matches"]
+
+read = loom.fs.read_files([
+    {"path": "src/a.txt", "offset": 2, "limit": 1}
+])
+file = read["files"][0]
+assert file["text"] == "needle one"
+assert file["start_line"] == 2
+assert file["has_more_before"] is True
+assert file["has_more_after"] is True
+
+patched = loom.fs.apply_patch([
+    {
+        "op": "replace",
+        "path": "src/a.txt",
+        "old_text": "needle one",
+        "new_text": "patched one",
+        "expected_occurrences": 1,
+    }
+])
+assert patched["applied_changes"] == 1
+
+created = loom.fs.manage_directory("create", "temp-dir")
+assert created["exists"] is True
+deleted = loom.fs.manage_directory("delete", "temp-dir")
+assert deleted["exists"] is False
+
+pdf = loom.fs.read_pdf(
+    "sample.pdf",
+    start_page=1,
+    max_pages=1,
+)
+assert pdf["page_count"] == 1
+assert "Bridge PDF text" in pdf["pages"][0]["text"]
+
+try:
+    loom.fs.read_files([{"path": "missing.txt"}])
+    raise AssertionError("missing file unexpectedly succeeded")
+except loom.LoomError as exc:
+    assert exc.code == "not_found"
+
+state_marker = 73
+print("P21_FS_OK")
+""";
+
+            var execute = await client.CallToolAsync(
+                "python_execute",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workId,
+                    ["code"] = code,
+                    ["timeoutSeconds"] = 120
+                });
+
+            var executeRoot =
+                GetStructured(execute.StructuredContent);
+            Assert.True(
+                GetRequiredProperty(
+                    executeRoot,
+                    "ok").GetBoolean());
+            var executeResult = GetRequiredProperty(
+                executeRoot,
+                "result");
+            Assert.Equal(
+                "completed",
+                GetRequiredProperty(
+                    executeResult,
+                    "status").GetString());
+            Assert.Equal(
+                "P21_FS_OK\n",
+                GetRequiredProperty(
+                    executeResult,
+                    "stdout").GetString());
+
+            Assert.Contains(
+                "patched one",
+                await File.ReadAllTextAsync(
+                    Path.Combine(
+                        scratch,
+                        "src",
+                        "a.txt")),
+                StringComparison.Ordinal);
+
+            var second = await client.CallToolAsync(
+                "python_execute",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workId,
+                    ["code"] =
+                        "print(state_marker)\n" +
+                        "print(loom.fs.read_files([" +
+                        "{'path':'src/a.txt','offset':2,'limit':1}" +
+                        "])['files'][0]['text'])"
+                });
+
+            var secondRoot =
+                GetStructured(second.StructuredContent);
+            Assert.True(
+                GetRequiredProperty(
+                    secondRoot,
+                    "ok").GetBoolean());
+            Assert.Equal(
+                "73\npatched one\n",
+                GetRequiredProperty(
+                    GetRequiredProperty(
+                        secondRoot,
+                        "result"),
+                    "stdout").GetString());
+
+            var close = await client.CallToolAsync(
+                "work_close",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workId
+                });
+            Assert.True(
+                GetRequiredProperty(
+                    GetStructured(
+                        close.StructuredContent),
+                    "ok").GetBoolean());
+        }
+        finally
+        {
+            foreach (var path in new[]
+                     {
+                         scratch,
+                         hostWorkingDirectory
+                     })
+            {
+                try
+                {
+                    if (Directory.Exists(path))
+                    {
+                        Directory.Delete(
+                            path,
+                            recursive: true);
+                    }
+                }
+                catch (IOException)
+                {
+                }
+                catch (UnauthorizedAccessException)
+                {
+                }
             }
         }
     }

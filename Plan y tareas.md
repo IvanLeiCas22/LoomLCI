@@ -180,7 +180,7 @@ El smoke directo de `python_packages_prepare` desde ChatGPT quedó completado co
 - suite Release serial **311/311**;
 - smoke Release NumPy + Pandas + `import loom`: **P20_SMOKE_OK**.
 
-El runtime instalado permanece en `0.1.0-dev-python1`; el cutover de Python 2 se reserva para P2.4. La próxima etapa es **P2.1: Filesystem bridge (`loom.fs`)**. La reconciliación final de la skill sigue después del bloque Python.
+**P2.1 queda CERRADO**: `loom.fs` expone `list_tree`, `find_paths`, `search_text`, `read_files`, `apply_patch`, `manage_directory` y `read_pdf` textual reutilizando Core, con router modular, parsing estricto, resultados snake_case y límites bridge compartidos. Suite Release serial **321/321**, Integration **18/18**, snapshot MCP **25 tools** sin drift y smoke NumPy/Pandas + `loom.fs` **P21_SMOKE_OK**. El runtime instalado permanece en `0.1.0-dev-python1`; el cutover de Python 2 se reserva para P2.4. La próxima etapa es **P2.2: Process bridge (`loom.process`)**, empezando por investigación/análisis específico. La reconciliación final de la skill sigue después del bloque Python.
 
 ## Visual Files G1 - CERRADO
 

@@ -75,14 +75,15 @@ builder.Services.AddSingleton<IProcessProvider, WindowsProcessProvider>();
 builder.Services.AddSingleton<ProcessCapability>();
 builder.Services.AddSingleton<IPythonRuntimeProvider, WindowsPythonRuntimeProvider>();
 builder.Services.AddSingleton<IPythonPackageProvider, WindowsPythonPackageProvider>();
-builder.Services.AddSingleton<IPythonBridgeDispatcher, PythonBridgeDispatcher>();
-builder.Services.AddSingleton<PythonCapability>();
 builder.Services.AddSingleton<PythonPackageCapability>();
 builder.Services.AddSingleton<IFilesystemProvider, WindowsFilesystemProvider>();
 builder.Services.AddSingleton<FilesystemCapability>();
 builder.Services.AddSingleton<IVisualFilesProvider>(
     _ => new WindowsVisualFilesProvider(pdfWorkerLaunch));
 builder.Services.AddSingleton<VisualFilesCapability>();
+builder.Services.AddSingleton<IPythonBridgeModule, PythonFilesystemBridgeModule>();
+builder.Services.AddSingleton<IPythonBridgeDispatcher, PythonBridgeDispatcher>();
+builder.Services.AddSingleton<PythonCapability>();
 builder.Services.AddHostedService<LifetimeSweeperService>();
 
 builder.Services.AddLoomMcpStdio(enableWorkPlan: true);

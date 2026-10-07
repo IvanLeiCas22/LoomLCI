@@ -69,7 +69,8 @@ public sealed class PythonTools
         "Executes Python code in the persistent Python worker owned by a work session. " +
         "The first call lazily provisions/starts the private CPython runtime; later calls in the same work session reuse globals, imports, cwd changes, and other in-process state. " +
         "Use this for local calculations, parsing, transformations, and short stateful Python workflows. " +
-        "Use LoomLCI filesystem tools for structured file operations and Process tools for independent executables, terminal semantics, subprocess workflows, or large retained output. " +
+        "Inside the worker, import loom or loom.fs to use LoomLCI structured filesystem operations against the same work session: list_tree, find_paths, search_text, read_files, apply_patch, manage_directory, and textual read_pdf. Normal bridge failures raise loom.LoomError and do not discard the worker. " +
+        "Use top-level LoomLCI visual filesystem tools for image/PDF rendering and Process tools for independent executables, terminal semantics, subprocess workflows, or large retained output. " +
         "There is no interactive stdin in this version: input() receives EOF. " +
         "A normal Python exception is a successful tool call with result.status='exception'; infrastructure failures, cancellation, and timeouts are tool errors. " +
         "timeoutSeconds covers the whole invocation, including lazy runtime provisioning/startup. On timeout, cancellation, crash, or broken protocol the worker is discarded, so the next call starts with a fresh namespace. " +

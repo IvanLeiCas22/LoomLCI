@@ -31,7 +31,7 @@ La reconciliación final del plugin/skill se cerrará después de incorporar las
 Orden preliminar:
 
 1. [[Python 1 - Paquetes administrados|paquetes de terceros administrados/versionados por LoomLCI]] — **CERRADO**: `uv` privado fijado/verificado, environments inmutables con locks+hashes, `python_packages_prepare`, binding por WorkSession, reset explícito al cambiar environment, GC protegido y deployment instalado validado;
-2. [[Python 2 - Bridge privado loom|bridge privado `loom.*` entre el worker Python y capabilities de LoomLCI]] — **P2.0 CERRADO**: protocolo privado v2, conversation pump, módulo `loom` foundation, correlación/threading/cancellation y package-store schema v2; P2.1 Filesystem pendiente;
+2. [[Python 2 - Bridge privado loom|bridge privado `loom.*` entre el worker Python y capabilities de LoomLCI]] — **P2.0 + P2.1 CERRADOS**: protocolo privado v2, router modular, módulo `loom` foundation y `loom.fs` con siete operaciones estructuradas de Filesystem/PDF textual; P2.2 Process pendiente;
 3. outputs binarios/imágenes desde Python hacia el modelo.
 
 La ruta binaria debe reutilizar las lecciones de Visual Files y respetar los límites MCP/tunnel ya fijados.
@@ -70,6 +70,6 @@ Es un tema transversal:
 
 ## Próxima acción
 
-**[[Python 2 - Bridge privado loom|P2.1: Filesystem bridge (`loom.fs`)]].**
+**[[Python 2 - Bridge privado loom|P2.2: Process bridge (`loom.process`)]] — investigar y analizar antes de implementar.**
 
-P2.0 quedó cerrado en código: protocolo v2 + bridge foundation, package-store schema v2, suite Release serial **311/311** y smoke real `P20_SMOKE_OK` con NumPy/Pandas + `import loom`. El runtime instalado continúa deliberadamente en `0.1.0-dev-python1` hasta P2.4. [[Python 1 - Paquetes administrados]] permanece **CERRADO end-to-end** y el catálogo MCP público sigue en **25 tools**. [[Plugin metadata]] sigue cerrado; el plugin privado permanece en `0.3.0` hasta la reconciliación final posterior al bloque Python.
+P2.0 + P2.1 quedaron cerrados en código: protocolo v2, router modular, `loom.fs`, suite Release serial **321/321**, Integration **18/18** y smoke `P21_SMOKE_OK` con NumPy/Pandas + filesystem bridge. El runtime instalado continúa deliberadamente en `0.1.0-dev-python1` hasta P2.4. [[Python 1 - Paquetes administrados]] permanece **CERRADO end-to-end** y el catálogo MCP público sigue en **25 tools**. [[Plugin metadata]] sigue cerrado; el plugin privado permanece en `0.3.0` hasta la reconciliación final posterior al bloque Python.

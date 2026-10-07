@@ -52,19 +52,26 @@ def _install(
     _transport = transport
 
     loom = types.ModuleType("loom")
+    loom.__path__ = []
     loom.__dict__.update(
         {
             "__bridge_version__": BRIDGE_VERSION,
             "LoomError": LoomError,
             "capabilities": capabilities,
             "_bridge_call": _bridge_call,
-            "__all__": [
-                "LoomError",
-                "capabilities",
-            ],
         }
     )
+
+    fs = _create_filesystem_module()
+    loom.fs = fs
+    loom.__all__ = [
+        "LoomError",
+        "capabilities",
+        "fs",
+    ]
+
     sys.modules["loom"] = loom
+    sys.modules["loom.fs"] = fs
     return loom
 
 
@@ -204,6 +211,164 @@ def _bridge_call(
         retryable,
         details,
     )
+
+
+def _fs_list_tree(
+    path: str = ".",
+    *,
+    include_generated: bool = False,
+    exclude_directories: list[str] | tuple[str, ...] | None = None,
+    max_depth: int = 3,
+    max_entries: int = 1000,
+    cursor: str | None = None,
+) -> dict[str, Any]:
+    """List a bounded recursive tree relative to the active WorkSession."""
+    return _bridge_call(
+        "fs.list_tree",
+        {
+            "path": path,
+            "include_generated": include_generated,
+            "exclude_directories": exclude_directories,
+            "max_depth": max_depth,
+            "max_entries": max_entries,
+            "cursor": cursor,
+        },
+    )
+
+
+def _fs_find_paths(
+    path: str,
+    queries: list[str] | tuple[str, ...],
+    *,
+    match_mode: str = "substring",
+    type: str = "any",
+    include_generated: bool = False,
+    exclude_directories: list[str] | tuple[str, ...] | None = None,
+    max_depth: int = 12,
+    max_results: int = 100,
+    cursor: str | None = None,
+) -> dict[str, Any]:
+    """Find paths by literal fragments or suffixes."""
+    return _bridge_call(
+        "fs.find_paths",
+        {
+            "path": path,
+            "queries": queries,
+            "match_mode": match_mode,
+            "type": type,
+            "include_generated": include_generated,
+            "exclude_directories": exclude_directories,
+            "max_depth": max_depth,
+            "max_results": max_results,
+            "cursor": cursor,
+        },
+    )
+
+
+def _fs_search_text(
+    path: str,
+    queries: list[str] | tuple[str, ...],
+    *,
+    case_sensitive: bool = False,
+    include_generated: bool = False,
+    exclude_directories: list[str] | tuple[str, ...] | None = None,
+    max_depth: int = 12,
+    max_results: int = 100,
+    context_lines: int = 1,
+    cursor: str | None = None,
+) -> dict[str, Any]:
+    """Search literal text queries with bounded excerpts and cursors."""
+    return _bridge_call(
+        "fs.search_text",
+        {
+            "path": path,
+            "queries": queries,
+            "case_sensitive": case_sensitive,
+            "include_generated": include_generated,
+            "exclude_directories": exclude_directories,
+            "max_depth": max_depth,
+            "max_results": max_results,
+            "context_lines": context_lines,
+            "cursor": cursor,
+        },
+    )
+
+
+def _fs_read_files(
+    files: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+) -> dict[str, Any]:
+    """Read one or more known text files, optionally by 1-based line range."""
+    return _bridge_call(
+        "fs.read_files",
+        {"files": files},
+    )
+
+
+def _fs_apply_patch(
+    changes: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+) -> dict[str, Any]:
+    """Apply validated write/replace/delete/move file changes."""
+    return _bridge_call(
+        "fs.apply_patch",
+        {"changes": changes},
+    )
+
+
+def _fs_manage_directory(
+    action: str,
+    path: str,
+) -> dict[str, Any]:
+    """Create a directory tree or delete one existing empty directory."""
+    return _bridge_call(
+        "fs.manage_directory",
+        {
+            "action": action,
+            "path": path,
+        },
+    )
+
+
+def _fs_read_pdf(
+    path: str,
+    *,
+    start_page: int = 1,
+    max_pages: int = 10,
+) -> dict[str, Any]:
+    """Extract bounded text from a PDF without OCR."""
+    return _bridge_call(
+        "fs.read_pdf",
+        {
+            "path": path,
+            "start_page": start_page,
+            "max_pages": max_pages,
+        },
+    )
+
+
+def _create_filesystem_module() -> types.ModuleType:
+    fs = types.ModuleType("loom.fs")
+    fs.__package__ = "loom"
+    fs.__dict__.update(
+        {
+            "list_tree": _fs_list_tree,
+            "find_paths": _fs_find_paths,
+            "search_text": _fs_search_text,
+            "read_files": _fs_read_files,
+            "apply_patch": _fs_apply_patch,
+            "manage_directory": _fs_manage_directory,
+            "read_pdf": _fs_read_pdf,
+            "__all__": [
+                "list_tree",
+                "find_paths",
+                "search_text",
+                "read_files",
+                "apply_patch",
+                "manage_directory",
+                "read_pdf",
+            ],
+        }
+    )
+    return fs
 
 
 def capabilities() -> list[str]:
