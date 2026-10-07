@@ -625,6 +625,58 @@ Python 1 se desplegó sobre la instalación real mediante el flujo portable exis
 
 El catálogo de tools de ChatGPT no se refrescó automáticamente tras el cutover; un refresco manual llevó el catálogo visible de 24 a 25 tools. Después de ese refresco se ejecutó directamente `python_packages_prepare` desde ChatGPT y el smoke pasó correctamente. Esto se documenta como aspereza externa de caché/refresco del consumidor, no como pendiente de Python 1.
 
+## Update Python 2 - Bridge privado loom.* (2026-10-07, CERRADO end-to-end)
+
+P2.4 desplegó Python 2 sobre la instalación real usando el flujo portable side-by-side:
+
+- commit runtime desplegado: `54c2bff feat: harden Python bridge lifecycle`;
+- versión: `0.1.0-dev-python2`, sequence **0**;
+- portable final: `artifacts/portable-p24-final/LoomLCI-0.1.0-dev-python2-win-x64.zip`;
+- tamaño ZIP: **81.308.776 bytes**;
+- SHA-256: `049bea4dd71d7f5b62c55f3acf1f49ed66f80a6428672ec0460846520a2d0eb1`;
+- manifest: schema 1 / updateProtocol 1 / win-x64;
+- Launcher: **20/20**;
+- IntegrationTests contra Host publicado: **19/19**;
+- setup side-by-side: **OK**;
+- SHA-256 de `LoomLCI.Host.dll` package vs instalación: idéntico (`0a5fea122c2fff2560c5576db26fe0ff43017aac1a6e931d31e7352f911a8737`);
+- IntegrationTests contra `versions/0.1.0-dev-python2/LoomLCI.Host.dll`: **19/19**;
+- cutover ejecutado sólo con IvanSpace mediante `stop/start/status`: **OK**;
+- runtime activo: `0.1.0-dev-python2`, `healthy=true`, `ready=true`;
+- previous/rollback: `0.1.0-dev-python1`;
+- `highestSequence` permanece en **3**;
+- tunnel preservado: `tunnel_6ac0b25408088191bd552887eda2a0f7`.
+
+Consumer smoke directo desde ChatGPT sobre el Host instalado: **OK**:
+
+- environment schema v2 NumPy **2.5.3** + Pandas **3.0.6** reutilizado;
+- `loom.capabilities()` -> **15**;
+- `loom.fs.list_tree` -> OK;
+- `loom.process.run("git.exe", ["status", "--short"])` -> exit 0;
+- `loom.fs.read_files` sobre archivo inexistente -> `LoomError(not_found)` recuperable;
+- marker/global state persistió en un execute posterior;
+- una excepción `LoomError(invalid_argument)` no mató el worker y el siguiente execute volvió a funcionar.
+
+Aspereza encontrada durante el packaging:
+
+- `Build-PortablePackage.ps1` no normalizaba `OutputRoot` a ruta absoluta, por lo que `LOOMLCI_TEST_HOST_DLL` podía quedar relativo y fallar falsamente desde IntegrationTests;
+- locks transitorios sobre artifacts podían abortar la limpieza/hash;
+- se alineó el builder con los otros builders del repo: `GetFullPath`, limpieza con retry y SHA-256 con retry.
+
+Cierre final:
+
+- tras pulsar **Actualizar herramientas**, este chat mantuvo el snapshot viejo de `python_execute`; se clasifica como caché/snapshot externo del consumidor;
+- exportar directamente el contrato MCP desde el Host instalado `0.1.0-dev-python2` confirmó **25 tools** y la descripción nueva de `python_execute` con `loom.fs` y `loom.process`;
+- un chat nuevo/fresh-agent recibió correctamente esa metadata viva y completó el smoke explícito usando exclusivamente LoomLCI sobre el repo:
+  - `loom`, `loom.fs`, `loom.process` importados;
+  - `len(loom.capabilities()) == 15`;
+  - `loom.fs.list_tree(...)` OK;
+  - `loom.process.run("git.exe", ["status", "--short"])` exit 0, stderr vacío;
+  - variable global persistió entre dos `python_execute`;
+  - la descripción recibida de `python_execute` menciona explícitamente `loom.fs` y `loom.process`;
+  - marcador final **`P24_FRESH_AGENT_OK`**.
+
+Con esto **Python 2 queda CERRADO end-to-end**. La siguiente etapa es la reconciliación final del plugin/skill privado, deliberadamente pospuesta hasta terminar este bloque.
+
 ## Fuera de alcance inicial
 
 - autoarranque al login;

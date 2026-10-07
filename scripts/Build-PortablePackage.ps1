@@ -8,10 +8,48 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+function Remove-PathWithRetry {
+    param([Parameter(Mandatory)][string]$Path)
+
+    for ($attempt = 1; $attempt -le 8; $attempt++) {
+        try {
+            if (Test-Path $Path) {
+                Remove-Item $Path -Recurse -Force -ErrorAction Stop
+            }
+            return
+        }
+        catch {
+            if ($attempt -eq 8) {
+                throw
+            }
+
+            Start-Sleep -Milliseconds (250 * $attempt)
+        }
+    }
+}
+
+function Get-Sha256WithRetry {
+    param([Parameter(Mandatory)][string]$Path)
+
+    for ($attempt = 1; $attempt -le 8; $attempt++) {
+        try {
+            return (Get-FileHash $Path -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+        }
+        catch {
+            if ($attempt -eq 8) {
+                throw
+            }
+
+            Start-Sleep -Milliseconds (250 * $attempt)
+        }
+    }
+}
+
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
     $OutputRoot = Join-Path $repoRoot 'artifacts\portable'
 }
+$OutputRoot = [System.IO.Path]::GetFullPath($OutputRoot)
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
     $sha = (& git -C $repoRoot rev-parse --short=12 HEAD).Trim()
@@ -34,12 +72,8 @@ $zipPath = "$packageDir.zip"
 $hostOut = Join-Path $packageDir 'payload\host'
 $launcherPublish = Join-Path $packageDir '.launcher-publish'
 
-if (Test-Path $packageDir) {
-    Remove-Item $packageDir -Recurse -Force
-}
-if (Test-Path $zipPath) {
-    Remove-Item $zipPath -Force
-}
+Remove-PathWithRetry -Path $packageDir
+Remove-PathWithRetry -Path $zipPath
 
 New-Item -ItemType Directory -Path $hostOut -Force | Out-Null
 New-Item -ItemType Directory -Path $launcherPublish -Force | Out-Null
@@ -92,7 +126,7 @@ if (-not (Test-Path $launcherExe)) {
 }
 
 Copy-Item $launcherExe (Join-Path $packageDir 'LoomLCI.Launcher.exe') -Force
-Remove-Item $launcherPublish -Recurse -Force
+Remove-PathWithRetry -Path $launcherPublish
 
 $thirdPartyNotices = Join-Path $repoRoot 'THIRD-PARTY-NOTICES.txt'
 $pdfiumLicense = Join-Path $repoRoot 'licenses\PDFium-LICENSE.txt'
@@ -164,7 +198,7 @@ if (-not $SkipTests) {
 Write-Host 'Creating portable ZIP...'
 Compress-Archive -Path (Join-Path $packageDir '*') -DestinationPath $zipPath -CompressionLevel Optimal
 
-$zipHash = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$zipHash = Get-Sha256WithRetry -Path $zipPath
 Write-Host "Package: $packageDir"
 Write-Host "ZIP:     $zipPath"
 Write-Host "SHA256:  $zipHash"

@@ -1,6 +1,6 @@
 # Python 2 - Bridge privado loom.*
 
-> Estado: **P2.0, P2.1, P2.2 y P2.3 CERRADOS; P2.4 (deployment / consumer smoke) pendiente.**
+> Estado: **P2.0, P2.1, P2.2, P2.3 y P2.4 CERRADOS end-to-end. Python 2 queda CERRADO.**
 >
 > Objetivo: permitir que el código ejecutado dentro del worker Python invoque capabilities internas de LoomLCI mediante un módulo privado `loom.*`, conservando WorkSession, validaciones, lifecycle, errores, observabilidad y cancellation, sin volver a entrar por MCP/Secure MCP Tunnel.
 
@@ -1607,17 +1607,316 @@ El runtime instalado permanece deliberadamente en `0.1.0-dev-python1`. P2.3 no r
 
 ### P2.4 - Deployment / consumer smoke
 
-- portable/update/cutover;
-- IntegrationTests contra Host instalado;
-- smoke MCP real:
-  - preparar NumPy;
-  - ejecutar Python;
-  - `import loom`;
-  - filesystem bridge;
-  - process bridge;
-  - error recuperable;
-  - segundo execute demuestra worker persistente/sano;
-- fresh-agent luego de refrescar metadata de tools cuando corresponda.
+> Estado: **CERRADO end-to-end. Deployment, cutover, consumer smoke, metadata live y fresh-agent smoke completados.**
+
+P2.4 no requiere cambios de producto adicionales si el paquete publicado y la instalación real pasan las validaciones definidas abajo. El objetivo es desplegar exactamente el código cerrado en P2.0–P2.3 y demostrarlo end-to-end desde ChatGPT.
+
+#### Estado inicial verificado
+
+Instalación real actual:
+
+- active: `0.1.0-dev-python1`, sequence **0**;
+- previous: `0.1.0-dev-github-e2e`, sequence **3**;
+- highestSequence: **3**;
+- alias/profile: `loomlci-installed`;
+- runtime: `process_running=true`, `healthy=true`, `ready=true`;
+- tunnel preservado: `tunnel_6ac0b25408088191bd552887eda2a0f7`;
+- no existe todavía versión/directorio/artifact `python2`.
+
+El package store compartido contiene actualmente:
+
+- environments schema **1** utilizados por Python 1;
+- environment schema **2** válido con NumPy **2.5.3** + Pandas **3.0.6**, creado durante la validación de Python 2.
+
+No hace falta migración ni limpieza previa. Python 2 puede reutilizar schema v2; Python 1 conserva sus schema v1 para rollback.
+
+#### Estrategia de versión
+
+Usar:
+
+```text
+version  = 0.1.0-dev-python2
+sequence = 0
+```
+
+No usar el updater firmado para este milestone de desarrollo.
+
+Motivo:
+
+- la instalación ya alcanzó `highestSequence=3`;
+- un update firmado local necesitaría consumir una sequence nueva >3;
+- eso elevaría artificialmente la secuencia mínima de la próxima release pública;
+- el flujo portable side-by-side ya fue validado para Python 1 y otros milestones;
+- Setup mantiene `highestSequence=3` y coloca Python 1 como `previousVersion`.
+
+La consecuencia ya existente de los milestones manuales sequence 0 se mantiene: `update check` contra la release pública sequence 3 puede considerar esa release más nueva que el active dev runtime. Esto ya ocurre con Python 1 y no es un cambio introducido por P2.4.
+
+#### 1. Preflight
+
+Antes de construir:
+
+- repo limpio;
+- HEAD debe ser el cierre P2.3 (`54c2bff`) salvo un commit posterior explícitamente aprobado;
+- suite Release P2.3 conocida: **337/337**;
+- runtime Python 1 healthy/ready;
+- capturar machine config y status como evidencia de rollback;
+- verificar que `versions/0.1.0-dev-python1/LoomLCI.Host.exe` sigue existiendo.
+
+No modificar el store Python ni borrar versiones anteriores.
+
+#### 2. Build portable Python 2
+
+Ejecutar el builder existente, sin `-SkipTests`:
+
+```powershell
+scripts/Build-PortablePackage.ps1 \
+  -Version 0.1.0-dev-python2 \
+  -Sequence 0
+```
+
+El builder debe:
+
+- publicar Host Release self-contained `win-x64`;
+- publicar Launcher single-file;
+- validar assets PDF/Visual existentes;
+- ejecutar Launcher tests;
+- ejecutar IntegrationTests contra **el Host publicado**, no contra Debug;
+- crear:
+  - `artifacts/portable/LoomLCI-0.1.0-dev-python2-win-x64/`;
+  - `artifacts/portable/LoomLCI-0.1.0-dev-python2-win-x64.zip`;
+- informar SHA-256 del ZIP.
+
+Acceptance del paquete:
+
+- `package.json`: schema 1, version exacta `0.1.0-dev-python2`, sequence 0, updateProtocol 1, win-x64;
+- Launcher **20/20**;
+- IntegrationTests publicados **19/19**;
+- snapshot MCP / tool catalog **25 tools** sin drift.
+
+No generar GitHub Release ni update firmado en P2.4.
+
+#### 3. Setup side-by-side sin cortar el runtime actual
+
+Usar el Launcher **del paquete nuevo** para `setup` contra la instalación real:
+
+- mismo tunnel id;
+- mismo alias `loomlci-installed`;
+- runtime key mediante **file path**, nunca por command line ni output;
+- preferir `--no-shortcut` porque los shortcuts existentes ya son válidos.
+
+El setup:
+
+- instala `versions/0.1.0-dev-python2`;
+- actualiza el Launcher instalado;
+- verifica tunnel-client + doctor;
+- escribe machine config:
+  - active = Python 2 / sequence 0;
+  - previous = Python 1 / sequence 0;
+  - highestSequence permanece 3;
+- **no detiene** el runtime Python 1 que actualmente mantiene la conexión.
+
+Durante esta ventana el process real sigue siendo Python 1 aunque machine.json ya declare Python 2. No usar `launcher status` como evidencia del runtime activo hasta completar el stop/start.
+
+#### 4. Validación de bytes instalados antes del cutover
+
+Mientras Python 1 sigue vivo:
+
+- comprobar que el Host Python 2 instalado existe;
+- opcional/recomendado: comparar SHA-256 de `LoomLCI.Host.dll` paquete vs instalado;
+- ejecutar IntegrationTests con:
+  - `LOOMLCI_TEST_HOST_DLL = versions/0.1.0-dev-python2/LoomLCI.Host.dll`;
+- exigir **19/19**.
+
+Esto valida los bytes realmente copiados a `%LOCALAPPDATA%\Programs\LoomLCI\versions\...` antes de cortar el tunnel.
+
+Si esta etapa falla, **no hacer cutover**. Restaurar Python 1 mediante rollback/config sólo si fuera necesario; no continuar con stop/start.
+
+#### 5. Cutover
+
+El único tramo que no debe ejecutarse a través del mismo LoomLCI que se va a detener es:
+
+1. `LoomLCI.Launcher.exe stop`;
+2. `LoomLCI.Launcher.exe start`;
+3. `LoomLCI.Launcher.exe status`.
+
+Usar **IvanSpace exclusivamente para este cutover**, coherente con la política del proyecto.
+
+Acceptance inmediato:
+
+- active `0.1.0-dev-python2`;
+- previous `0.1.0-dev-python1`;
+- sequence activa 0;
+- `process_running=true`;
+- `healthy=true`;
+- `ready=true`;
+- mismo tunnel id;
+- alias `loomlci-installed`.
+
+Si el start/health falla:
+
+- primera opción: `LoomLCI.Launcher.exe rollback` mediante IvanSpace;
+- exigir vuelta a Python 1 healthy/ready;
+- no intentar consumer smoke sobre Python 2;
+- conservar evidencia del fallo.
+
+No hace falta ejercitar rollback si el cutover funciona: el motor de rollback ya está cubierto end-to-end; basta verificar que Python 1 quedó como previous y su Host sigue instalado.
+
+#### 6. Reconexión y metadata de tools en ChatGPT
+
+Python 2 **no agrega tools MCP**: siguen siendo **25**.
+
+Pero P2.1/P2.2 cambiaron la metadata de `python_execute`. Antes del cutover se verificó que el catálogo cargado actualmente por ChatGPT todavía tiene la descripción Python 1 y **no menciona** `loom.fs` / `loom.process`.
+
+Después del cutover:
+
+1. confirmar que una tool conocida de LoomLCI vuelve a responder por el mismo tunnel;
+2. pulsar **Actualizar herramientas**;
+3. verificar que el catálogo visible sigue en 25;
+4. verificar específicamente que la descripción viva de `python_execute` contiene:
+   - `loom.fs`;
+   - `loom.process`;
+   - procesos durables SessionOwned / mismo WorkSession.
+
+El refresco manual es parte de la aceptación del consumidor, aunque no haya tool count nuevo.
+
+#### 7. Consumer smoke directo ChatGPT -> app -> tunnel -> Host instalado
+
+El smoke bloqueante debe usar las tools reales de ChatGPT, no un harness STDIO local.
+
+Flujo:
+
+1. `work_create` sobre el repo;
+2. `python_packages_prepare` con set completo:
+   - NumPy 2.5.3;
+   - Pandas 3.0.6;
+3. primer `python_execute`:
+   - importar NumPy/Pandas;
+   - `import loom, loom.fs, loom.process`;
+   - exigir `len(loom.capabilities()) == 15`;
+   - `loom.fs.list_tree` relativo a la WorkSession;
+   - `loom.process.run("git.exe", ["status", "--short"])`;
+   - provocar un error normal, por ejemplo `loom.fs.read_files` sobre un path inexistente, capturando `loom.LoomError(code="not_found")`;
+   - guardar un marker en globals;
+4. segundo `python_execute` sobre el mismo WorkId:
+   - leer el marker;
+   - reutilizar NumPy/imports;
+   - volver a usar `loom.fs`;
+   - demostrar que el worker sigue sano después del LoomError;
+5. `work_close`.
+
+Acceptance mínimo:
+
+```python
+import numpy as np
+import loom
+
+tree = loom.fs.list_tree(".", max_depth=2)
+proc = loom.process.run("git.exe", ["status", "--short"])
+
+print(np.mean([1, 2, 3]))
+print(len(tree["entries"]))
+print(proc["exit_code"])
+```
+
+Todo debe ejecutarse dentro del mismo worker/WorkSession y sin MCP recursivo.
+
+Que `python_packages_prepare` devuelva `reused=true` es válido y esperable por el environment schema v2 ya existente; no hace falta forzar redownload para validar P2.4.
+
+#### 8. Fresh-agent smoke
+
+Después del refresco de tools, hacer un smoke corto en un chat nuevo/fresh-agent.
+
+Como la **reconciliación final de la skill/plugin está deliberadamente después del bloque Python**, P2.4 no debe exigir todavía descubrimiento autónomo de `loom.*` a partir de la skill antigua.
+
+El prompt fresh-agent debe pedir explícitamente:
+
+- usar LoomLCI;
+- crear WorkSession;
+- usar `python_execute`;
+- dentro de Python usar `loom.fs` y `loom.process`.
+
+Este smoke prueba que un consumidor nuevo recibe y puede usar la metadata MCP viva de Python 2.
+
+Después de cerrar Python 2, el siguiente follow-up es la reconciliación final de `plugin/skills/loomlci/SKILL.md` / plugin privado. Recién allí tiene sentido probar descubrimiento/preferencia autónoma del bridge sin mencionarlo en el prompt.
+
+#### 9. Evidencia y documentación de cierre
+
+Al cerrar P2.4 registrar:
+
+- commit desplegado;
+- versión `0.1.0-dev-python2`;
+- SHA-256 del portable ZIP;
+- resultados del builder;
+- IntegrationTests contra DLL instalada;
+- launcher status posterior;
+- active/previous versions;
+- metadata refresh de `python_execute`;
+- consumer smoke;
+- fresh-agent smoke;
+- rollback disponible hacia Python 1.
+
+Actualizar:
+
+- esta nota;
+- [[Deployment portable]];
+- [[Plan y tareas]];
+- [[Inicio]];
+- [[Roadmap post-G1]].
+
+No publicar todavía plugin 0.3.x/0.4.x dentro de P2.4.
+
+#### Resultado final P2.4 / Python 2
+
+P2.4 quedó cerrado end-to-end:
+
+- runtime desplegado: `0.1.0-dev-python2`, sequence 0;
+- rollback conservado: `0.1.0-dev-python1`;
+- tunnel preservado;
+- Launcher status post-cutover: healthy/ready;
+- portable ZIP: **81.308.776 bytes**;
+- SHA-256: `049bea4dd71d7f5b62c55f3acf1f49ed66f80a6428672ec0460846520a2d0eb1`;
+- Launcher: **20/20**;
+- IntegrationTests contra Host publicado: **19/19**;
+- IntegrationTests contra Host instalado: **19/19**;
+- SHA-256 de `LoomLCI.Host.dll` package vs instalación: idéntico;
+- consumer smoke directo ChatGPT -> runtime instalado: **OK**;
+- NumPy **2.5.3** + Pandas **3.0.6**: **OK**;
+- `loom.capabilities()` -> **15**;
+- `loom.fs` -> **OK**;
+- `loom.process` -> **OK**;
+- `LoomError` recuperable sin perder el worker -> **OK**;
+- estado global persistente entre executes -> **OK**;
+- contrato MCP exportado directamente desde el Host instalado: **25 tools** y metadata nueva de `python_execute` con `loom.fs` + `loom.process`;
+- este chat mantuvo un snapshot viejo tras **Actualizar herramientas**, clasificado como caché/refresh externo;
+- fresh-agent/chat nuevo recibió correctamente la metadata nueva y completó el smoke explícito:
+  - imports `loom`, `loom.fs`, `loom.process`;
+  - `len(loom.capabilities()) == 15`;
+  - `loom.fs.list_tree(...)`;
+  - `loom.process.run("git.exe", ["status", "--short"])` exit 0;
+  - variable global persistente entre dos `python_execute`;
+  - descripción de `python_execute` menciona explícitamente `loom.fs` y `loom.process`;
+  - marcador final: **`P24_FRESH_AGENT_OK`**.
+
+Durante P2.4 también se endureció `Build-PortablePackage.ps1` para:
+
+- normalizar `OutputRoot` a ruta absoluta;
+- reintentar cleanup de artifacts ante locks transitorios;
+- reintentar SHA-256 ante locks transitorios.
+
+Con esto **Python 2 queda CERRADO end-to-end**. El siguiente trabajo del roadmap es la reconciliación final de la skill/plugin privado, pospuesta deliberadamente hasta terminar el bloque Python.
+
+#### Criterio de cierre P2.4 / Python 2
+
+Python 2 queda **CERRADO end-to-end** sólo cuando:
+
+- portable Python 2 fue construido y validado;
+- Host instalado pasó Integration **19/19**;
+- runtime instalado está healthy/ready en el tunnel esperado;
+- Python 1 quedó como rollback;
+- metadata viva de `python_execute` confirmada desde el Host instalado y recibida correctamente por un fresh-agent/chat nuevo;
+- consumer smoke directo pasó con packages + `loom.fs` + `loom.process` + error recuperable + segundo execute;
+- fresh-agent smoke explícito pasó;
+- repo/documentación quedaron reconciliados y commiteados.
 
 ## Criterio de cierre
 
