@@ -128,6 +128,22 @@ public sealed class PythonCapability
                                 "Python worker is not healthy."));
                     }
 
+                    var desiredEnvironment =
+                        context.WorkSession!.GetPythonPackageEnvironment();
+                    if (!desiredEnvironment.IsSuccess)
+                    {
+                        return LoomResult<PythonExecutionResult>.Failure(
+                            desiredEnvironment.Error!);
+                    }
+
+                    if (!WorkerMatchesEnvironment(
+                            lease.Resource,
+                            desiredEnvironment.Value))
+                    {
+                        return LoomResult<PythonExecutionResult>.Failure(
+                            PackageEnvironmentConflict());
+                    }
+
                     var result = await lease.Resource.ExecuteAsync(
                             new PythonWorkerExecuteSpec(
                                 request.Code,
@@ -236,6 +252,15 @@ public sealed class PythonCapability
         WorkSession session,
         CancellationToken cancellationToken)
     {
+        var desired = session.GetPythonPackageEnvironment();
+        if (!desired.IsSuccess)
+        {
+            return LoomResult<ResourceHandle>.Failure(
+                desired.Error!);
+        }
+
+        var desiredEnvironment = desired.Value;
+
         var existing = ResolveSingleActiveWorker(session.Id);
         if (!existing.IsSuccess)
         {
@@ -250,13 +275,27 @@ public sealed class PythonCapability
 
             if (resolved.IsSuccess && resolved.Value!.Resource.IsHealthy)
             {
-                return LoomResult<ResourceHandle>.Success(existingHandle);
+                return WorkerMatchesEnvironment(
+                        resolved.Value.Resource,
+                        desiredEnvironment)
+                    ? LoomResult<ResourceHandle>.Success(existingHandle)
+                    : LoomResult<ResourceHandle>.Failure(
+                        PackageEnvironmentConflict());
             }
         }
 
         await _workerGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            desired = session.GetPythonPackageEnvironment();
+            if (!desired.IsSuccess)
+            {
+                return LoomResult<ResourceHandle>.Failure(
+                    desired.Error!);
+            }
+
+            desiredEnvironment = desired.Value;
+
             existing = ResolveSingleActiveWorker(session.Id);
             if (!existing.IsSuccess)
             {
@@ -271,7 +310,12 @@ public sealed class PythonCapability
 
                 if (resolved.IsSuccess && resolved.Value!.Resource.IsHealthy)
                 {
-                    return LoomResult<ResourceHandle>.Success(currentHandle);
+                    return WorkerMatchesEnvironment(
+                            resolved.Value.Resource,
+                            desiredEnvironment)
+                        ? LoomResult<ResourceHandle>.Success(currentHandle)
+                        : LoomResult<ResourceHandle>.Failure(
+                            PackageEnvironmentConflict());
                 }
 
                 var closed = await _resources.CloseAsync(currentHandle)
@@ -285,7 +329,8 @@ public sealed class PythonCapability
             var started = await _provider.StartAsync(
                     new PythonWorkerStartSpec(
                         session.Id,
-                        session.BaseDirectory),
+                        session.BaseDirectory,
+                        desiredEnvironment),
                     cancellationToken)
                 .ConfigureAwait(false);
             if (!started.IsSuccess)
@@ -306,6 +351,16 @@ public sealed class PythonCapability
                 return LoomResult<ResourceHandle>.Failure(
                     LoomErrors.ExecutionFailed(
                         "Python provider returned an unhealthy worker."));
+            }
+
+            if (!WorkerMatchesEnvironment(
+                    worker,
+                    desiredEnvironment))
+            {
+                await worker.DisposeAsync().ConfigureAwait(false);
+                return LoomResult<ResourceHandle>.Failure(
+                    LoomErrors.ExecutionFailed(
+                        "Python provider returned a worker with the wrong package environment."));
             }
 
             ResourceHandle handle;
@@ -338,7 +393,9 @@ public sealed class PythonCapability
                 resourceHandle: handle,
                 payload: new Dictionary<string, object?>
                 {
-                    ["kind"] = ResourceKind
+                    ["kind"] = ResourceKind,
+                    ["packageEnvironmentId"] =
+                        desiredEnvironment?.EnvironmentId
                 });
 
             return LoomResult<ResourceHandle>.Success(handle);
@@ -390,6 +447,18 @@ public sealed class PythonCapability
                 ["reason"] = reason
             });
     }
+
+    private static bool WorkerMatchesEnvironment(
+        IPythonWorkerResource worker,
+        PythonPackageEnvironment? desiredEnvironment)
+        => string.Equals(
+            worker.PackageEnvironmentId,
+            desiredEnvironment?.EnvironmentId,
+            StringComparison.Ordinal);
+
+    private static LoomError PackageEnvironmentConflict()
+        => LoomErrors.Conflict(
+            "Python package environment changed while the current worker is alive. Call python_reset before python_execute.");
 
     private static LoomError DuplicateWorkerError(
         WorkId workId,

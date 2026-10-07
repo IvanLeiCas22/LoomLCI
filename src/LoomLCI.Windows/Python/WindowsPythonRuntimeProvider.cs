@@ -57,6 +57,14 @@ public sealed class WindowsPythonRuntimeProvider : IPythonRuntimeProvider
                     $"Python working directory '{workingDirectory}' does not exist."));
         }
 
+        if (spec.PackageEnvironment is { } packageEnvironment &&
+            !Directory.Exists(packageEnvironment.SitePath))
+        {
+            return LoomResult<IPythonWorkerResource>.Failure(
+                LoomErrors.ExecutionFailed(
+                    $"Python package environment '{packageEnvironment.EnvironmentId}' is missing its site directory."));
+        }
+
         var pipeName =
             PythonWorkerProtocol.CreatePipeName();
         NamedPipeServerStream? pipe = null;
@@ -75,23 +83,32 @@ public sealed class WindowsPythonRuntimeProvider : IPythonRuntimeProvider
                     cancellationToken,
                     startupDeadline.Token);
 
+            var arguments = new List<string>
+            {
+                "-I",
+                "-B",
+                "-u",
+                "-X",
+                "utf8",
+                "-X",
+                "faulthandler",
+                "-X",
+                "thread_inherit_context=1",
+                installation.WorkerScriptPath,
+                "--pipe-name",
+                pipeName
+            };
+
+            if (spec.PackageEnvironment is { } environment)
+            {
+                arguments.Add("--package-site");
+                arguments.Add(environment.SitePath);
+            }
+
             var started = await _processProvider.StartAsync(
                     new ProcessLaunchSpec(
                         installation.PythonExecutablePath,
-                        [
-                            "-I",
-                            "-B",
-                            "-u",
-                            "-X",
-                            "utf8",
-                            "-X",
-                            "faulthandler",
-                            "-X",
-                            "thread_inherit_context=1",
-                            installation.WorkerScriptPath,
-                            "--pipe-name",
-                            pipeName
-                        ],
+                        arguments,
                         workingDirectory,
                         new Dictionary<string, string?>
                         {
@@ -149,7 +166,8 @@ public sealed class WindowsPythonRuntimeProvider : IPythonRuntimeProvider
                 new WindowsPythonWorkerResource(
                     process,
                     pipe,
-                    hello);
+                    hello,
+                    spec.PackageEnvironment?.EnvironmentId);
 
             process = null;
             pipe = null;

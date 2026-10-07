@@ -27,8 +27,8 @@ public sealed class McpStdioTests
         var enabledToolRegistrations = enabledServices.Count(
             descriptor => descriptor.ServiceType == typeof(McpServerTool));
 
-        Assert.Equal(21, disabledToolRegistrations);
-        Assert.Equal(24, enabledToolRegistrations);
+        Assert.Equal(22, disabledToolRegistrations);
+        Assert.Equal(25, enabledToolRegistrations);
     }
 
     [Fact]
@@ -453,6 +453,64 @@ public sealed class McpStdioTests
             .ToHashSet(StringComparer.Ordinal);
         Assert.Contains("workId", pythonRequired);
         Assert.Contains("code", pythonRequired);
+
+        var preparePythonPackages = Assert.Single(
+            tools,
+            tool => tool.Name == "python_packages_prepare");
+        Assert.Equal(
+            "Prepare Python packages",
+            preparePythonPackages.ProtocolTool.Title);
+        Assert.Contains(
+            "official PyPI",
+            preparePythonPackages.Description,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            "wheels only",
+            preparePythonPackages.Description,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            "workerRestartRequired",
+            preparePythonPackages.Description,
+            StringComparison.Ordinal);
+        Assert.False(
+            preparePythonPackages.ProtocolTool.Annotations?.ReadOnlyHint ?? true);
+        Assert.True(
+            preparePythonPackages.ProtocolTool.Annotations?.DestructiveHint ?? false);
+        Assert.False(
+            preparePythonPackages.ProtocolTool.Annotations?.IdempotentHint ?? true);
+        Assert.True(
+            preparePythonPackages.ProtocolTool.Annotations?.OpenWorldHint ?? false);
+
+        var preparePackageProperties = GetRequiredProperty(
+            preparePythonPackages.JsonSchema,
+            "properties");
+        AssertSchemaRange(
+            GetRequiredProperty(
+                preparePackageProperties,
+                "timeoutSeconds"),
+            1,
+            600);
+        var packagesSchema = GetRequiredProperty(
+            preparePackageProperties,
+            "packages");
+        Assert.Equal(
+            32,
+            GetRequiredProperty(
+                packagesSchema,
+                "maxItems").GetInt32());
+
+        var packageItemProperties = GetRequiredProperty(
+            GetRequiredProperty(
+                GetRequiredProperty(
+                    packagesSchema,
+                    "items"),
+                "properties"),
+            "name");
+        Assert.Equal(
+            128,
+            GetRequiredProperty(
+                packageItemProperties,
+                "maxLength").GetInt32());
 
         var resetPython = Assert.Single(tools, tool => tool.Name == "python_reset");
         Assert.Equal("Reset Python session", resetPython.ProtocolTool.Title);

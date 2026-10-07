@@ -608,6 +608,23 @@ El deployment instalado ya soporta updates de Host desde GitHub Releases:
 
 E2E real final: Release `v0.1.0-dev-github-e2e` -> update sequence 2 -> 3 -> restart -> `healthy=true` / `ready=true`; journal ausente y rollback disponible hacia sequence 2. Suite Release: **283/283**.
 
+## Update Python 1 - Paquetes administrados (2026-10-06)
+
+Python 1 se desplegó sobre la instalación real mediante el flujo portable existente:
+
+- suite Release previa: **298/298** = Core 101 + Windows 149 + MCP 5 + PdfWorker 6 + Launcher 20 + Integration 17;
+- builder portable: Launcher **20/20** + IntegrationTests contra Host publicado **17/17**;
+- paquete: `LoomLCI-0.1.0-dev-python1-win-x64.zip`;
+- SHA-256: `fdc4d50d48711a42e1275e511531598e27528cbb447ff4bc120d522482e0ec97`;
+- setup side-by-side: **OK**;
+- cutover realizado usando IvanSpace únicamente para `stop/start/status`;
+- runtime activo: `0.1.0-dev-python1`, `healthy=true`, `ready=true`;
+- rollback conservado hacia `0.1.0-dev-github-e2e`;
+- IntegrationTests contra la DLL instalada: **17/17**;
+- smoke MCP contra el Host instalado: `python_packages_prepare` con NumPy/Pandas, reuse, cambio de environment, conflicto pre-reset y ejecución post-reset: **OK (`PYTHON1_SMOKE_OK`)**.
+
+La conversación que realizó el cutover conserva el catálogo previo y no puede invocar directamente la tool nueva sin abrir un chat con catálogo MCP refrescado; esto queda como smoke de consumidor no bloqueante.
+
 ## Fuera de alcance inicial
 
 - autoarranque al login;

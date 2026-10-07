@@ -610,6 +610,8 @@ public sealed class PythonCapabilityTests
             }
 
             var worker = _nextWorker ?? new FakePythonWorker();
+            worker.PackageEnvironmentId =
+                spec.PackageEnvironment?.EnvironmentId;
             _nextWorker = null;
             Workers.Add(worker);
 
@@ -627,6 +629,7 @@ public sealed class PythonCapabilityTests
         private TaskCompletionSource? _executionRelease;
 
         public bool IsHealthy => Volatile.Read(ref _healthy);
+        public string? PackageEnvironmentId { get; set; }
         public int ExecuteCount => Volatile.Read(ref _executeCount);
         public int DisposeCount => Volatile.Read(ref _disposeCount);
         public TaskCompletionSource ExecutionEntered => _executionEntered;

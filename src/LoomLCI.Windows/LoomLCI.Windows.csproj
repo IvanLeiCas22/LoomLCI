@@ -16,6 +16,8 @@
                       LogicalName="LoomLCI.Python.worker.py" />
     <EmbeddedResource Include="..\..\runtime\python\runtime.json"
                       LogicalName="LoomLCI.Python.runtime.json" />
+    <EmbeddedResource Include="..\..\runtime\python\uv.json"
+                      LogicalName="LoomLCI.Python.uv.json" />
   </ItemGroup>
 
   <PropertyGroup>

@@ -149,7 +149,23 @@ Validación multi-PC cerrada: el mismo paquete se instaló desde cero en una not
 - plugin privado actualizado `0.2.1 -> 0.3.0` con CAS y read-back;
 - suite Release **285/285**, IntegrationTests **17/17**.
 
-La próxima etapa de [[Roadmap post-G1]] es **Python 1: paquetes de terceros administrados/versionados por LoomLCI**. La reconciliación final de la skill queda después del bloque Python.
+## Python 1 - Paquetes administrados - CERRADO
+
+[[Python 1 - Paquetes administrados]] quedó implementado e instalado:
+
+- `uv 0.12.23` privado fijado por URL + SHA-256;
+- PyPI oficial, wheels-only, locks exactos con hashes;
+- environments inmutables/content-addressed y reutilizables;
+- nueva tool `python_packages_prepare`;
+- binding por WorkSession + `python_reset` explícito al cambiar environment;
+- GC LRU/best-effort con 2 GiB para environments y 1 GiB para cache de `uv`, protegiendo WorkSessions/workers vivos;
+- catálogo Host con Work Plan: **25 tools**;
+- suite Release **298/298**;
+- portable `0.1.0-dev-python1` generado y setup side-by-side OK;
+- runtime instalado `0.1.0-dev-python1`, healthy/ready, rollback hacia `0.1.0-dev-github-e2e`;
+- IntegrationTests contra la DLL instalada: **17/17**.
+
+El smoke directo de `python_packages_prepare` desde ChatGPT queda pendiente únicamente de abrir un chat nuevo para refrescar el catálogo MCP; no bloquea el cierre técnico. La próxima etapa de [[Roadmap post-G1]] es **Python 2: bridge privado `loom.*`**. La reconciliación final de la skill sigue después del bloque Python.
 
 ## Visual Files G1 - CERRADO
 

@@ -17,18 +17,21 @@ internal sealed class WindowsPythonWorkerResource : IPythonWorkerResource
     public WindowsPythonWorkerResource(
         IProcessResource process,
         NamedPipeServerStream pipe,
-        PythonWorkerHello hello)
+        PythonWorkerHello hello,
+        string? packageEnvironmentId = null)
     {
         _process = process;
         _pipe = pipe;
         ProcessId = hello.ProcessId;
         PythonVersion = hello.PythonVersion;
+        PackageEnvironmentId = packageEnvironmentId;
         _diagnosticHandle = new ProcessHandle(
             $"proc_python_{ProcessId}");
     }
 
     public int ProcessId { get; }
     public string PythonVersion { get; }
+    public string? PackageEnvironmentId { get; }
 
     public bool IsHealthy
     {

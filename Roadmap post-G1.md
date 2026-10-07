@@ -30,7 +30,7 @@ La reconciliación final del plugin/skill se cerrará después de incorporar las
 
 Orden preliminar:
 
-1. paquetes de terceros administrados/versionados por LoomLCI;
+1. [[Python 1 - Paquetes administrados|paquetes de terceros administrados/versionados por LoomLCI]] — **CERRADO**: `uv` privado fijado/verificado, environments inmutables con locks+hashes, `python_packages_prepare`, binding por WorkSession, reset explícito al cambiar environment, GC protegido y deployment instalado validado;
 2. bridge privado `loom.*` entre el worker Python y capabilities de LoomLCI;
 3. outputs binarios/imágenes desde Python hacia el modelo.
 
@@ -70,6 +70,6 @@ Es un tema transversal:
 
 ## Próxima acción
 
-**Python 1: paquetes de terceros administrados/versionados por LoomLCI.**
+**Python 2: bridge privado `loom.*` entre el worker Python y capabilities de LoomLCI.**
 
-[[Plugin metadata]] quedó cerrado end-to-end: snapshot del contrato MCP de **24 tools**, suite Release **285/285**, build/verifier reproducible y plugin privado `0.3.0` publicado con wiring MCP histórico neutralizado. La reconciliación final de la skill sigue después del bloque Python.
+[[Python 1 - Paquetes administrados]] quedó implementado e instalado en `0.1.0-dev-python1`: suite Release **298/298**, Host instalado healthy/ready, IntegrationTests contra la DLL instalada **17/17** y snapshot MCP actual de **25 tools**. El smoke directo de la nueva tool desde ChatGPT requiere un chat nuevo para refrescar el catálogo y queda como verificación de consumidor no bloqueante. [[Plugin metadata]] sigue cerrado; el plugin privado permanece en `0.3.0` hasta la reconciliación final posterior al bloque Python.

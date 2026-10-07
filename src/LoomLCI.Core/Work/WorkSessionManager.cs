@@ -165,6 +165,7 @@ public sealed partial class WorkSession
             _closingTarget = terminalState;
             _stateChangedAt = now;
             ClearWorkPlanUnsafe();
+            ClearPythonPackageEnvironmentUnsafe();
             return true;
         }
     }
@@ -184,6 +185,7 @@ public sealed partial class WorkSession
             _closingTarget = WorkSessionState.Expired;
             _stateChangedAt = now;
             ClearWorkPlanUnsafe();
+            ClearPythonPackageEnvironmentUnsafe();
             return true;
         }
     }
@@ -278,6 +280,29 @@ public sealed class WorkSessionManager : IAsyncDisposable
 
     public TimeSpan IdleTimeout => _options.WorkSessionIdleTimeout;
     public int Count => _sessions.Count;
+
+    internal IReadOnlySet<string> GetActivePythonPackageEnvironmentIds()
+    {
+        var environmentIds = new HashSet<string>(
+            StringComparer.Ordinal);
+
+        foreach (var session in _sessions.Values)
+        {
+            if (session.State != WorkSessionState.Active)
+            {
+                continue;
+            }
+
+            var environment = session.GetPythonPackageEnvironment();
+            if (environment.IsSuccess &&
+                environment.Value is { } value)
+            {
+                environmentIds.Add(value.EnvironmentId);
+            }
+        }
+
+        return environmentIds;
+    }
 
     public LoomResult<WorkSession> Create(string? baseDirectory = null, string? label = null)
     {

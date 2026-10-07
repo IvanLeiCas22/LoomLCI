@@ -74,7 +74,9 @@ builder.Services.AddSingleton<WorkPlanCapability>();
 builder.Services.AddSingleton<IProcessProvider, WindowsProcessProvider>();
 builder.Services.AddSingleton<ProcessCapability>();
 builder.Services.AddSingleton<IPythonRuntimeProvider, WindowsPythonRuntimeProvider>();
+builder.Services.AddSingleton<IPythonPackageProvider, WindowsPythonPackageProvider>();
 builder.Services.AddSingleton<PythonCapability>();
+builder.Services.AddSingleton<PythonPackageCapability>();
 builder.Services.AddSingleton<IFilesystemProvider, WindowsFilesystemProvider>();
 builder.Services.AddSingleton<FilesystemCapability>();
 builder.Services.AddSingleton<IVisualFilesProvider>(

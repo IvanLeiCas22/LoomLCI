@@ -4,7 +4,7 @@ Segundo cerebro del proyecto LoomLCI.
 
 ## Estado
 
-Arquitectura v0.1 reconciliada y baseline cerrada. Process, Filesystem, Native Process/Job Objects, ConPTY, resource lifetime, Python Runtime E1, **Agent Support F1**, **Visual Files G1**, Deployment/Launcher, [[Instalador Windows]], [[Auto-update firmado]] y [[Plugin metadata]] están implementados y validados. El Host instalado expone **24 tools** con Work Plan habilitado; el runtime activo `0.1.0-dev-github-e2e` está healthy/ready. El plugin privado quedó en **0.3.0**, separado de la conexión MCP y verificado contra un snapshot generado desde el Host Release real. Suite Release actual: **285/285**. Computer H1 sigue pausado; el siguiente objetivo de [[Roadmap post-G1]] es ampliar Python con paquetes de terceros administrados/versionados.
+Arquitectura v0.1 reconciliada y baseline cerrada. Process, Filesystem, Native Process/Job Objects, ConPTY, resource lifetime, Python Runtime E1, **[[Python 1 - Paquetes administrados|Python 1]]**, **Agent Support F1**, **Visual Files G1**, Deployment/Launcher, [[Instalador Windows]], [[Auto-update firmado]] y [[Plugin metadata]] están implementados y validados. El Host instalado publica **25 tools** con Work Plan habilitado; el runtime activo `0.1.0-dev-python1` está healthy/ready y conserva rollback hacia `0.1.0-dev-github-e2e`. El plugin privado sigue en **0.3.0** hasta la reconciliación final posterior al bloque Python; el snapshot MCP canónico ya refleja 25 tools. Suite Release actual: **298/298**. Computer H1 sigue pausado; el siguiente objetivo de [[Roadmap post-G1]] es Python 2: bridge privado `loom.*`.
 
 ## Notas
 
@@ -22,6 +22,7 @@ Arquitectura v0.1 reconciliada y baseline cerrada. Process, Filesystem, Native P
 - [[Preguntas abiertas]]
 - [[Python Runtime]]
 - [[Bloque E - Python Runtime]]
+- [[Python 1 - Paquetes administrados]]
 - [[Bloque F - Agent Support]]
 - [[Bloque G - Visual Files]]
 - [[G1.1 - Local image]]

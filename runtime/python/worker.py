@@ -6,6 +6,7 @@ import contextvars
 import io
 import json
 import os
+import site
 import struct
 import sys
 import threading
@@ -326,9 +327,18 @@ def _connect(pipe_name: str) -> Any:
     return open(path, "r+b", buffering=0)
 
 
-def _run(pipe_name: str) -> int:
+def _run(pipe_name: str, package_site: str | None = None) -> int:
     if "" not in sys.path:
         sys.path.insert(0, "")
+
+    if package_site is not None:
+        if not os.path.isdir(package_site):
+            _original_stderr.write(
+                f"loom python worker package site does not exist: {package_site}\n"
+            )
+            _original_stderr.flush()
+            return _EXIT_PROTOCOL_ERROR
+        site.addsitedir(package_site)
 
     _install_worker_streams()
 
@@ -388,8 +398,9 @@ def _run(pipe_name: str) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--pipe-name", required=True)
+    parser.add_argument("--package-site")
     args = parser.parse_args()
-    return _run(args.pipe_name)
+    return _run(args.pipe_name, args.package_site)
 
 
 if __name__ == "__main__":

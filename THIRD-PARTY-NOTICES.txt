@@ -19,5 +19,12 @@ G1.3 PDF rendering includes the following third-party components.
    C# port of stb_image_write.h.
    The upstream README declares the project Public Domain.
 
+4. uv 0.12.23
+   Project: https://github.com/astral-sh/uv
+   License: MIT OR Apache-2.0.
+   LoomLCI does not bundle uv in the portable payload; Python 1 provisions the
+   pinned standalone Windows x64 release on demand after SHA-256 verification.
+   Upstream license texts are available from the project release/source.
+
 These notices apply to the corresponding third-party components only and do
 not alter the licensing terms of LoomLCI itself.
