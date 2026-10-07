@@ -116,7 +116,8 @@ public sealed class PythonCapabilityTests
                     new PythonExceptionInfo(
                         "ValueError",
                         "boom",
-                        "Traceback..."))));
+                        "Traceback..."),
+                    Array.Empty<PythonExecutionOutput>())));
 
         var failedCode = await fixture.ExecuteAsync(work.Id, "raise ValueError('boom')");
 
@@ -131,6 +132,41 @@ public sealed class PythonCapabilityTests
         Assert.True(next.IsSuccess, next.Error?.Message);
         Assert.Equal(1, fixture.Provider.StartCount);
         Assert.Equal(2, worker.ExecuteCount);
+    }
+
+    [Fact]
+    public async Task TypedOutputsPassThroughCoreExecutionUnchanged()
+    {
+        await using var fixture = new PythonFixture();
+        var work = fixture.CreateWork();
+
+        var expectedBytes = "core-output"u8.ToArray();
+        var worker = fixture.Provider.NextWorker();
+        worker.Behavior = (_, _) => Task.FromResult(
+            LoomResult<PythonExecutionResult>.Success(
+                new PythonExecutionResult(
+                    PythonExecutionStatus.Completed,
+                    "",
+                    "",
+                    false,
+                    false,
+                    null,
+                    [
+                        new PythonExecutionOutput(
+                            PythonExecutionOutputKind.Image,
+                            expectedBytes)
+                    ])));
+
+        var result = await fixture.ExecuteAsync(
+            work.Id,
+            "produce-output");
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        var output = Assert.Single(result.Value!.Outputs);
+        Assert.Equal(
+            PythonExecutionOutputKind.Image,
+            output.Kind);
+        Assert.Same(expectedBytes, output.Bytes);
     }
 
     [Fact]
@@ -684,7 +720,8 @@ public sealed class PythonCapabilityTests
                         "",
                         false,
                         false,
-                        null));
+                        null,
+                        Array.Empty<PythonExecutionOutput>()));
             }
             finally
             {

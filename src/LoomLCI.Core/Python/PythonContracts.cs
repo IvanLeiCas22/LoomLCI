@@ -62,13 +62,30 @@ public sealed record PythonWorkerExecuteSpec(
     string Code,
     int MaxOutputChars);
 
+public static class PythonOutputLimits
+{
+    public const int MaxOutputs = 4;
+    public const int MaxImageBytes = 6 * 1024 * 1024;
+    public const int MaxTotalOutputBytes = 6 * 1024 * 1024;
+}
+
+public enum PythonExecutionOutputKind
+{
+    Image
+}
+
+public sealed record PythonExecutionOutput(
+    PythonExecutionOutputKind Kind,
+    byte[] Bytes);
+
 public sealed record PythonExecutionResult(
     PythonExecutionStatus Status,
     string Stdout,
     string Stderr,
     bool StdoutTruncated,
     bool StderrTruncated,
-    PythonExceptionInfo? Exception);
+    PythonExceptionInfo? Exception,
+    IReadOnlyList<PythonExecutionOutput> Outputs);
 
 public sealed record PythonBridgeCall(
     string Method,

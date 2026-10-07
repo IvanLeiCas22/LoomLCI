@@ -30,9 +30,7 @@ Orden preliminar:
 
 1. [[Python 1 - Paquetes administrados|paquetes de terceros administrados/versionados por LoomLCI]] — **CERRADO**: `uv` privado fijado/verificado, environments inmutables con locks+hashes, `python_packages_prepare`, binding por WorkSession, reset explícito al cambiar environment, GC protegido y deployment instalado validado;
 2. [[Python 2 - Bridge privado loom|bridge privado `loom.*` entre el worker Python y capabilities de LoomLCI]] — **CERRADO end-to-end (P2.0–P2.4)**: protocolo privado v2, router modular, `loom.fs`, `loom.process`, lifecycle/ownership administrado, hardening, deployment real, consumer smoke y fresh-agent smoke completados;
-3. outputs binarios/imágenes desde Python hacia el modelo.
-
-La ruta binaria debe reutilizar las lecciones de Visual Files y respetar los límites MCP/tunnel ya fijados.
+3. [[Python 3 - Outputs binarios e imágenes|outputs binarios/imágenes desde Python hacia el modelo]] — **P3.0 CERRADO; P3.1 pendiente**. Typed output foundation implementada: `loom.display_image` local al worker, protocol v3, bridge API v2, 4 outputs / 6 MiB raw agregado, suite Release 350/350 y contrato MCP sin drift en 25 tools. P3.1 debe conectar esos outputs al `ImageContentBlock` MCP con guard 9 MiB. Blobs/audio genéricos siguen diferidos.
 
 ## Horizonte lejano / post-roadmap actual
 
@@ -68,6 +66,6 @@ Es un tema transversal:
 
 ## Próxima acción
 
-**Python 3 — outputs binarios/imágenes desde Python hacia el modelo.**
+**[[Python 3 - Outputs binarios e imágenes|P3.1: MCP image transport + payload hardening]].**
 
-[[Python 2 - Bridge privado loom|Python 2]] y la reconciliación final del plugin/skill privado **0.4.0** quedan **CERRADOS end-to-end**. La evaluación fresh-agent final del plugin pasó **4/4**: bridge Python autónomo, filesystem simple top-level, visual top-level y proceso `Independent` top-level. El siguiente bloque debe comenzar con investigación/análisis específico para diseñar la ruta binaria Python reutilizando los límites y aprendizajes de Visual Files.
+P3.0 queda **CERRADO**: protocol v3, bridge API v2, collector execution-local, `loom.display_image(bytes-like)`, límites raw/count y parsing defensivo implementados; suite Release **350/350** y contrato MCP **25 tools sin drift**. P3.1 debe reutilizar la validación Visual Files, convertir `python_execute` a mixed `CallToolResult` con `ImageContentBlock`, remover su `outputSchema` y aplicar el presupuesto MCP combinado de **9 MiB** sin depender del tunnel.

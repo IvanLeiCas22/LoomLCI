@@ -260,8 +260,228 @@ public sealed class PythonRuntimeProviderTests
             PythonExecutionStatus.Completed,
             result.Value!.Status);
         Assert.Equal(
-            "1\n[]\n",
+            "2\n[]\n",
             result.Value.Stdout);
+    }
+
+    [Fact]
+    public async Task DisplayImageCollectsBytesLikeOutputsForCurrentExecution()
+    {
+        await using var fixture = new PythonFixture();
+        var work = fixture.CreateWork(
+            Environment.CurrentDirectory);
+
+        var result = await fixture.ExecuteAsync(
+            work.Id,
+            "import loom\n" +
+            "loom.display_image(b'abc')\n" +
+            "loom.display_image(bytearray(b'defg'))\n" +
+            "loom.display_image(memoryview(b'hi'))");
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(
+            PythonExecutionStatus.Completed,
+            result.Value!.Status);
+        Assert.Collection(
+            result.Value.Outputs,
+            output =>
+            {
+                Assert.Equal(
+                    PythonExecutionOutputKind.Image,
+                    output.Kind);
+                Assert.Equal("abc"u8.ToArray(), output.Bytes);
+            },
+            output => Assert.Equal("defg"u8.ToArray(), output.Bytes),
+            output => Assert.Equal("hi"u8.ToArray(), output.Bytes));
+    }
+
+    [Fact]
+    public async Task DisplayImageOutputsAreExecutionLocalButWorkerStatePersists()
+    {
+        await using var fixture = new PythonFixture();
+        var work = fixture.CreateWork(
+            Environment.CurrentDirectory);
+
+        var first = await fixture.ExecuteAsync(
+            work.Id,
+            "import loom\n" +
+            "marker = 314\n" +
+            "loom.display_image(b'first')");
+
+        Assert.True(first.IsSuccess, first.Error?.Message);
+        Assert.Single(first.Value!.Outputs);
+
+        var second = await fixture.ExecuteAsync(
+            work.Id,
+            "print(marker)");
+
+        Assert.True(second.IsSuccess, second.Error?.Message);
+        Assert.Equal("314\n", second.Value!.Stdout);
+        Assert.Empty(second.Value.Outputs);
+    }
+
+    [Fact]
+    public async Task PythonExceptionPreservesImageOutputsProducedEarlier()
+    {
+        await using var fixture = new PythonFixture();
+        var work = fixture.CreateWork(
+            Environment.CurrentDirectory);
+
+        var result = await fixture.ExecuteAsync(
+            work.Id,
+            "import loom\n" +
+            "loom.display_image(b'before-error')\n" +
+            "raise RuntimeError('boom')");
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(
+            PythonExecutionStatus.Exception,
+            result.Value!.Status);
+        var output = Assert.Single(result.Value.Outputs);
+        Assert.Equal(
+            "before-error"u8.ToArray(),
+            output.Bytes);
+        Assert.Equal("RuntimeError", result.Value.Exception?.Type);
+    }
+
+    [Fact]
+    public async Task DisplayImageLimitFailureIsRecoverableAndWorkerStaysAlive()
+    {
+        await using var fixture = new PythonFixture();
+        var work = fixture.CreateWork(
+            Environment.CurrentDirectory);
+
+        var first = await fixture.ExecuteAsync(
+            work.Id,
+            "import loom\n" +
+            "errors = []\n" +
+            "for _ in range(5):\n" +
+            "    try:\n" +
+            "        loom.display_image(b'x')\n" +
+            "    except loom.LoomError as exc:\n" +
+            "        errors.append((exc.code, exc.details['reason']))\n" +
+            "print(errors)");
+
+        Assert.True(first.IsSuccess, first.Error?.Message);
+        Assert.Contains(
+            "too_many_python_outputs",
+            first.Value!.Stdout,
+            StringComparison.Ordinal);
+        Assert.Equal(4, first.Value.Outputs.Count);
+
+        var firstPid = fixture.ActiveWorker(work.Id).ProcessId;
+        var second = await fixture.ExecuteAsync(
+            work.Id,
+            "print('alive-after-output-limit')");
+
+        Assert.True(second.IsSuccess, second.Error?.Message);
+        Assert.Equal(
+            "alive-after-output-limit\n",
+            second.Value!.Stdout);
+        Assert.Equal(
+            firstPid,
+            fixture.ActiveWorker(work.Id).ProcessId);
+    }
+
+    [Fact]
+    public async Task OversizedDisplayImageIsRecoverableWithoutAllocatingOutput()
+    {
+        await using var fixture = new PythonFixture();
+        var work = fixture.CreateWork(
+            Environment.CurrentDirectory);
+
+        var first = await fixture.ExecuteAsync(
+            work.Id,
+            "import loom\n" +
+            "try:\n" +
+            "    loom.display_image(bytearray(6 * 1024 * 1024 + 1))\n" +
+            "except loom.LoomError as exc:\n" +
+            "    print(exc.code)\n" +
+            "    print(exc.details['reason'])");
+
+        Assert.True(first.IsSuccess, first.Error?.Message);
+        Assert.Equal(
+            "unsupported\npython_image_too_large\n",
+            first.Value!.Stdout);
+        Assert.Empty(first.Value.Outputs);
+
+        var firstPid = fixture.ActiveWorker(work.Id).ProcessId;
+        var second = await fixture.ExecuteAsync(
+            work.Id,
+            "print('alive-after-large-image')");
+
+        Assert.True(second.IsSuccess, second.Error?.Message);
+        Assert.Equal(
+            "alive-after-large-image\n",
+            second.Value!.Stdout);
+        Assert.Equal(
+            firstPid,
+            fixture.ActiveWorker(work.Id).ProcessId);
+    }
+
+    [Fact]
+    public async Task AggregateDisplayImageLimitPreservesPriorOutputs()
+    {
+        await using var fixture = new PythonFixture();
+        var work = fixture.CreateWork(
+            Environment.CurrentDirectory);
+
+        var result = await fixture.ExecuteAsync(
+            work.Id,
+            "import loom\n" +
+            "loom.display_image(bytes(3 * 1024 * 1024))\n" +
+            "loom.display_image(bytes(3 * 1024 * 1024))\n" +
+            "try:\n" +
+            "    loom.display_image(b'x')\n" +
+            "except loom.LoomError as exc:\n" +
+            "    print(exc.code)\n" +
+            "    print(exc.details['reason'])",
+            TimeSpan.FromSeconds(30));
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(
+            "unsupported\npython_outputs_too_large\n",
+            result.Value!.Stdout);
+        Assert.Equal(2, result.Value.Outputs.Count);
+        Assert.Equal(
+            PythonOutputLimits.MaxTotalOutputBytes,
+            result.Value.Outputs.Sum(output => output.Bytes.Length));
+    }
+
+    [Fact]
+    public async Task StaleThreadCannotDisplayImageInLaterExecute()
+    {
+        await using var fixture = new PythonFixture();
+        var work = fixture.CreateWork(
+            Environment.CurrentDirectory);
+
+        var first = await fixture.ExecuteAsync(
+            work.Id,
+            "import threading, time, loom\n" +
+            "late_output = []\n" +
+            "def late_display():\n" +
+            "    time.sleep(0.2)\n" +
+            "    try:\n" +
+            "        loom.display_image(b'late')\n" +
+            "        late_output.append('unexpected-success')\n" +
+            "    except loom.LoomError as exc:\n" +
+            "        late_output.append(exc.code)\n" +
+            "threading.Thread(target=late_display, daemon=True).start()");
+
+        Assert.True(first.IsSuccess, first.Error?.Message);
+        Assert.Empty(first.Value!.Outputs);
+
+        var second = await fixture.ExecuteAsync(
+            work.Id,
+            "import time\n" +
+            "time.sleep(0.5)\n" +
+            "print(late_output)");
+
+        Assert.True(second.IsSuccess, second.Error?.Message);
+        Assert.Equal(
+            "['output_unavailable']\n",
+            second.Value!.Stdout);
+        Assert.Empty(second.Value.Outputs);
     }
 
     [Fact]

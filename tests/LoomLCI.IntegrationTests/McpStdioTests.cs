@@ -2371,7 +2371,7 @@ public sealed class McpStdioTests
                     bridgeResult,
                     "status").GetString());
             Assert.Equal(
-                "1\n15\nfs.apply_patch\nprocess.write\n",
+                "2\n15\nfs.apply_patch\nprocess.write\n",
                 GetRequiredProperty(
                     bridgeResult,
                     "stdout").GetString());

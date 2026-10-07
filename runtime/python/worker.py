@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import builtins
 import contextvars
 import importlib.util
@@ -14,12 +15,15 @@ import threading
 import traceback
 from typing import Any
 
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 MAX_REQUEST_FRAME_BYTES = 2 * 1024 * 1024
-MAX_RESPONSE_FRAME_BYTES = 32 * 1024 * 1024
+MAX_RESPONSE_FRAME_BYTES = 40 * 1024 * 1024
 MAX_BRIDGE_CALL_FRAME_BYTES = 2 * 1024 * 1024
 MAX_BRIDGE_RESULT_FRAME_BYTES = 8 * 1024 * 1024
 MAX_CODE_UTF8_BYTES = 256 * 1024
+MAX_OUTPUT_COUNT = 4
+MAX_IMAGE_BYTES = 6 * 1024 * 1024
+MAX_TOTAL_OUTPUT_BYTES = 6 * 1024 * 1024
 MAX_EXCEPTION_MESSAGE_CHARS = 16 * 1024
 MAX_TRACEBACK_CHARS = 64 * 1024
 MAX_REQUEST_ID_CHARS = 128
@@ -332,6 +336,38 @@ def _execute(code: str, max_output_chars: int) -> dict[str, Any]:
     }
 
 
+def _encode_outputs(outputs: Any) -> list[dict[str, str]]:
+    if not isinstance(outputs, list):
+        raise ProtocolError("Python bridge returned an invalid output collection.")
+    if len(outputs) > MAX_OUTPUT_COUNT:
+        raise ProtocolError(
+            f"Python bridge returned more than {MAX_OUTPUT_COUNT} typed outputs."
+        )
+
+    encoded: list[dict[str, str]] = []
+    total_bytes = 0
+    for value in outputs:
+        if not isinstance(value, bytes):
+            raise ProtocolError("Python image output must be bytes.")
+        if len(value) == 0 or len(value) > MAX_IMAGE_BYTES:
+            raise ProtocolError(
+                f"Python image output must contain between 1 and {MAX_IMAGE_BYTES} bytes."
+            )
+        total_bytes += len(value)
+        if total_bytes > MAX_TOTAL_OUTPUT_BYTES:
+            raise ProtocolError(
+                f"Python execution outputs exceed {MAX_TOTAL_OUTPUT_BYTES} aggregate bytes."
+            )
+        encoded.append(
+            {
+                "kind": "image",
+                "data": base64.b64encode(value).decode("ascii"),
+            }
+        )
+
+    return encoded
+
+
 def _bridge_transport(
     stream: Any,
     request_id: str,
@@ -556,10 +592,11 @@ def _run(
 
             request_id, code, max_output_chars = _validate_execute_request(message)
             bridge_token = bridge._begin_execution(request_id)
+            outputs: list[bytes] = []
             try:
                 result = _execute(code, max_output_chars)
             finally:
-                bridge._end_execution(
+                outputs = bridge._end_execution(
                     request_id,
                     bridge_token,
                 )
@@ -568,6 +605,7 @@ def _run(
                 {
                     "type": "result",
                     "requestId": request_id,
+                    "outputs": _encode_outputs(outputs),
                 }
             )
             _write_frame(

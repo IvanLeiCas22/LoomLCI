@@ -30,9 +30,9 @@ internal sealed record PythonWorkerBridgeCallMessage(
 
 internal static class PythonWorkerProtocol
 {
-    public const int ProtocolVersion = 2;
+    public const int ProtocolVersion = 3;
     public const int MaxRequestFrameBytes = 2 * 1024 * 1024;
-    public const int MaxResponseFrameBytes = 32 * 1024 * 1024;
+    public const int MaxResponseFrameBytes = 40 * 1024 * 1024;
     public const int MaxBridgeCallFrameBytes = PythonBridgeLimits.MaxCallFrameBytes;
     public const int MaxBridgeResultFrameBytes = PythonBridgeLimits.MaxResultFrameBytes;
     public const int MaxHelloFrameBytes = 16 * 1024;
@@ -385,13 +385,91 @@ internal static class PythonWorkerProtocol
                 "Exceptional Python result must contain exception metadata.");
         }
 
+        var outputs = ParseExecutionOutputs(root);
+
         return new PythonExecutionResult(
             status,
             stdout,
             stderr,
             stdoutTruncated,
             stderrTruncated,
-            exception);
+            exception,
+            outputs);
+    }
+
+    private static IReadOnlyList<PythonExecutionOutput> ParseExecutionOutputs(
+        JsonElement root)
+    {
+        if (!root.TryGetProperty("outputs", out var outputsElement) ||
+            outputsElement.ValueKind != JsonValueKind.Array)
+        {
+            throw new PythonWorkerProtocolException(
+                "Python worker protocol field 'outputs' must be an array.");
+        }
+
+        if (outputsElement.GetArrayLength() > PythonOutputLimits.MaxOutputs)
+        {
+            throw new PythonWorkerProtocolException(
+                $"Python worker returned more than {PythonOutputLimits.MaxOutputs} typed outputs.");
+        }
+
+        var outputs = new List<PythonExecutionOutput>(
+            outputsElement.GetArrayLength());
+        var totalBytes = 0;
+        var maxBase64Chars = checked(
+            4 * ((PythonOutputLimits.MaxImageBytes + 2) / 3));
+
+        foreach (var outputElement in outputsElement.EnumerateArray())
+        {
+            RequireObject(outputElement);
+
+            var kind = ReadRequiredString(outputElement, "kind");
+            if (!string.Equals(kind, "image", StringComparison.Ordinal))
+            {
+                throw new PythonWorkerProtocolException(
+                    $"Unsupported Python execution output kind '{kind}'.");
+            }
+
+            var encoded = ReadRequiredString(outputElement, "data");
+            if (encoded.Length > maxBase64Chars)
+            {
+                throw new PythonWorkerProtocolException(
+                    $"Python image output exceeds {PythonOutputLimits.MaxImageBytes} bytes.");
+            }
+
+            byte[] bytes;
+            try
+            {
+                bytes = Convert.FromBase64String(encoded);
+            }
+            catch (FormatException ex)
+            {
+                throw new PythonWorkerProtocolException(
+                    "Python image output is not valid base64.",
+                    ex);
+            }
+
+            if (bytes.Length == 0 ||
+                bytes.Length > PythonOutputLimits.MaxImageBytes)
+            {
+                throw new PythonWorkerProtocolException(
+                    $"Python image output must contain between 1 and {PythonOutputLimits.MaxImageBytes} bytes.");
+            }
+
+            totalBytes = checked(totalBytes + bytes.Length);
+            if (totalBytes > PythonOutputLimits.MaxTotalOutputBytes)
+            {
+                throw new PythonWorkerProtocolException(
+                    $"Python execution outputs exceed {PythonOutputLimits.MaxTotalOutputBytes} aggregate bytes.");
+            }
+
+            outputs.Add(
+                new PythonExecutionOutput(
+                    PythonExecutionOutputKind.Image,
+                    bytes));
+        }
+
+        return outputs;
     }
 
     private static PythonWorkerBridgeCallMessage ParseBridgeCall(

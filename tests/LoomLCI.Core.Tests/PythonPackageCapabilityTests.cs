@@ -455,7 +455,8 @@ public sealed class PythonPackageCapabilityTests
                     string.Empty,
                     false,
                     false,
-                    null));
+                    null,
+                    Array.Empty<PythonExecutionOutput>()));
         }
 
         public ValueTask DisposeAsync()

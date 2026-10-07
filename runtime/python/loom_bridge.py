@@ -7,7 +7,10 @@ import threading
 import types
 from typing import Any, Callable
 
-BRIDGE_VERSION = 1
+BRIDGE_VERSION = 2
+MAX_OUTPUT_COUNT = 4
+MAX_IMAGE_BYTES = 6 * 1024 * 1024
+MAX_TOTAL_OUTPUT_BYTES = 6 * 1024 * 1024
 
 _request_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "loom_bridge_request_id",
@@ -17,6 +20,7 @@ _request_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 _state_lock = threading.Lock()
 _transaction_lock = threading.Lock()
 _active_request_id: str | None = None
+_active_output_state: "_OutputState | None" = None
 _transport: Callable[
     [str, str, str, dict[str, Any]],
     dict[str, Any],
@@ -42,6 +46,65 @@ class LoomError(RuntimeError):
         return f"{self.code}: {self.message}"
 
 
+class _OutputState:
+    def __init__(self) -> None:
+        self._outputs: list[bytes] = []
+        self._total_bytes = 0
+        self._closed = False
+
+    def add_image(self, data: bytes) -> None:
+        if self._closed:
+            raise LoomError(
+                "output_unavailable",
+                "The Python execution output collector is no longer active.",
+                False,
+                None,
+            )
+        if len(self._outputs) >= MAX_OUTPUT_COUNT:
+            raise LoomError(
+                "unsupported",
+                f"Python execution supports at most {MAX_OUTPUT_COUNT} image outputs.",
+                False,
+                {"reason": "too_many_python_outputs"},
+            )
+        if len(data) == 0:
+            raise LoomError(
+                "invalid_argument",
+                "Image output must contain at least one byte.",
+                False,
+                None,
+            )
+        if len(data) > MAX_IMAGE_BYTES:
+            raise LoomError(
+                "unsupported",
+                f"Image output exceeds {MAX_IMAGE_BYTES} bytes.",
+                False,
+                {
+                    "reason": "python_image_too_large",
+                    "image_bytes": len(data),
+                    "max_image_bytes": MAX_IMAGE_BYTES,
+                },
+            )
+        new_total = self._total_bytes + len(data)
+        if new_total > MAX_TOTAL_OUTPUT_BYTES:
+            raise LoomError(
+                "unsupported",
+                f"Python execution outputs exceed {MAX_TOTAL_OUTPUT_BYTES} aggregate bytes.",
+                False,
+                {
+                    "reason": "python_outputs_too_large",
+                    "aggregate_bytes": new_total,
+                    "max_aggregate_bytes": MAX_TOTAL_OUTPUT_BYTES,
+                },
+            )
+        self._outputs.append(data)
+        self._total_bytes = new_total
+
+    def close_and_snapshot(self) -> list[bytes]:
+        self._closed = True
+        return list(self._outputs)
+
+
 def _install(
     transport: Callable[
         [str, str, str, dict[str, Any]],
@@ -58,6 +121,7 @@ def _install(
             "__bridge_version__": BRIDGE_VERSION,
             "LoomError": LoomError,
             "capabilities": capabilities,
+            "display_image": display_image,
             "_bridge_call": _bridge_call,
         }
     )
@@ -69,6 +133,7 @@ def _install(
     loom.__all__ = [
         "LoomError",
         "capabilities",
+        "display_image",
         "fs",
         "process",
     ]
@@ -80,33 +145,95 @@ def _install(
 
 
 def _begin_execution(request_id: str) -> contextvars.Token[str | None]:
-    global _active_request_id
+    global _active_request_id, _active_output_state
 
     if not isinstance(request_id, str) or not request_id:
         raise RuntimeError("bridge execution request id is invalid")
 
     with _transaction_lock:
         with _state_lock:
-            if _active_request_id is not None:
+            if _active_request_id is not None or _active_output_state is not None:
                 raise RuntimeError("bridge execution is already active")
             _active_request_id = request_id
+            _active_output_state = _OutputState()
         return _request_id.set(request_id)
 
 
 def _end_execution(
     request_id: str,
     token: contextvars.Token[str | None],
-) -> None:
-    global _active_request_id
+) -> list[bytes]:
+    global _active_request_id, _active_output_state
 
     with _transaction_lock:
         with _state_lock:
-            if _active_request_id != request_id:
+            if _active_request_id != request_id or _active_output_state is None:
                 raise RuntimeError(
                     "bridge execution state does not match the active request"
                 )
+            output_state = _active_output_state
             _active_request_id = None
+            _active_output_state = None
+        outputs = output_state.close_and_snapshot()
         _request_id.reset(token)
+        return outputs
+
+
+def display_image(data: bytes | bytearray | memoryview) -> None:
+    """Attach one in-memory image to the active python_execute result."""
+    if isinstance(data, bytes):
+        byte_count = len(data)
+        raw = data
+    elif isinstance(data, bytearray):
+        byte_count = len(data)
+        if byte_count > MAX_IMAGE_BYTES:
+            raw = b""
+        else:
+            raw = bytes(data)
+    elif isinstance(data, memoryview):
+        byte_count = data.nbytes
+        if byte_count > MAX_IMAGE_BYTES:
+            raw = b""
+        else:
+            raw = data.tobytes()
+    else:
+        raise TypeError("data must be bytes, bytearray, or memoryview")
+
+    if byte_count > MAX_IMAGE_BYTES:
+        raise LoomError(
+            "unsupported",
+            f"Image output exceeds {MAX_IMAGE_BYTES} bytes.",
+            False,
+            {
+                "reason": "python_image_too_large",
+                "image_bytes": byte_count,
+                "max_image_bytes": MAX_IMAGE_BYTES,
+            },
+        )
+
+    request_id = _request_id.get()
+    if request_id is None:
+        raise LoomError(
+            "output_unavailable",
+            "loom.display_image() can only be used during an active python_execute.",
+            False,
+            None,
+        )
+
+    with _transaction_lock:
+        with _state_lock:
+            if (
+                _active_request_id != request_id
+                or _active_output_state is None
+            ):
+                raise LoomError(
+                    "output_unavailable",
+                    "The Python execution output collector is no longer active.",
+                    False,
+                    None,
+                )
+            output_state = _active_output_state
+        output_state.add_image(raw)
 
 
 def _next_call_id() -> str:

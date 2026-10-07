@@ -53,6 +53,26 @@ public sealed class PythonWorkerProtocolTests
     }
 
     [Fact]
+    public void ResponseFrameBudgetAccommodatesNegotiatedWorstCase()
+    {
+        const int worstEscapedJsonBytesPerCodePoint = 12;
+        const int protocolMarginBytes = 1024 * 1024;
+
+        var maxBase64Bytes =
+            4L * ((PythonOutputLimits.MaxTotalOutputBytes + 2L) / 3L);
+        var conservativeWorstCase =
+            (2L * PythonCapability.MaxOutputChars *
+                worstEscapedJsonBytesPerCodePoint) +
+            maxBase64Bytes +
+            protocolMarginBytes;
+
+        Assert.True(
+            conservativeWorstCase <
+            PythonWorkerProtocol.MaxResponseFrameBytes,
+            $"Worst-case negotiated response {conservativeWorstCase} must fit within {PythonWorkerProtocol.MaxResponseFrameBytes} bytes.");
+    }
+
+    [Fact]
     public async Task FramingHandlesFragmentedReads()
     {
         await using var encoded = new MemoryStream();
@@ -128,7 +148,8 @@ public sealed class PythonWorkerProtocolTests
                 stderr = "",
                 stdoutTruncated = false,
                 stderrTruncated = false,
-                exception = (object?)null
+                exception = (object?)null,
+                outputs = Array.Empty<object>()
             },
             PythonWorkerProtocol.MaxResponseFrameBytes);
 
@@ -142,6 +163,136 @@ public sealed class PythonWorkerProtocolTests
                 CancellationToken.None));
 
         Assert.Contains("requestId", error.Message);
+    }
+
+    [Fact]
+    public async Task ResultParsesTypedImageOutputs()
+    {
+        await using var stream = new MemoryStream();
+        var imageBytes = "typed-image"u8.ToArray();
+
+        await PythonWorkerProtocol.WriteRawFrameAsync(
+            stream,
+            new
+            {
+                type = "result",
+                requestId = "req_1",
+                status = "completed",
+                stdout = "",
+                stderr = "",
+                stdoutTruncated = false,
+                stderrTruncated = false,
+                exception = (object?)null,
+                outputs = new[]
+                {
+                    new
+                    {
+                        kind = "image",
+                        data = Convert.ToBase64String(imageBytes)
+                    }
+                }
+            },
+            PythonWorkerProtocol.MaxResponseFrameBytes);
+
+        stream.Position = 0;
+
+        var result = await PythonWorkerProtocol.ReadExecutionResultAsync(
+            stream,
+            "req_1",
+            PythonCapability.DefaultMaxOutputChars,
+            CancellationToken.None);
+
+        var output = Assert.Single(result.Outputs);
+        Assert.Equal(
+            PythonExecutionOutputKind.Image,
+            output.Kind);
+        Assert.Equal(imageBytes, output.Bytes);
+    }
+
+    [Fact]
+    public async Task ResultRejectsMalformedImageBase64()
+    {
+        await using var stream = new MemoryStream();
+
+        await PythonWorkerProtocol.WriteRawFrameAsync(
+            stream,
+            new
+            {
+                type = "result",
+                requestId = "req_1",
+                status = "completed",
+                stdout = "",
+                stderr = "",
+                stdoutTruncated = false,
+                stderrTruncated = false,
+                exception = (object?)null,
+                outputs = new[]
+                {
+                    new
+                    {
+                        kind = "image",
+                        data = "not-base64!"
+                    }
+                }
+            },
+            PythonWorkerProtocol.MaxResponseFrameBytes);
+
+        stream.Position = 0;
+
+        var error = await Assert.ThrowsAsync<PythonWorkerProtocolException>(
+            () => PythonWorkerProtocol.ReadExecutionResultAsync(
+                stream,
+                "req_1",
+                PythonCapability.DefaultMaxOutputChars,
+                CancellationToken.None));
+
+        Assert.Contains(
+            "valid base64",
+            error.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ResultRejectsTooManyTypedOutputs()
+    {
+        await using var stream = new MemoryStream();
+
+        await PythonWorkerProtocol.WriteRawFrameAsync(
+            stream,
+            new
+            {
+                type = "result",
+                requestId = "req_1",
+                status = "completed",
+                stdout = "",
+                stderr = "",
+                stdoutTruncated = false,
+                stderrTruncated = false,
+                exception = (object?)null,
+                outputs = Enumerable
+                    .Range(0, PythonOutputLimits.MaxOutputs + 1)
+                    .Select(_ => new
+                    {
+                        kind = "image",
+                        data = Convert.ToBase64String(new byte[] { 1 })
+                    })
+                    .ToArray()
+            },
+            PythonWorkerProtocol.MaxResponseFrameBytes);
+
+        stream.Position = 0;
+
+        var error = await Assert.ThrowsAsync<PythonWorkerProtocolException>(
+            () => PythonWorkerProtocol.ReadExecutionResultAsync(
+                stream,
+                "req_1",
+                PythonCapability.DefaultMaxOutputChars,
+                CancellationToken.None));
+
+        Assert.Contains(
+            "typed outputs",
+            error.Message,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
