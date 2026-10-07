@@ -136,6 +136,28 @@ public sealed class McpToolResultsTests
             McpVisualPayloadLimits.MaxVisualCallToolResultBytes);
     }
 
+    [Fact]
+    public void GenericPayloadMeasurementDistinguishesBelowAndAboveBudget()
+    {
+        var below = McpToolResults.From(
+            new ToolEnvelope<string>(
+                true,
+                new string('x', McpPayloadLimits.MaxCallToolResultBytes - 4096),
+                null));
+        var above = McpToolResults.From(
+            new ToolEnvelope<string>(
+                true,
+                new string('x', McpPayloadLimits.MaxCallToolResultBytes),
+                null));
+
+        Assert.True(
+            McpPayloadLimits.MeasureSerializedCallToolResultBytes(below) <=
+            McpPayloadLimits.MaxCallToolResultBytes);
+        Assert.True(
+            McpPayloadLimits.MeasureSerializedCallToolResultBytes(above) >
+            McpPayloadLimits.MaxCallToolResultBytes);
+    }
+
     private static byte[] CreatePlusHeavyBytes(int size)
     {
         var bytes = new byte[size];

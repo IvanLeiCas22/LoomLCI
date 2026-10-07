@@ -211,6 +211,9 @@ public sealed class McpStdioTests
             Assert.Contains("filesystem_read_pdf", instructions, StringComparison.Ordinal);
             Assert.Contains("filesystem_render_pdf_page", instructions, StringComparison.Ordinal);
             Assert.Contains("python_execute", instructions, StringComparison.Ordinal);
+            Assert.Contains("loom.display_image", instructions, StringComparison.Ordinal);
+            Assert.Contains("9 MiB", instructions, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("do not automatically rerun", instructions, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("Process capabilities", instructions, StringComparison.Ordinal);
             Assert.Contains("opaque values", instructions, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("Work Plan", instructions, StringComparison.Ordinal);
@@ -470,6 +473,11 @@ public sealed class McpStdioTests
         Assert.Contains("persistent", executePython.Description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("input()", executePython.Description, StringComparison.Ordinal);
         Assert.Contains("256 KiB", executePython.Description, StringComparison.Ordinal);
+        Assert.Contains("loom.display_image", executePython.Description, StringComparison.Ordinal);
+        Assert.Contains("PNG, JPEG, or WebP", executePython.Description, StringComparison.Ordinal);
+        Assert.Contains("9 MiB", executePython.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("executionCompleted=true", executePython.Description, StringComparison.Ordinal);
+        Assert.Null(executePython.ProtocolTool.OutputSchema);
         Assert.True(executePython.ProtocolTool.Annotations?.DestructiveHint ?? false);
         Assert.False(executePython.ProtocolTool.Annotations?.ReadOnlyHint ?? true);
         Assert.False(executePython.ProtocolTool.Annotations?.IdempotentHint ?? true);
@@ -2548,6 +2556,252 @@ public sealed class McpStdioTests
                         GetStructured(afterClose.StructuredContent),
                         "error"),
                     "code").GetString());
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(hostWorkingDirectory, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public async Task StdioAdapterCanReturnPythonImagesAndHardenFinalPayload()
+    {
+        var repoRoot = FindRepoRoot();
+        var hostDll = GetHostDll(repoRoot);
+        Assert.True(File.Exists(hostDll), $"Host was not built: {hostDll}");
+
+        var hostWorkingDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"loom-python-image-mcp-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(hostWorkingDirectory);
+
+        const string pngBase64 =
+            "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGPkqrjDwMDAxMDAwMDAAAAPwAFizZEe6AAAAABJRU5ErkJggg==";
+        var expectedPng = Convert.FromBase64String(pngBase64);
+
+        try
+        {
+            var transport = new StdioClientTransport(new StdioClientTransportOptions
+            {
+                Name = "LoomLCI Python image integration test",
+                Command = "dotnet",
+                Arguments = [hostDll],
+                WorkingDirectory = hostWorkingDirectory,
+                ShutdownTimeout = TimeSpan.FromSeconds(5)
+            });
+
+            await using var client = await McpClient.CreateAsync(transport);
+
+            var create = await client.CallToolAsync(
+                "work_create",
+                new Dictionary<string, object?>
+                {
+                    ["baseDirectory"] = repoRoot,
+                    ["label"] = "python-image-integration-test"
+                });
+            var workId = GetRequiredProperty(
+                GetRequiredProperty(
+                    GetStructured(create.StructuredContent),
+                    "result"),
+                "workId").GetString();
+            Assert.False(string.IsNullOrWhiteSpace(workId));
+
+            var multiple = await client.CallToolAsync(
+                "python_execute",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workId,
+                    ["code"] =
+                        "import base64, loom\n" +
+                        $"img = base64.b64decode('{pngBase64}')\n" +
+                        "loom.display_image(img)\n" +
+                        "loom.display_image(bytearray(img))\n" +
+                        "print('two-images')"
+                });
+
+            Assert.False(multiple.IsError ?? false);
+            Assert.Collection(
+                multiple.Content,
+                block => Assert.IsType<TextContentBlock>(block),
+                block =>
+                {
+                    var image = Assert.IsType<ImageContentBlock>(block);
+                    Assert.Equal("image/png", image.MimeType);
+                    Assert.True(image.DecodedData.Span.SequenceEqual(expectedPng));
+                },
+                block =>
+                {
+                    var image = Assert.IsType<ImageContentBlock>(block);
+                    Assert.Equal("image/png", image.MimeType);
+                    Assert.True(image.DecodedData.Span.SequenceEqual(expectedPng));
+                });
+
+            var multipleRoot = GetStructured(multiple.StructuredContent);
+            Assert.True(GetRequiredProperty(multipleRoot, "ok").GetBoolean());
+            var multipleResult = GetRequiredProperty(multipleRoot, "result");
+            Assert.Equal(
+                "two-images\n",
+                GetRequiredProperty(multipleResult, "stdout").GetString());
+            var outputs = GetRequiredProperty(multipleResult, "outputs")
+                .EnumerateArray()
+                .ToArray();
+            Assert.Equal(2, outputs.Length);
+            Assert.All(outputs, output =>
+            {
+                Assert.Equal(
+                    "image",
+                    GetRequiredProperty(output, "kind").GetString());
+                Assert.Equal(
+                    "image/png",
+                    GetRequiredProperty(output, "mimeType").GetString());
+                Assert.Equal(
+                    expectedPng.LongLength,
+                    GetRequiredProperty(output, "sizeBytes").GetInt64());
+                Assert.False(output.TryGetProperty("data", out _));
+            });
+
+            var exception = await client.CallToolAsync(
+                "python_execute",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workId,
+                    ["code"] =
+                        "import loom\n" +
+                        "loom.display_image(img)\n" +
+                        "exception_marker = 1234\n" +
+                        "raise RuntimeError('after-image')"
+                });
+
+            Assert.False(exception.IsError ?? false);
+            Assert.Contains(exception.Content, block => block is ImageContentBlock);
+            var exceptionResult = GetRequiredProperty(
+                GetRequiredProperty(
+                    GetStructured(exception.StructuredContent),
+                    "result"),
+                "status").GetString();
+            Assert.Equal("exception", exceptionResult);
+
+            var invalid = await client.CallToolAsync(
+                "python_execute",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workId,
+                    ["code"] =
+                        "import loom\n" +
+                        "invalid_marker = 777\n" +
+                        "loom.display_image(img)\n" +
+                        "loom.display_image(b'not-an-image')"
+                });
+
+            Assert.True(invalid.IsError);
+            Assert.DoesNotContain(invalid.Content, block => block is ImageContentBlock);
+            var invalidError = GetRequiredProperty(
+                GetStructured(invalid.StructuredContent),
+                "error");
+            Assert.Equal(
+                "unsupported",
+                GetRequiredProperty(invalidError, "code").GetString());
+            Assert.False(
+                GetRequiredProperty(invalidError, "retryable").GetBoolean());
+            var invalidDetails = GetRequiredProperty(invalidError, "details");
+            Assert.Equal(
+                "unsupported_image_format",
+                GetRequiredProperty(invalidDetails, "reason").GetString());
+            Assert.True(
+                GetRequiredProperty(
+                    invalidDetails,
+                    "executionCompleted").GetBoolean());
+            Assert.Equal(
+                1,
+                GetRequiredProperty(invalidDetails, "outputIndex").GetInt32());
+
+            var afterInvalid = await client.CallToolAsync(
+                "python_execute",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workId,
+                    ["code"] = "print(invalid_marker)"
+                });
+            Assert.Equal(
+                "777\n",
+                GetRequiredProperty(
+                    GetRequiredProperty(
+                        GetStructured(afterInvalid.StructuredContent),
+                        "result"),
+                    "stdout").GetString());
+
+            var oversizedText = await client.CallToolAsync(
+                "python_execute",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workId,
+                    ["code"] =
+                        "import sys\n" +
+                        "payload_marker = 888\n" +
+                        "print('é' * 900000)\n" +
+                        "print('é' * 900000, file=sys.stderr)",
+                    ["maxOutputChars"] = 900000
+                });
+
+            Assert.True(oversizedText.IsError);
+            Assert.DoesNotContain(
+                oversizedText.Content,
+                block => block is ImageContentBlock);
+            var oversizedError = GetRequiredProperty(
+                GetStructured(oversizedText.StructuredContent),
+                "error");
+            var oversizedDetails = GetRequiredProperty(
+                oversizedError,
+                "details");
+            Assert.Equal(
+                "python_result_too_large",
+                GetRequiredProperty(oversizedDetails, "reason").GetString());
+            Assert.True(
+                GetRequiredProperty(
+                    oversizedDetails,
+                    "executionCompleted").GetBoolean());
+            Assert.Equal(
+                0,
+                GetRequiredProperty(oversizedDetails, "imageCount").GetInt32());
+            Assert.True(
+                GetRequiredProperty(
+                    oversizedDetails,
+                    "serializedCallToolResultBytes").GetInt64() >
+                GetRequiredProperty(
+                    oversizedDetails,
+                    "maxCallToolResultBytes").GetInt64());
+
+            var afterOversized = await client.CallToolAsync(
+                "python_execute",
+                new Dictionary<string, object?>
+                {
+                    ["workId"] = workId,
+                    ["code"] = "print(payload_marker)"
+                });
+            Assert.Equal(
+                "888\n",
+                GetRequiredProperty(
+                    GetRequiredProperty(
+                        GetStructured(afterOversized.StructuredContent),
+                        "result"),
+                    "stdout").GetString());
+
+            var close = await client.CallToolAsync(
+                "work_close",
+                new Dictionary<string, object?> { ["workId"] = workId });
+            Assert.True(
+                GetRequiredProperty(
+                    GetStructured(close.StructuredContent),
+                    "ok").GetBoolean());
         }
         finally
         {

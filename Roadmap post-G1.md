@@ -30,7 +30,7 @@ Orden preliminar:
 
 1. [[Python 1 - Paquetes administrados|paquetes de terceros administrados/versionados por LoomLCI]] — **CERRADO**: `uv` privado fijado/verificado, environments inmutables con locks+hashes, `python_packages_prepare`, binding por WorkSession, reset explícito al cambiar environment, GC protegido y deployment instalado validado;
 2. [[Python 2 - Bridge privado loom|bridge privado `loom.*` entre el worker Python y capabilities de LoomLCI]] — **CERRADO end-to-end (P2.0–P2.4)**: protocolo privado v2, router modular, `loom.fs`, `loom.process`, lifecycle/ownership administrado, hardening, deployment real, consumer smoke y fresh-agent smoke completados;
-3. [[Python 3 - Outputs binarios e imágenes|outputs binarios/imágenes desde Python hacia el modelo]] — **P3.0 CERRADO; P3.1 pendiente**. Typed output foundation implementada: `loom.display_image` local al worker, protocol v3, bridge API v2, 4 outputs / 6 MiB raw agregado, suite Release 350/350 y contrato MCP sin drift en 25 tools. P3.1 debe conectar esos outputs al `ImageContentBlock` MCP con guard 9 MiB. Blobs/audio genéricos siguen diferidos.
+3. [[Python 3 - Outputs binarios e imágenes|outputs binarios/imágenes desde Python hacia el modelo]] — **P3.0 y P3.1 CERRADOS; P3.2 pendiente**. `loom.display_image` usa protocol v3 / bridge API v2 y `python_execute` ya entrega mixed StructuredContent + `ImageContentBlock`, sin `outputSchema`, con detector PNG/JPEG/WebP compartido y guard exacto de **9 MiB** incluso en text-only. Suite Release **356/356**, Host Release focalizado **3/3**, contrato **25 tools** con drift intencional revisado. Deployment/consumer smoke/plugin 0.5.0 quedan para P3.2; blobs/audio genéricos siguen diferidos.
 
 ## Horizonte lejano / post-roadmap actual
 
@@ -66,6 +66,6 @@ Es un tema transversal:
 
 ## Próxima acción
 
-**[[Python 3 - Outputs binarios e imágenes|P3.1: MCP image transport + payload hardening]].**
+**[[Python 3 - Outputs binarios e imágenes|P3.2: evaluation / deployment / plugin]].**
 
-P3.0 queda **CERRADO**: protocol v3, bridge API v2, collector execution-local, `loom.display_image(bytes-like)`, límites raw/count y parsing defensivo implementados; suite Release **350/350** y contrato MCP **25 tools sin drift**. P3.1 debe reutilizar la validación Visual Files, convertir `python_execute` a mixed `CallToolResult` con `ImageContentBlock`, remover su `outputSchema` y aplicar el presupuesto MCP combinado de **9 MiB** sin depender del tunnel.
+P3.1 queda **CERRADO** en código y Host Release: mixed `python_execute`, detector compartido, payload hardening de 9 MiB y contrato de 25 tools ya están validados. El siguiente bloque debe hacer el cutover controlado del runtime, consumer smoke real por Secure MCP Tunnel, fresh-agent visual y reconciliación/publicación del plugin (probablemente 0.5.0).

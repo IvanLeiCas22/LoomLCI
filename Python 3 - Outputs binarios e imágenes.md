@@ -1,6 +1,6 @@
 # Python 3 - Outputs binarios e imágenes
 
-> Estado: **P3.0 CERRADO; P3.1 (MCP image transport + payload hardening) pendiente.** Investigación/diseño cerrados y typed output foundation/protocol v3 implementados y validados.
+> Estado: **P3.0 y P3.1 CERRADOS. P3.2 (evaluation / deployment / plugin) pendiente.** `python_execute` ya entrega mixed `StructuredContent + ImageContentBlock`, aplica el presupuesto MCP de 9 MiB y conserva semántica post-execution recuperable.
 
 ## Objetivo
 
@@ -14,13 +14,14 @@ El primer tipo model-visible recomendado es **imagen**. El transporte interno de
 
 - catálogo MCP público: **25 tools**;
 - `python_execute` reutiliza un worker persistente por WorkSession;
-- protocolo Worker/Host: **v2**, length-prefixed JSON UTF-8 sobre Named Pipe;
+- protocolo Worker/Host: **v3**, length-prefixed JSON UTF-8 sobre Named Pipe;
 - request frame: **2 MiB**;
-- final response frame: **32 MiB**;
+- final response frame: **40 MiB**;
 - bridge call: **2 MiB**;
 - bridge result: **8 MiB**;
-- resultado actual: status + stdout/stderr + truncation + exception;
-- `loom.__bridge_version__ == 1`;
+- resultado Python interno: status + stdout/stderr + truncation + exception + typed outputs;
+- resultado MCP de `python_execute`: StructuredContent con metadata no binaria + `ImageContentBlock` para PNG/JPEG/WebP válidos;
+- `loom.__bridge_version__ == 2`;
 - assets `worker.py` / `loom_bridge.py` son content-addressed, por lo que un Host nuevo materializa automáticamente scripts nuevos sin modificar CPython 3.14.8.
 
 ### Visual Files
@@ -270,16 +271,272 @@ Validación:
 
 No se desplegó el runtime instalado ni se actualizó el plugin privado en P3.0. Esos pasos permanecen para P3.2 después de cerrar el transporte MCP visual.
 
-### P3.1 — MCP image transport + payload hardening
+## P3.1 — MCP image transport + payload hardening — CERRADO
 
-- detector visual compartido Core;
-- `PythonExecutionResult` con outputs validados;
-- `python_execute` mixed `CallToolResult`;
-- remover outputSchema de `python_execute`;
-- generalizar `McpVisualPayloadLimits` para múltiples imágenes;
-- 9 MiB exact combined budget;
-- hardening adicional del resultado text-only de Python para no depender del hard limit del tunnel;
-- metadata/server instructions actualizadas.
+> Estado: **implementado y validado en código + Host Release.** Deployment del runtime instalado, consumer smoke real por tunnel y reconciliación/publicación del plugin permanecen deliberadamente para P3.2.
+
+### Implementación cerrada
+
+- detector `VisualImageFormat.DetectMimeType` compartido en Core por Visual Files y Python;
+- `PythonExecutionDto.outputs[]` expone sólo `kind`, `mimeType` y `sizeBytes`;
+- los bytes aparecen únicamente como `ImageContentBlock`;
+- `python_execute` omite `UseStructuredContent` / `OutputSchemaType` y conserva StructuredContent manual;
+- el `CallToolResult` candidato completo se serializa y mide contra **9 MiB**, también en text-only;
+- formato inválido y over-budget devuelven errores atómicos `retryable=false`, `executionCompleted=true`, sin descartar worker/globals;
+- normal Python exception puede conservar imágenes emitidas previamente;
+- description + ServerInstructions distinguen imagen in-memory de archivos existentes;
+- contrato MCP actualizado deliberadamente: **25 tools**, drift limitado a ServerInstructions, description de `python_execute` y desaparición de su `outputSchema`.
+
+Validación P3.1:
+
+- suite Release serial: **356/356**;
+- IntegrationTests: **21/21** dentro de la suite;
+- smoke focalizado contra Host Release publicado: **3/3**;
+- contrato exportado desde Host Release: **25 tools**;
+- SHA-256 del snapshot MCP: `2ed2531ccec731f483d7a913a37e406b4a75ce21724ff864c7678692f55cd24a`;
+- runtime instalado y plugin privado **no** fueron actualizados en P3.1.
+
+### Objetivo exacto
+
+Conectar los typed image outputs ya producidos por P3.0 con el resultado MCP de `python_execute`, de modo que ChatGPT reciba `ImageContentBlock` reales sin agregar tools públicas ni cambiar la semántica de persistencia del worker.
+
+P3.1 cambia la metadata/resultado MCP de `python_execute`, pero no despliega todavía el runtime instalado ni publica una nueva versión del plugin. Eso queda para P3.2.
+
+### 1. Reutilizar un detector visual único
+
+Antes de P3.1, el detector PNG/JPEG/WebP vivía como métodos privados puros dentro de `WindowsVisualFilesProvider`, aunque no dependía de Windows.
+
+P3.1 lo extrajo a Core/VisualFiles como `VisualImageFormat.DetectMimeType(ReadOnlySpan<byte>)`.
+
+Consumidores:
+
+- `WindowsVisualFilesProvider.ReadImageAsync`;
+- `PythonTools.Execute` para los outputs `PythonExecutionOutputKind.Image`.
+
+Así ambos caminos aceptan/rechazan exactamente los mismos containers y el MIME nunca se toma de un valor declarado por Python.
+
+No validar el formato dentro del parser del protocolo Worker/Host: bytes con formato no soportado son un error de contenido recuperable, no corrupción de protocolo, y **no deben invalidar el worker**.
+
+### 2. Resultado estructurado de Python
+
+Extender el DTO MCP con metadata no binaria de outputs:
+
+```text
+PythonExecutionOutputDto:
+  kind = "image"
+  mimeType
+  sizeBytes
+```
+
+y agregar `outputs[]` a `PythonExecutionDto`.
+
+Los bytes no aparecen en StructuredContent/base64 manual; sólo viven en los `ImageContentBlock`.
+
+Esto aplica tanto a status `completed` como `exception`. Una excepción Python normal sigue siendo una tool call exitosa y puede llevar imágenes emitidas antes de la excepción.
+
+### 3. Mixed CallToolResult de python_execute
+
+Alinear `python_execute` con las dos tools visuales ya validadas:
+
+- quitar `UseStructuredContent = true`;
+- quitar `OutputSchemaType`;
+- conservar StructuredContent construido manualmente por `McpToolResults.From`;
+- agregar un `ImageContentBlock.FromBytes(bytes, detectedMime)` por output válido.
+
+El SDK MCP 2.2.0 confirma que `UseStructuredContent` default es false y que habilitarlo hace que la tool anuncie output schema. La experiencia G1 ya demostró que ChatGPT preserva mixed structured + image para visión cuando no se anuncia `outputSchema`.
+
+Acceptance del contrato:
+
+- `python_execute.ProtocolTool.OutputSchema == null`;
+- input schema sin cambios;
+- catálogo sigue en **25 tools**.
+
+### 4. Presupuesto MCP combinado: medir el CallToolResult real
+
+No basta con sumar 6 MiB raw. System.Text.Json escapa caracteres de base64 como `+` a `\\u002B`, y stdout/stderr también pueden expandirse por escaping.
+
+Para Python conviene construir primero el `CallToolResult` candidato completo y medirlo con el helper genérico existente:
+
+```text
+McpPayloadLimits.MeasureSerializedCallToolResultBytes(candidate)
+```
+
+contra:
+
+```text
+MaxCallToolResultBytes = 9 MiB
+```
+
+Esto mide exactamente:
+
+- StructuredContent;
+- stdout/stderr y exception metadata;
+- metadata de outputs;
+- TextContentBlock;
+- todas las imágenes;
+- base64;
+- escaping JSON;
+- overhead de múltiples ContentBlocks.
+
+Agregar un helper booleano genérico en `McpPayloadLimits` si mejora la legibilidad, pero no hace falta rediseñar `McpVisualPayloadLimits` ni cambiar las tools G1.
+
+La serialización temporal queda acotada por el frame privado de P3.0 (40 MiB), por lo que es una solución simple y suficientemente bounded para esta etapa.
+
+### 5. Hardening también para resultados sin imágenes
+
+Aplicar el guard de 9 MiB a **todo** resultado exitoso de `python_execute`, aunque `outputs.Count == 0`.
+
+Motivo: dos streams cercanos a `maxOutputChars=1_048_576` pueden superar 9/10 MiB por UTF-8/escaping aun sin imágenes.
+
+No reducir silenciosamente stdout/stderr ni descartar imágenes para hacer entrar el resultado. Si el resultado candidato excede el presupuesto, devolver un ToolEnvelope de error pequeño:
+
+```text
+code = unsupported
+reason = python_result_too_large
+retryable = false
+executionCompleted = true
+serializedCallToolResultBytes = ...
+maxCallToolResultBytes = 9437184
+imageCount = ...
+rawImageBytes = ...
+```
+
+Mensaje recomendado: la ejecución terminó y el estado/side effects pueden haber cambiado; reducir `maxOutputChars` o tamaño/cantidad de imágenes en la siguiente operación.
+
+No marcar retryable=true: repetir automáticamente el mismo código puede duplicar efectos.
+
+### 6. Formato inválido
+
+Si un output etiquetado como image no es PNG/JPEG/WebP válido según el detector compartido:
+
+```text
+code = unsupported
+reason = unsupported_image_format
+retryable = false
+executionCompleted = true
+outputIndex = ...
+```
+
+No devolver imágenes parciales si una de varias es inválida: el transporte visual del execute es atómico.
+
+El worker queda sano y globals/side effects del execute permanecen, porque el fallo ocurre después de que Python terminó.
+
+### 7. Descripción y ServerInstructions
+
+Actualizar `python_execute` para enseñar:
+
+- `loom.display_image(bytes|bytearray|memoryview)` para imágenes **generadas en memoria dentro de Python**;
+- contenido admitido: PNG/JPEG/WebP;
+- hasta 4 outputs / 6 MiB raw agregado;
+- resultado MCP completo <=9 MiB;
+- imágenes locales ya existentes siguen usando `filesystem_view_image`, sin leerlas manualmente a bytes;
+- páginas PDF existentes siguen usando `filesystem_render_pdf_page`;
+- invalid format / final payload over-budget son errores post-execution y no descartan el worker;
+- una excepción Python normal puede conservar imágenes previas.
+
+Actualizar ServerInstructions con la misma distinción in-memory vs archivo local.
+
+No tocar todavía la skill publicada 0.4.0: el runtime instalado sigue siendo Python 2 hasta P3.2. La reconciliación/plugin 0.5.0 se hace junto con deployment/consumer smoke.
+
+### 8. Contrato MCP y snapshot
+
+P3.1 introduce drift MCP **esperado**:
+
+- descripción de `python_execute`;
+- `outputSchema`: objeto actual -> null/ausente;
+- ServerInstructions;
+- input schema y annotations: sin cambios;
+- tool count: **25**.
+
+Después de tests:
+
+1. exportar contrato desde Host Release;
+2. revisar el diff para confirmar que sólo cambió lo esperado;
+3. actualizar deliberadamente `plugin/contract/mcp-contract.json`;
+4. verificar 25 tools.
+
+No publicar plugin en P3.1.
+
+### 9. Tests propuestos
+
+**Core / Visual**
+
+- detector compartido reconoce PNG/JPEG/WebP existentes;
+- rechaza containers truncados/inválidos;
+- WindowsVisualFilesProvider conserva todos sus tests actuales después de extraer el detector.
+
+**MCP unit**
+
+- mixed Python result con 1 y varias imágenes round-trip;
+- StructuredContent contiene metadata, nunca bytes;
+- medición genérica coincide exactamente con serialización real;
+- candidate justo bajo/sobre 9 MiB;
+- error candidate siempre queda por debajo del budget.
+
+**Integration / Host Release**
+
+1. tools/list:
+   - `python_execute.OutputSchema == null`;
+   - description menciona `loom.display_image`, formatos y 9 MiB;
+   - 25 tools.
+2. imagen válida:
+   - Python genera PNG pequeño in-memory sin escribir archivo;
+   - `loom.display_image`;
+   - `CallToolResult.Content` = Text + Image;
+   - MIME detectado por Host;
+   - StructuredContent = status/stdout/... + outputs metadata.
+3. múltiples imágenes válidas.
+4. normal exception después de `display_image`:
+   - IsError=false;
+   - status=exception;
+   - imagen preservada.
+5. bytes inválidos:
+   - IsError=true;
+   - no `ImageContentBlock`;
+   - reason `unsupported_image_format`;
+   - marker/global posterior prueba que el mismo worker sigue vivo.
+6. resultado >9 MiB:
+   - error `python_result_too_large`;
+   - sin imagen parcial;
+   - `executionCompleted=true`;
+   - worker/global state preservado.
+7. caso text-only >9 MiB, para confirmar que el hardening no depende de image outputs.
+8. regresiones Python 2 completas + suite serial.
+
+### 10. Lo que P3.1 no debe hacer
+
+No:
+
+- cambiar protocol v3 ni bridge API v2 salvo bug encontrado;
+- agregar nueva tool MCP;
+- usar temp files;
+- agregar MIME como argumento confiable a `loom.display_image`;
+- soportar path/PIL/matplotlib mágicamente;
+- publicar runtime instalado;
+- actualizar plugin privado;
+- abrir BlobResource/audio.
+
+### Criterio de cierre P3.1
+
+P3.1 queda cerrado cuando:
+
+- detector PNG/JPEG/WebP es compartido por Visual Files y Python MCP output;
+- `python_execute` devuelve mixed StructuredContent + ImageContentBlock;
+- no anuncia outputSchema;
+- múltiples imágenes funcionan hasta los límites P3.0;
+- el CallToolResult real se mide y nunca sale por encima de 9 MiB;
+- text-only también queda protegido;
+- invalid format y over-budget son errores post-execution recuperables sin matar el worker;
+- normal Python exception puede conservar imágenes;
+- contrato queda en 25 tools con drift intencional revisado/snapshot actualizado;
+- suite Release queda verde;
+- runtime/plugin siguen sin cutover hasta P3.2.
+
+### Decisión recomendada
+
+Implementar P3.1 **sin cambiar P3.0**: validar formatos al borde MCP, construir el mixed result, medir el CallToolResult real y rechazar atómicamente cualquier respuesta que no sea segura para el tunnel.
+
+Es la ruta de menor complejidad y reutiliza directamente los dos comportamientos ya probados en LoomLCI: typed outputs privados de P3.0 y mixed visual results de G1.
 
 ### P3.2 — Evaluation / deployment / plugin
 

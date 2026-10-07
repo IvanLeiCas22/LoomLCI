@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
 using LoomLCI.Core;
 using LoomLCI.Core.Python;
+using LoomLCI.Core.VisualFiles;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
@@ -12,13 +13,19 @@ public sealed record PythonExceptionDto(
     string Message,
     string Traceback);
 
+public sealed record PythonExecutionOutputDto(
+    string Kind,
+    string MimeType,
+    long SizeBytes);
+
 public sealed record PythonExecutionDto(
     string Status,
     string Stdout,
     string Stderr,
     bool StdoutTruncated,
     bool StderrTruncated,
-    PythonExceptionDto? Exception);
+    PythonExceptionDto? Exception,
+    IReadOnlyList<PythonExecutionOutputDto> Outputs);
 
 public sealed record PythonPackageRequirementInputDto(
     [property: Description("PyPI project name. Direct URLs, paths, Git/VCS and requirement options are not accepted.")]
@@ -59,8 +66,6 @@ public sealed class PythonTools
     [McpServerTool(
         Name = "python_execute",
         Title = "Execute Python",
-        UseStructuredContent = true,
-        OutputSchemaType = typeof(ToolEnvelope<PythonExecutionDto>),
         ReadOnly = false,
         Destructive = true,
         Idempotent = false,
@@ -70,9 +75,11 @@ public sealed class PythonTools
         "The first call lazily provisions/starts the private CPython runtime; later calls in the same work session reuse globals, imports, cwd changes, and other in-process state. " +
         "Use this for local calculations, parsing, transformations, and short stateful Python workflows. " +
         "Inside the worker, import loom, loom.fs, or loom.process to use LoomLCI capabilities against the same work session. loom.fs provides structured filesystem operations (list/search/read/patch/directories/textual PDF). loom.process provides Loom-managed run/start/status/read/write/resize/terminate/release with Job Objects, retained output and terminal support; durable processes created there are always session-owned. Normal bridge failures raise loom.LoomError and do not discard the worker. " +
-        "Use top-level LoomLCI visual filesystem tools for image/PDF rendering, and top-level Process tools when an independent process outside the current WorkSession is intentionally required. " +
+        "Use loom.display_image(bytes|bytearray|memoryview) for PNG, JPEG, or WebP images generated in memory during this Python execution. Up to 4 image outputs are allowed with 6 MiB raw aggregate, and the complete MCP result (text, metadata, and images) must fit a 9 MiB serialized response budget. " +
+        "Use filesystem_view_image for image files that already exist and filesystem_render_pdf_page for existing PDF pages instead of loading those files into Python just to display them. " +
+        "Invalid image format or a final result over the MCP budget is reported after Python has already completed with executionCompleted=true; worker globals and side effects remain, so do not automatically retry the same code. " +
         "There is no interactive stdin in this version: input() receives EOF. " +
-        "A normal Python exception is a successful tool call with result.status='exception'; infrastructure failures, cancellation, and timeouts are tool errors. " +
+        "A normal Python exception is a successful tool call with result.status='exception' and can preserve images emitted before the exception; infrastructure failures, cancellation, and timeouts are tool errors. " +
         "timeoutSeconds covers the whole invocation, including lazy runtime provisioning/startup. On timeout, cancellation, crash, or broken protocol the worker is discarded, so the next call starts with a fresh namespace. " +
         "maxOutputChars applies independently to stdout and stderr and counts Unicode code points; truncation does not stop code execution. Code is limited to 256 KiB when encoded as strict UTF-8.")]
     public async Task<CallToolResult> Execute(
@@ -91,7 +98,7 @@ public sealed class PythonTools
                 cancellationToken)
             .ConfigureAwait(false);
 
-        return McpToolResults.From(MapExecution(result));
+        return BuildExecutionToolResult(result);
     }
 
     [McpServerTool(
@@ -216,17 +223,62 @@ public sealed class PythonTools
                     value.WorkerRestartRequired)));
     }
 
-    private static ToolEnvelope<PythonExecutionDto> MapExecution(
+    private static CallToolResult BuildExecutionToolResult(
         LoomResult<PythonExecutionResult> result)
     {
         if (!result.IsSuccess)
         {
-            return ToolEnvelope<PythonExecutionDto>.From(
-                LoomResult<PythonExecutionDto>.Failure(
-                    result.Error!));
+            return McpToolResults.From(
+                ToolEnvelope<PythonExecutionDto>.From(
+                    LoomResult<PythonExecutionDto>.Failure(
+                        result.Error!)));
         }
 
         var value = result.Value!;
+        var rawImageBytes = value.Outputs.Sum(output => output.Bytes.LongLength);
+        var outputDtos = new PythonExecutionOutputDto[value.Outputs.Count];
+        var imageBlocks = new ContentBlock[value.Outputs.Count];
+
+        for (var index = 0; index < value.Outputs.Count; index++)
+        {
+            var output = value.Outputs[index];
+            if (output.Kind != PythonExecutionOutputKind.Image)
+            {
+                return PostExecutionError(
+                    "unsupported_python_output_kind",
+                    "Python completed, but it produced an output kind that this MCP adapter does not support.",
+                    new Dictionary<string, object?>
+                    {
+                        ["outputIndex"] = index,
+                        ["outputKind"] = output.Kind.ToString(),
+                        ["imageCount"] = value.Outputs.Count,
+                        ["rawImageBytes"] = rawImageBytes
+                    });
+            }
+
+            var mimeType = VisualImageFormat.DetectMimeType(output.Bytes);
+            if (mimeType is null)
+            {
+                return PostExecutionError(
+                    "unsupported_image_format",
+                    "Python completed, but one image output is not a valid PNG, JPEG, or WebP container.",
+                    new Dictionary<string, object?>
+                    {
+                        ["outputIndex"] = index,
+                        ["imageCount"] = value.Outputs.Count,
+                        ["rawImageBytes"] = rawImageBytes
+                    });
+            }
+
+            outputDtos[index] = new PythonExecutionOutputDto(
+                "image",
+                mimeType,
+                output.Bytes.LongLength);
+            imageBlocks[index] = ImageContentBlock.FromBytes(
+                output.Bytes,
+                mimeType);
+        }
+
         var dto = new PythonExecutionDto(
             value.Status switch
             {
@@ -244,9 +296,48 @@ public sealed class PythonTools
                 : new PythonExceptionDto(
                     value.Exception.Type,
                     value.Exception.Message,
-                    value.Exception.Traceback));
+                    value.Exception.Traceback),
+            outputDtos);
 
-        return ToolEnvelope<PythonExecutionDto>.From(
+        var envelope = ToolEnvelope<PythonExecutionDto>.From(
             LoomResult<PythonExecutionDto>.Success(dto));
+        var candidate = McpToolResults.From(envelope, imageBlocks);
+        var serializedBytes =
+            McpPayloadLimits.MeasureSerializedCallToolResultBytes(candidate);
+
+        if (serializedBytes > McpPayloadLimits.MaxCallToolResultBytes)
+        {
+            return PostExecutionError(
+                "python_result_too_large",
+                "Python completed, but the final MCP result exceeds the safe 9 MiB response budget. Reduce maxOutputChars or the size/number of displayed images before the next execution.",
+                new Dictionary<string, object?>
+                {
+                    ["serializedCallToolResultBytes"] = serializedBytes,
+                    ["maxCallToolResultBytes"] =
+                        McpPayloadLimits.MaxCallToolResultBytes,
+                    ["imageCount"] = value.Outputs.Count,
+                    ["rawImageBytes"] = rawImageBytes
+                });
+        }
+
+        return candidate;
+    }
+
+    private static CallToolResult PostExecutionError(
+        string reason,
+        string message,
+        Dictionary<string, object?> details)
+    {
+        details["reason"] = reason;
+        details["executionCompleted"] = true;
+
+        return McpToolResults.From(
+            ToolEnvelope<PythonExecutionDto>.From(
+                LoomResult<PythonExecutionDto>.Failure(
+                    new LoomError(
+                        "unsupported",
+                        message,
+                        false,
+                        details))));
     }
 }
