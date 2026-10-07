@@ -113,6 +113,28 @@ if ($unknownRefs.Count -gt 0) {
     throw "La skill referencia tools ausentes del MCP vivo: $($unknownRefs -join ', ')."
 }
 
+$requiredPythonWorkflowMarkers = @(
+    'python_execute',
+    'python_packages_prepare',
+    'python_reset',
+    'loom.fs',
+    'loom.process',
+    'MCP/tunnel',
+    'tools visuales top-level',
+    'Process top-level',
+    'Independent'
+)
+
+$missingPythonWorkflowMarkers = @(
+    $requiredPythonWorkflowMarkers |
+        Where-Object {
+            $skillText.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -lt 0
+        }
+)
+if ($missingPythonWorkflowMarkers.Count -gt 0) {
+    throw "La skill perdió guidance requerido del workflow Python final: $($missingPythonWorkflowMarkers -join ', ')."
+}
+
 if ($RequireGeneratedCompatibility) {
     $compatPath = Join-Path $PluginRoot '.codex-plugin\plugin.json'
     $portableMcpPath = Join-Path $PluginRoot 'mcp.json'

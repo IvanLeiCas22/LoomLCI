@@ -8,6 +8,8 @@ El plugin **no arranca ni configura el servidor MCP**. La conexión real se real
 
 La skill complementa esa app con reglas de workflow. Las descripciones y schemas vivos del servidor MCP son la fuente de verdad para las capabilities disponibles, sus parámetros, límites y semántica.
 
+Dentro de `python_execute`, el runtime Python expone además el bridge privado `loom`: `loom.fs` permite operaciones estructuradas de filesystem/PDF textual y `loom.process` procesos Loom-managed ligados a la misma WorkSession. No son tools MCP públicas adicionales ni deben invocarse mediante un segundo acceso MCP desde el worker Python. Para contenido visual se mantienen las tools visuales MCP top-level; para procesos `Independent`, las tools Process top-level.
+
 ## Requisitos
 
 - LoomLCI instalado y en estado `healthy/ready`.

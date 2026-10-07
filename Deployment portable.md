@@ -675,7 +675,7 @@ Cierre final:
   - la descripción recibida de `python_execute` menciona explícitamente `loom.fs` y `loom.process`;
   - marcador final **`P24_FRESH_AGENT_OK`**.
 
-Con esto **Python 2 queda CERRADO end-to-end**. La siguiente etapa es la reconciliación final del plugin/skill privado, deliberadamente pospuesta hasta terminar este bloque.
+Con esto **Python 2 queda CERRADO end-to-end**. La reconciliación final del plugin/skill privado también quedó cerrada posteriormente en **0.4.0**, con evaluación fresh-agent **4/4 PASS**.
 
 ## Fuera de alcance inicial
 

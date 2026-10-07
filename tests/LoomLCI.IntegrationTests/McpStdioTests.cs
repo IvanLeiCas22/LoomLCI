@@ -140,6 +140,37 @@ public sealed class McpStdioTests
     }
 
     [Fact]
+    public void PluginSkillTracksFinalPythonWorkflow()
+    {
+        var repoRoot = FindRepoRoot();
+        var skillPath = Path.Combine(
+            repoRoot,
+            "plugin",
+            "skills",
+            "loomlci",
+            "SKILL.md");
+
+        Assert.True(File.Exists(skillPath), $"Plugin skill not found: {skillPath}");
+        var skill = File.ReadAllText(skillPath);
+
+        foreach (var marker in new[]
+        {
+            "python_execute",
+            "python_packages_prepare",
+            "python_reset",
+            "loom.fs",
+            "loom.process",
+            "MCP/tunnel",
+            "tools visuales top-level",
+            "Process top-level",
+            "Independent"
+        })
+        {
+            Assert.Contains(marker, skill, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
     public async Task StdioAdapterAdvertisesServerInstructions()
     {
         var repoRoot = FindRepoRoot();

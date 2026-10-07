@@ -22,9 +22,7 @@ Orden preliminar:
 1. mejorar UX del Launcher — **CERRADO end-to-end**: modo `--pause` opt-in para accesos directos, shortcuts de iniciar/detener, mensajes simplificados, salida UTF-8 y README portable con encoding estable;
 2. [[Instalador Windows|instalador Windows convencional]] — **CERRADO end-to-end**: Inno Setup 7.1.0, instalación per-user sin admin, registro en Aplicaciones instaladas, uninstall real y reutilización de `SetupService`;
 3. [[Auto-update firmado|base de auto-update con validación y rollback]] — **CERRADO end-to-end**: manifest firmado ECDSA, `sequence` anti-rollback, `update check/apply`, rollback transaccional, journal/crash recovery, limpieza `active + previous` y E2E real contra GitHub Releases;
-4. [[Plugin metadata|mecanismo de generación/verificación de metadata y skill del plugin]] — **CERRADO end-to-end**: fuente canónica en repo, export real `initialize + tools/list`, snapshot de contrato, build/verifier anti-drift, neutralización del wiring Debug histórico y plugin privado `0.3.0` publicado/read-back.
-
-La reconciliación final del plugin/skill se cerrará después de incorporar las nuevas capabilities Python, para evitar documentar dos veces una superficie todavía cambiante.
+4. [[Plugin metadata|mecanismo de generación/verificación de metadata y skill del plugin]] — **CERRADO end-to-end**: fuente canónica en repo, export real `initialize + tools/list`, snapshot de contrato, build/verifier anti-drift, neutralización del wiring Debug histórico, plugin privado **0.4.0** actualizado por CAS/read-back y evaluación fresh-agent **4/4 PASS**.
 
 ### 3. Python
 
@@ -38,7 +36,7 @@ La ruta binaria debe reutilizar las lecciones de Visual Files y respetar los lí
 
 ## Horizonte lejano / post-roadmap actual
 
-Estas mejoras quedan **documentadas pero deliberadamente no priorizadas**. No deben desplazar Producto/Deployment 4, Python ni la reconciliación final del plugin/skill:
+Estas mejoras quedan **documentadas pero deliberadamente no priorizadas**. No deben desplazar el bloque Python activo ni los cierres ya definidos del roadmap:
 
 - **publicación automática de releases**: GitHub Actions dispara desde un tag/release, construye los artefactos, ejecuta validaciones y publica automáticamente setup + ZIP de update + manifest + firma; requiere resolver de forma segura el acceso a la clave privada de firma dentro de CI;
 - **update automático en las PCs instaladas**: chequeo periódico o al iniciar LoomLCI y aplicación automática/semiautomática de releases firmadas, reutilizando el motor transaccional, health check y rollback ya implementados;
@@ -70,6 +68,6 @@ Es un tema transversal:
 
 ## Próxima acción
 
-**Reconciliación final del plugin/skill privado.**
+**Python 3 — outputs binarios/imágenes desde Python hacia el modelo.**
 
-[[Python 2 - Bridge privado loom|Python 2]] queda **CERRADO end-to-end (P2.0–P2.4)**: runtime instalado `0.1.0-dev-python2`, Integration **19/19** contra Host publicado e instalado, consumer smoke directo OK, metadata MCP instalada con **25 tools** y fresh-agent smoke **`P24_FRESH_AGENT_OK`**. Python 1 permanece disponible como rollback. Corresponde ahora actualizar/reconciliar `plugin/skills/loomlci/SKILL.md` y el plugin privado `0.3.0` para que su guidance refleje la superficie Python final, y luego publicar/validar esa reconciliación.
+[[Python 2 - Bridge privado loom|Python 2]] y la reconciliación final del plugin/skill privado **0.4.0** quedan **CERRADOS end-to-end**. La evaluación fresh-agent final del plugin pasó **4/4**: bridge Python autónomo, filesystem simple top-level, visual top-level y proceso `Independent` top-level. El siguiente bloque debe comenzar con investigación/análisis específico para diseñar la ruta binaria Python reutilizando los límites y aprendizajes de Visual Files.

@@ -38,8 +38,7 @@ Validación en segunda PC completada. Diferido/no bloqueante:
 - auto-update silencioso/background y actualización automática del Launcher;
 - win-arm64;
 - bundle offline;
-- estrategia final multi-PC/tunnels simultáneos;
-- reconciliación de metadata portable de la skill/plugin.
+- estrategia final multi-PC/tunnels simultáneos.
 
 ## Visual Files
 

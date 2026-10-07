@@ -1,6 +1,6 @@
 # Plan y tareas
 
-> Estado: **Agent Support F1, Deployment portable, Launcher UX, [[Instalador Windows]], [[Auto-update firmado]], [[Plugin metadata]], Visual Files G1, hardening de `filesystem_read_files`, `process_run` y [[Ergonomía - Work Plan patch]] cerrados end-to-end**. Computer H1 queda deliberadamente pausado. [[Roadmap post-G1]] continúa por Python.
+> Estado: **Agent Support F1, Deployment portable, Launcher UX, [[Instalador Windows]], [[Auto-update firmado]], [[Plugin metadata]], Visual Files G1, hardening de `filesystem_read_files`, `process_run`, [[Ergonomía - Work Plan patch]], Python 1, Python 2 y la reconciliación final del plugin 0.4.0 cerrados end-to-end**. Computer H1 queda deliberadamente pausado. [[Roadmap post-G1]] continúa por Python 3.
 
 ## Distinciones necesarias
 
@@ -135,19 +135,23 @@ Validación multi-PC cerrada: el mismo paquete se instaló desde cero en una not
 - `previous=0.1.0-dev-local-e2e`, sequence 2;
 - journal ausente y sólo dos versiones instaladas.
 
-## Plugin metadata - CERRADO
+## Plugin metadata - CERRADO end-to-end
 
-[[Plugin metadata]] quedó implementado y validado end-to-end:
+[[Plugin metadata]] mantiene el mecanismo anti-drift cerrado y la reconciliación post-Python 0.4.0 quedó cerrada end-to-end:
 
 - `plugin/` como fuente canónica de manifest, README y skill;
 - export MCP real mediante `initialize` + `tools/list`, sin parsear C#;
-- snapshot versionado de las **24 tools**;
+- snapshot versionado de **25 tools**, idéntico al Host Python 2 instalado;
 - build que falla ante drift no aceptado;
-- verifier de tool refs, duplicación de manifests y rutas/wiring Debug;
+- verifier de tool refs, duplicación de manifests, rutas/wiring Debug y markers semánticos del workflow Python final;
+- IntegrationTest específico para `python_execute` + packages + `loom.fs`/`loom.process` + visuales/Independent top-level;
 - `.codex-plugin/plugin.json` generado desde el manifest canónico;
 - `mcp.json` / `.mcp.json` vacíos para neutralizar el wiring STDIO histórico;
-- plugin privado actualizado `0.2.1 -> 0.3.0` con CAS y read-back;
-- suite Release **285/285**, IntegrationTests **17/17**.
+- plugin privado actualizado `0.3.0 -> 0.4.0` con CAS y read-back (`pluginrel_6ac5e253c70081918df6046afb0572fa`);
+- package 0.4.0: 4.639 bytes, SHA-256 `304a984ab0adab29032b529374593e33e80c32d9e917e4b799cd905562ddd36c`;
+- suite Release **338/338**, IntegrationTests **20/20**;
+- evaluación fresh-agent final: **4/4 PASS** (bridge Python autónomo, filesystem simple top-level, visual top-level y proceso `Independent` top-level);
+- reconciliación 0.4.0 **CERRADA end-to-end**.
 
 ## Python 1 - Paquetes administrados - CERRADO
 
@@ -186,7 +190,7 @@ El smoke directo de `python_packages_prepare` desde ChatGPT quedó completado co
 
 **P2.3 queda CERRADO**: callbacks del bridge ahora detectan la salida real del worker mientras están activos, cancelan y drenan su cleanup antes de retornar; Process separa `WaitForExitAsync` del drenaje de output; oversized result frames devuelven error estructurado `bridge_payload_too_large`; quedaron regression/stress tests para threads/repeated calls, worker crash durante callback, work_close/cancellation, run timeout cleanup, durable start + work_close y transición concurrente de package environment. Suite Release serial **337/337**, Integration **19/19**, catálogo MCP **25 tools** sin cambios y smoke Release NumPy 2.5.3 + Pandas 3.0.6 + `loom.fs` + `loom.process` + oversize recuperable: **P23_COMBINED_SMOKE_OK**.
 
-**P2.4 queda CERRADO end-to-end; Python 2 queda CERRADO.** Portable `0.1.0-dev-python2` sequence 0 generado (ZIP 81.308.776 bytes, SHA-256 `049bea4dd71d7f5b62c55f3acf1f49ed66f80a6428672ec0460846520a2d0eb1`), Launcher **20/20**, Integration **19/19** contra el Host publicado y **19/19** contra la DLL instalada. Setup side-by-side dejó Python 1 como rollback; cutover `stop/start/status` vía IvanSpace quedó `healthy=true`, `ready=true`, mismo tunnel. Consumer smoke directo desde ChatGPT pasó con NumPy 2.5.3 + Pandas 3.0.6 + `loom.capabilities()==15` + `loom.fs` + `loom.process.run` + `LoomError` recuperable + estado persistente. El contrato MCP instalado publica 25 tools y metadata nueva de `python_execute`; este chat conservó un snapshot viejo tras refresh, pero un chat nuevo recibió la metadata correcta y completó el fresh-agent smoke con **`P24_FRESH_AGENT_OK`**. Próxima etapa: reconciliación final de la skill/plugin privado.
+**P2.4 queda CERRADO end-to-end; Python 2 queda CERRADO.** Portable `0.1.0-dev-python2` sequence 0 generado (ZIP 81.308.776 bytes, SHA-256 `049bea4dd71d7f5b62c55f3acf1f49ed66f80a6428672ec0460846520a2d0eb1`), Launcher **20/20**, Integration **19/19** contra el Host publicado y **19/19** contra la DLL instalada. Setup side-by-side dejó Python 1 como rollback; cutover `stop/start/status` vía IvanSpace quedó `healthy=true`, `ready=true`, mismo tunnel. Consumer smoke directo desde ChatGPT pasó con NumPy 2.5.3 + Pandas 3.0.6 + `loom.capabilities()==15` + `loom.fs` + `loom.process.run` + `LoomError` recuperable + estado persistente. El contrato MCP instalado publica 25 tools y metadata nueva de `python_execute`; este chat conservó un snapshot viejo tras refresh, pero un chat nuevo recibió la metadata correcta y completó el fresh-agent smoke con **`P24_FRESH_AGENT_OK`**. La reconciliación final de la skill/plugin privado ya quedó cerrada en **0.4.0**.
 
 ## Visual Files G1 - CERRADO
 
