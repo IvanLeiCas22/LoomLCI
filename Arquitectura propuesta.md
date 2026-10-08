@@ -66,7 +66,7 @@ Implementado:
 
 Diferido:
 
-- Streamable HTTP propio.
+- Streamable HTTP como transporte productivo. La PoC A3.1 ya está implementada y validada localmente en [[A3 - Streamable HTTP PoC]], pero no instalada ni conectada al túnel.
 
 Los handles son de LoomLCI, no sesiones MCP.
 
