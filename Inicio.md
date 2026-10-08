@@ -4,7 +4,11 @@ Segundo cerebro del proyecto LoomLCI.
 
 ## Estado
 
-Arquitectura v0.1 reconciliada y baseline cerrada. Process, Filesystem, Native Process/Job Objects, ConPTY, resource lifetime, Python Runtime E1, **[[Python 1 - Paquetes administrados|Python 1]]**, **[[Python 2 - Bridge privado loom|Python 2]]**, **Agent Support F1**, **Visual Files G1**, Deployment/Launcher, [[Instalador Windows]], [[Auto-update firmado]] y [[Plugin metadata]] están implementados/validados hasta sus etapas indicadas. **Python 2 queda CERRADO end-to-end**. El runtime activo ahora es **`0.1.0-dev-python3`**, healthy/ready sobre el mismo tunnel, con `0.1.0-dev-python2` como rollback. El Host instalado publica **25 tools**, bridge API v2 y `loom.display_image`; `python_execute` omite `outputSchema` y aplica presupuesto MCP exacto de **9 MiB**. Integration contra la DLL instalada: **21/21**; suite Release posterior: **356/356**. El plugin privado fue reconciliado/publicado por CAS a **0.5.1** con read-back OK; 0.5.1 agrega únicamente el workaround host-specific de ChatGPT Code Mode para materializar `content_items[type=image]` mediante `image(item)`, sin cambios de Host/contrato. Computer H1 sigue pausado. [[Python 3 - Outputs binarios e imágenes|Python 3]] queda **CERRADO end-to-end (P3.0–P3.2)**: el fresh-agent ciego post-0.5.1 identificó correctamente rojo/triángulo antes de revelar `test_case_id=2`, y el control negativo describió `visual-smoke.png` usando directamente `filesystem_view_image`. `MODEL_VISION` y routing quedan PASS; la UI de ChatGPT sigue sin renderizar inline la imagen in-memory y se documenta aparte como limitación del consumidor (`UI_RENDER`), no de LoomLCI.
+**Corte operativo verificado el 2026-10-08.** El repositorio `main` está limpio y sincronizado con `origin/main`. La instalación real ejecuta **Release 5, `0.1.0-dev-42ee90c` (sequence 5)**, con Host y Launcher actualizados, `healthy=true`, `ready=true` y el mismo Secure MCP Tunnel. Se conserva `0.1.0-dev-python3` (sequence 0) como rollback. `update check` confirma que la Release 5 es la última del canal configurado. Ver [[Auto-update firmado]] y [[Deployment portable]].
+
+**Capacidades cerradas:** Process, Filesystem, Native Process/Job Objects, ConPTY, resource lifetime, Python Runtime E1, [[Python 1 - Paquetes administrados|Python 1]], [[Python 2 - Bridge privado loom|Python 2]], [[Python 3 - Outputs binarios e imágenes|Python 3 (P3.0–P3.2)]], Agent Support F1, Visual Files G1, ergonomía (`process_run` y `work_plan_patch`), Launcher, [[Instalador Windows]], update firmado y [[Plugin metadata]]. El Host publica **25 tools MCP**; el bridge privado incluye `loom.fs`, `loom.process` y `loom.display_image`, y el plugin privado canónico/publicado está en **0.5.1**. Suite Release ejecutada nuevamente: **366/366**, incluyendo **21/21 IntegrationTests** (binarios Release existentes).
+
+**Próximos trabajos, no errores activos:** [[Bloque H - Computer|Computer H1]] sigue **pausado**, aunque su diseño está listo; el roadmap anterior ya está **cerrado** y no hay otro bloque aprobado. Las actualizaciones automáticas en segundo plano y la publicación automática de releases quedan para un horizonte lejano. La visión de imágenes Python in-memory por el modelo funciona con el workaround del plugin; `UI_RENDER` inline en ChatGPT Web/Code Mode sigue siendo una limitación externa no bloqueante. Ver [[Roadmap post-G1]] y [[Preguntas abiertas]].
 
 ## Notas
 
@@ -24,6 +28,7 @@ Arquitectura v0.1 reconciliada y baseline cerrada. Process, Filesystem, Native P
 - [[Bloque E - Python Runtime]]
 - [[Python 1 - Paquetes administrados]]
 - [[Python 2 - Bridge privado loom]]
+- [[Python 3 - Outputs binarios e imágenes]]
 - [[Bloque F - Agent Support]]
 - [[Bloque G - Visual Files]]
 - [[G1.1 - Local image]]
@@ -31,7 +36,11 @@ Arquitectura v0.1 reconciliada y baseline cerrada. Process, Filesystem, Native P
 - [[F1.3 - Benchmark real-world Work Plan]]
 - [[Ergonomía - Work Plan patch]]
 - [[Plan y tareas]]
+- [[Roadmap post-G1]]
+- [[Auto-update firmado]]
+- [[Plugin metadata]]
 - [[Programmatic Tool Calling]]
 - [[Integracion con ChatGPT]]
 - [[Deployment portable]]
+- [[Instalador Windows]]
 - [[Fuentes]]

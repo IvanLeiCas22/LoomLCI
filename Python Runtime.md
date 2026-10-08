@@ -1,10 +1,10 @@
 # Python Runtime
 
-> Estado: **E1 cerrado. Arquitectura, implementación y validación end-to-end completadas, incluido Secure MCP Tunnel + fresh-agent**. Ver [[Bloque E - Python Runtime]].
+> Estado vigente al 2026-10-08: **E1 y Python 1, 2 y 3 cerrados end-to-end**. Esta nota describe la base E1, inicialmente stdlib-only/textual; la evolución posterior está en [[Python 1 - Paquetes administrados]], [[Python 2 - Bridge privado loom]] y [[Python 3 - Outputs binarios e imágenes]]. El Host instalado es la Release 5.
 
 ## Decisión
 
-LoomLCI incorporará un Python Runtime general y persistente como capability de ejecución de primera clase.
+LoomLCI incorporó un Python Runtime general y persistente como capability de ejecución de primera clase.
 
 No es parte de Computer y no es un DSL. PyAutoGUI será, como máximo, una librería futura sobre esta base.
 
@@ -35,7 +35,7 @@ Runtime inicial fijado:
 - stdlib solamente en E1;
 - sin pip dinámico.
 
-Los paquetes futuros se vendorizarán/versionarán como parte de la aplicación.
+**Evolución posterior a E1:** Python 1 implementó paquetes administrados/versionados con `uv` privado y environments inmutables; no se depende de `pip` del usuario.
 
 ## IPC
 
@@ -90,13 +90,12 @@ E1 valida únicamente:
 - cleanup;
 - MCP.
 
-Diferido:
+**Fuera del alcance original E1 (estado posterior aclarado):**
 
-- PyAutoGUI;
-- Computer;
-- imágenes;
-- paquetes científicos;
-- bridge `loom.*`.
+- PyAutoGUI y Computer: siguen diferidos, Computer H1 está diseñado pero pausado.
+- Imágenes: **implementadas en Python 3** vía `loom.display_image`.
+- Paquetes de terceros/científicos: **implementados en Python 1** vía `python_packages_prepare`.
+- Bridge `loom.*`: **implementado en Python 2**, extendido para imágenes en Python 3.
 
 El detalle implementable y los tests de aceptación están en [[Bloque E - Python Runtime]].
 

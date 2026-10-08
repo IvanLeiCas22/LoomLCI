@@ -1,5 +1,7 @@
 # Decisiones
 
+> Estado de referencia al 2026-10-08: estas decisiones se adoptaron en distintas etapas. Ergonomía/Producto/Python 1–3 están cerrados; Release 5 (`0.1.0-dev-42ee90c`, sequence 5) es la instalación actual y Computer H1 está diseñado pero pausado. Ver [[Inicio]] y [[Roadmap post-G1]].
+
 ## Confirmadas hasta ahora
 
 - LoomLCI será un runtime/capa local, no un agente.
@@ -23,7 +25,7 @@
 - El IPC Python ↔ Loom usará Named Pipe privado/versionado separado de stdout/stderr; el backend Windows reutilizará `IProcessProvider`/Job Objects para lifecycle y cleanup.
 - `worker.py` y `runtime.json` se embeben en `LoomLCI.Windows`; el Host no dependerá del repo ni de su cwd para localizar assets de Python.
 - El CPython privado se auto-provisionará on-demand bajo `%LOCALAPPDATA%\LoomLCI`, con descarga acotada, SHA-256 fijado, staging y publicación por rename; los tests del provisioner usarán HTTP/ZIP falsos en vez de Internet.
-- E1 de Python será stdlib-only y textual; PyAutoGUI, imágenes, paquetes de terceros y `loom.*` quedan diferidos.
+- El alcance histórico de **E1** fue stdlib-only y textual; **posteriormente** Python 1 implementó paquetes, Python 2 el bridge `loom.fs`/`loom.process` y Python 3 outputs de imagen con `loom.display_image`. PyAutoGUI/Computer siguen diferidos.
 - Antes de Computer se implementará Visual Files G1 con tres tools read-only: `filesystem_view_image`, `filesystem_read_pdf` y `filesystem_render_pdf_page`; Computer pasa al bloque H. G1 mantiene nombres públicos `filesystem_*` pero separa internamente `VisualFilesCapability`/provider del Filesystem clásico.
 - Visual Files fija 6 MiB máximos de binario por imagen/PNG y además un cap de 9 MiB sobre el `CallToolResult` MCP serializado estimado exactamente; esto deja margen frente al límite real de 10 MiB del Secure MCP Tunnel incluso con escaping de base64. Los PDFs se limitan a 64 MiB.
 - `filesystem_read_files` conserva el límite interno de 64 MiB de texto agregado en Core/Windows, pero el adapter MCP rechaza localmente cualquier `CallToolResult` serializado >9 MiB con `unsupported/mcp_payload_too_large`. La capa interna permanece agnóstica del transporte y el guard MCP contempla escaping JSON y metadata.

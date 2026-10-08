@@ -1,6 +1,6 @@
 # Auto-update firmado
 
-> Estado: **CERRADO end-to-end (2026-10-06).** LoomLCI ya puede consultar GitHub Releases, verificar un manifest firmado, descargar/verificar un Host update, activarlo transaccionalmente, recuperar ante fallos/crash y volver a `previousVersion`.
+> Estado: **CERRADO end-to-end; cierre actualizado el 2026-10-08.** El updater firmado verifica manifest/ZIP, descarga con progreso y reanudación, activa transaccionalmente, recupera ante fallos y conserva rollback. **Release 5 `0.1.0-dev-42ee90c` (sequence 5) instalada con Host y Launcher nuevos**, healthy/ready; `update check` sin novedades. Publicación periódica/automática sigue diferida.
 
 ## Alcance final
 
@@ -158,21 +158,21 @@ Quedan registradas como evolución futura, **no como próximos pasos**:
 
 Hasta entonces, el flujo aceptado sigue siendo manual en ambos extremos: se publican los assets de cada GitHub Release manualmente y cada instalación ejecuta `update check` / `update apply` de forma explícita.
 
-El siguiente bloque de [[Roadmap post-G1]] es **Producto / Deployment 4: mecanismo de generación/verificación de metadata y skill del plugin**.
+El bloque posterior de metadata/skill del plugin ya quedó **cerrado** (plugin 0.5.1); ver [[Plugin metadata]] y [[Roadmap post-G1]].
 
-## Seguimiento: descargas lentas y robustez del Launcher (2026-10-07)
+## Seguimiento histórico: descargas lentas y robustez del Launcher (2026-10-07; antes de Release 5)
 
 Investigación en PC `GAMING`, sin cambios del Host instalado:
 
 - En el mismo ZIP de GitHub Releases (~49 MB), tanto .NET 10 `HttpClient` como `curl` midieron aproximadamente 90–120 KiB/s; una descarga de prueba desde Cloudflare alcanzó ~1,9 MiB/s. Por lo tanto, la lentitud no es exclusiva de .NET y los intentos iniciales se cancelaron antes de darles tiempo para terminar.
 - El código anterior utilizaba `ResponseHeadersRead` y no establecía un límite para cada lectura posterior; el Launcher llamaba `ApplyAsync(CancellationToken.None)`. La CLI tampoco informaba avance.
-- **Cambio en código fuente, todavía no desplegado:** se extrajo `UpdatePackageDownloader`; muestra bytes, porcentaje, velocidad e intento en la CLI; aplica un timeout por inactividad de **45 s** y un límite total de **30 min**; permite hasta **4 intentos**, con pausas crecientes y reanudación mediante HTTP `Range`.
+- **En el corte de investigación, cambio en código fuente todavía no desplegado (posteriormente incluido en Release 5):** se extrajo `UpdatePackageDownloader`; muestra bytes, porcentaje, velocidad e intento en la CLI; aplica un timeout por inactividad de **45 s** y un límite total de **30 min**; permite hasta **4 intentos**, con pausas crecientes y reanudación mediante HTTP `Range`.
 - Se exige `206 Partial Content` con `Content-Range` coherente cuando se reanuda. Si el servidor ignora `Range` y responde `200 OK`, se reinicia limpiamente desde cero; respuestas parciales incompatibles se rechazan. El paquete completo se vuelve a verificar por tamaño y **SHA-256 contra el manifest firmado** antes de extraer o activar.
 - Los controles de activación, journal, rollback y `highestSequence` no se modifican. La descarga/reintento sucede antes de iniciar la transacción.
 - Pruebas nuevas sin red: transferencia lenta con progreso, IOException/EOF, timeout inactivo, reanudación exacta, Range ignorado, Range inválido, SHA alterado, cancelación explícita, deadline total y límite de reintentos.
 - **Validación del código fuente:** suite Release **366/366** (Core 128, Launcher 30, MCP 6, PdfWorker 6, Windows 175, Integration 21); regresión específica posterior **21/21** y `git diff --check` correcto. No se hizo E2E del Launcher nuevo contra GitHub ni se desplegó en ninguna PC.
 
-**Limitación de despliegue:** el updater existente **actualiza solamente el Host**. Para incorporar esta corrección del Launcher en la PC de escritorio hay que distribuir/instalar un nuevo Launcher (normalmente mediante instalador, con secuencia de release nueva si corresponde); ejecutar `update apply` con el Launcher viejo no incorpora esta mejora. La release 4 permanece publicada sin esta modificación.
+**Limitación arquitectónica que sigue vigente:** `update apply` actualiza sólo el **Host**, no el Launcher. **Cierre aplicado:** en Release 5 se distribuyó y ejecutó el instalador convencional para actualizar también el Launcher. La mención a Release 4 en las pruebas anteriores corresponde al estado histórico previo a ese despliegue.
 
 **Estado histórico previo a release 5:** al cierre de la investigación inicial, `0.1.0-dev-python3` seguía activo en `GAMING` y todavía no se había ejecutado el update real.
 

@@ -1,6 +1,6 @@
 # Instalador Windows
 
-> Estado: **CERRADO end-to-end (2026-10-06).** LoomLCI ya dispone de un instalador Windows convencional por usuario, registrado en Aplicaciones instaladas, con uninstall real y sin duplicar la lógica de configuración del Launcher.
+> Estado: **CERRADO end-to-end** (instalador inicial 2026-10-06; despliegue actualizado 2026-10-08). Instalación por usuario en Aplicaciones instaladas, uninstall real y sin duplicación de `SetupService`. El **instalador de Release 5** se ejecutó sobre la instalación real: Host y Launcher quedaron en `0.1.0-dev-42ee90c` (sequence 5), healthy/ready, con fallback previo intacto. Ver [[Auto-update firmado]].
 
 ## Objetivo
 

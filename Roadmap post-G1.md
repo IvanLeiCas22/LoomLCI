@@ -1,10 +1,10 @@
 # Roadmap post-G1
 
-> Estado: **activo para planificación.** Computer H1 queda pausado. El trabajo futuro seleccionado se concentra en Ergonomía, Producto/Deployment y Python.
+> Estado al 2026-10-08: **CERRADO end-to-end.** Ergonomía, Producto/Deployment y Python 1–3 completados. Release 5 instalada; Computer H1 continúa pausado. Se conserva el orden histórico de ejecución.
 
 ## Objetivo
 
-Mejorar LoomLCI sin abrir todavía Computer Use, priorizando cambios que mejoren primero la propia capacidad de desarrollar LoomLCI, luego su experiencia como producto instalado y finalmente la potencia del runtime Python.
+Objetivo original (cumplido): mejorar LoomLCI sin abrir todavía Computer Use, priorizando primero la ergonomía del agente, luego el producto instalado y finalmente la potencia del runtime Python.
 
 ## Orden acordado
 
@@ -17,7 +17,7 @@ Motivo para ir primero: son cambios acotados, de bajo riesgo y se pueden dogfood
 
 ### 2. Producto / Deployment
 
-Orden preliminar:
+Secuencia ejecutada:
 
 1. mejorar UX del Launcher — **CERRADO end-to-end**: modo `--pause` opt-in para accesos directos, shortcuts de iniciar/detener, mensajes simplificados, salida UTF-8 y README portable con encoding estable;
 2. [[Instalador Windows|instalador Windows convencional]] — **CERRADO end-to-end**: Inno Setup 7.1.0, instalación per-user sin admin, registro en Aplicaciones instaladas, uninstall real y reutilización de `SetupService`;
@@ -26,15 +26,17 @@ Orden preliminar:
 
 ### 3. Python
 
-Orden preliminar:
+Secuencia ejecutada:
 
 1. [[Python 1 - Paquetes administrados|paquetes de terceros administrados/versionados por LoomLCI]] — **CERRADO**: `uv` privado fijado/verificado, environments inmutables con locks+hashes, `python_packages_prepare`, binding por WorkSession, reset explícito al cambiar environment, GC protegido y deployment instalado validado;
 2. [[Python 2 - Bridge privado loom|bridge privado `loom.*` entre el worker Python y capabilities de LoomLCI]] — **CERRADO end-to-end (P2.0–P2.4)**: protocolo privado v2, router modular, `loom.fs`, `loom.process`, lifecycle/ownership administrado, hardening, deployment real, consumer smoke y fresh-agent smoke completados;
-3. [[Python 3 - Outputs binarios e imágenes|outputs binarios/imágenes desde Python hacia el modelo]] — **CERRADO end-to-end (P3.0–P3.2)**. Runtime activo `0.1.0-dev-python3` healthy/ready con Python 2 como rollback; Host instalado: 25 tools, bridge v2, `loom.display_image`, sin `outputSchema`; Integration **21/21** contra DLL instalada y suite Release posterior **356/356**. El mixed image result del Host quedó probado correcto; la regresión específica de ChatGPT Code Mode se bordea mediante plugin **0.5.1** (`image(item)` sobre `content_items[type=image]`), publicado por CAS/read-back sin contract drift. Aceptación final: fresh-agent ciego PASS para imagen Python in-memory y control PASS para imagen local con `filesystem_view_image`. `UI_RENDER` inline sigue siendo una limitación externa no bloqueante; blobs/audio genéricos continúan diferidos.
+3. [[Python 3 - Outputs binarios e imágenes|outputs binarios/imágenes desde Python hacia el modelo]] — **CERRADO end-to-end (P3.0–P3.2)**. Al cerrar P3, el runtime era `0.1.0-dev-python3`, con Python 2 como rollback. Quedaron validados el Host de 25 tools, `loom.display_image`, `ImageContentBlock`, presupuesto MCP de 9 MiB, Integration 21/21, suite Release 356/356 y fresh-agent ciego PASS. El workaround visual se publicó en el plugin **0.5.1**, sin drift del contrato MCP. `UI_RENDER` inline sigue siendo una limitación del consumidor; audio/blobs genéricos continúan diferidos.
+
+**Despliegue posterior (2026-10-08):** Release 5 `0.1.0-dev-42ee90c` (sequence 5) instalada end-to-end con Host y Launcher corregidos; runtime healthy/ready y `update check` sin novedades. Suite Release actual **366/366**. Rollback: `0.1.0-dev-python3` (sequence 0). Ver [[Auto-update firmado]].
 
 ## Horizonte lejano / post-roadmap actual
 
-Estas mejoras quedan **documentadas pero deliberadamente no priorizadas**. No deben desplazar el bloque Python activo ni los cierres ya definidos del roadmap:
+Estas mejoras quedan **documentadas pero deliberadamente no priorizadas**, ahora que el roadmap Ergonomía/Producto/Python terminó. No son bloqueos del runtime actual:
 
 - **publicación automática de releases**: GitHub Actions dispara desde un tag/release, construye los artefactos, ejecuta validaciones y publica automáticamente setup + ZIP de update + manifest + firma; requiere resolver de forma segura el acceso a la clave privada de firma dentro de CI;
 - **update automático en las PCs instaladas**: chequeo periódico o al iniciar LoomLCI y aplicación automática/semiautomática de releases firmadas, reutilizando el motor transaccional, health check y rollback ya implementados;
@@ -44,13 +46,7 @@ Por ahora el modelo operativo aceptado sigue siendo: **publicación manual de la
 
 ## Reconciliación plugin/skill
 
-Es un tema transversal:
-
-- construir temprano el mecanismo de generación/verificación dentro del roadmap de Producto;
-- mantener el schema vivo MCP como fuente de verdad;
-- evitar que el plugin vuelva a depender de rutas Debug del repo;
-- hacer la reconciliación final después de Ergonomía + Python;
-- mantener la publicación/actualización del plugin como paso externo al runtime local, salvo evidencia futura que justifique otro acoplamiento.
+**CERRADO.** El mecanismo de metadata/skill se implementó y verificó contra el contrato MCP vivo, se neutralizaron las rutas Debug antiguas y se publicó el plugin privado **0.5.1** mediante CAS/read-back. La publicación del plugin sigue separada del runtime local; para futuras versiones se conserva el procedimiento de [[Plugin metadata]].
 
 ## Workflow de cada mejora
 
@@ -64,6 +60,6 @@ Es un tema transversal:
 8. commit;
 9. para cambios de runtime instalado, usar LoomLCI como herramienta principal e IvanSpace sólo para cutover/fallback/recuperación.
 
-## Próxima acción
+## Siguiente etapa a decidir
 
-Python 3 queda **cerrado end-to-end**. El siguiente bloque del roadmap puede elegirse sin pendientes técnicos de P3. La limitación `UI_RENDER` de imágenes Python in-memory en ChatGPT Web/Code Mode queda documentada como externa y no bloqueante.
+El roadmap post-G1 quedó **cerrado** y no tiene tareas técnicas de P3 pendientes. **No se aprobó todavía otro bloque de implementación.** Una opción natural es retomar [[Bloque H - Computer|Computer H1]] (diseño cerrado, implementación pausada), previa revisión específica y aprobación del usuario. Publicación automática y auto-update periódico siguen en el horizonte lejano. La limitación externa `UI_RENDER` no bloquea la evolución de LoomLCI.

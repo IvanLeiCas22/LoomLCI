@@ -1,6 +1,6 @@
 # Deployment portable
 
-> Estado: **implementado y validado end-to-end en dos PCs Windows x64**. El mismo paquete se instaló desde cero en una notebook sin repo/IvanSpace/.NET/Python preinstalados, conectó por el mismo Secure MCP Tunnel y fue controlado desde ChatGPT. El deployment portable queda cerrado funcionalmente; sólo quedan mejoras de UX/operación no bloqueantes.
+> Estado: **CERRADO end-to-end** en dos PCs Windows x64. El portable es la fuente del payload del instalador. **Corte vigente del 2026-10-08: Release 5 `0.1.0-dev-42ee90c` (sequence 5) instalada en la PC principal, Host y Launcher actualizados, healthy/ready; rollback `0.1.0-dev-python3` (sequence 0)**. Las secciones posteriores conservan los hitos históricos de cada despliegue.
 
 ## Objetivo
 
@@ -9,7 +9,7 @@ Separar definitivamente:
 - **repositorio de desarrollo**: código, tests y builds Debug/Release;
 - **instalación de uso**: Host Release publicado, launcher, tunnel-client y configuración local por máquina.
 
-Visual Files G1 pasa a ser el próximo bloque funcional y Computer continúa después como H1. Este bloque sigue siendo infraestructura de deployment y operación previa a ambas capabilities.
+En el orden histórico del desarrollo, Visual Files G1 vino después de esta infraestructura y ya quedó **cerrado**; Computer H1 es el bloque siguiente **diseñado pero pausado**. El deployment no introduce por sí mismo Computer Use.
 
 ## Restricciones de diseño
 
@@ -522,7 +522,7 @@ Se implementó e instaló el follow-up de ergonomía de Work Plan:
 - IntegrationTests contra la DLL instalada: **15/15**;
 - smoke posterior al cutover desde este mismo chat mediante `process_run`: OK.
 
-La conversación que realizó el update conserva el catálogo anterior de 23 tools, por lo que el smoke directo de `work_plan_patch` queda pendiente de un chat con catálogo refrescado. El Host instalado ya publica la tool y su contrato fue validado contra la DLL instalada; el pendiente es únicamente de aceptación del consumidor.
+**Corte histórico del cutover Work Plan:** aquella conversación conservó un catálogo de 23 tools, por lo que no pudo ejecutar inmediatamente el smoke directo de `work_plan_patch`. **Después se completó con catálogo refrescado y el bloque quedó cerrado end-to-end**; ver [[Ergonomía - Work Plan patch]] y [[Roadmap post-G1]].
 
 ### Hallazgo durante rollback
 

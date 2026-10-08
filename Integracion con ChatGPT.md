@@ -1,6 +1,6 @@
 # Integración con ChatGPT
 
-> Estado: integración de LoomLCI con ChatGPT normal validada end-to-end mediante Secure MCP Tunnel.
+> Estado al 2026-10-08: integración con ChatGPT normal **validada end-to-end** por Secure MCP Tunnel. Host y Launcher de **Release 5** instalados, healthy/ready; plugin 0.5.1 publicado, 25 tools públicas.
 
 ## Arquitectura actual
 
@@ -92,9 +92,11 @@ La instalación final mantiene una única ruta de acceso: la app MCP conectada a
 - cutover y rollback del runtime validados;
 - smoke real desde ChatGPT validado.
 
-El runtime activo final es `loomlci-installed`, actualmente en `0.1.0-dev-python2` (sequence 0), healthy/ready sobre el mismo tunnel, con `0.1.0-dev-python1` conservado como rollback. El installer real quedó registrado como `LoomLCI` con uninstall bajo `%LOCALAPPDATA%\Programs\LoomLCI\unins000.exe`. [[Auto-update firmado]] fue validado contra una GitHub Release pública real y mantiene `highestSequence=3`; los milestones Python de desarrollo se instalaron side-by-side con sequence 0 sin consumir nuevas secuencias públicas.
+El runtime activo final es `loomlci-installed` (alias), en **`0.1.0-dev-42ee90c` (Release 5, sequence 5)**, healthy/ready sobre el mismo tunnel. El rollback disponible es `0.1.0-dev-python3` (sequence 0) y `highestSequence=5`; `update check` indica que está actualizado. El Launcher instalado también corresponde a la Release 5; el setup figura en Aplicaciones instaladas como LoomLCI.
 
-Visual Files G1, `filesystem_read_files`, `process_run`, [[Ergonomía - Work Plan patch]], Python 1 y Python 2 están incluidos. [[Plugin metadata]] dejó el plugin privado en **0.4.0** como capa de workflow/metadata reconciliada: la app `LoomLCI MCP` + Secure MCP Tunnel sigue siendo la única conexión MCP, los viejos `mcp.json/.mcp.json` permanecen neutralizados con `mcpServers: {}`, y la skill final enseña `python_packages_prepare`/`python_reset` más el bridge privado `loom.fs`/`loom.process` sin convertirlos en tools MCP públicas. La suite Release actual es **338/338**, IntegrationTests **20/20**, el catálogo público permanece en **25 tools** con Work Plan habilitado y la evaluación fresh-agent de la skill 0.4.0 pasó **4/4**.
+Visual Files G1, `filesystem_read_files`, `process_run`, `work_plan_patch`, Python 1/2/3 y el motor de actualización firmada están incluidos. [[Plugin metadata]] mantiene el plugin privado **0.5.1**, con la app `LoomLCI MCP` + túnel como única ruta MCP y archivos `mcp.json/.mcp.json` neutralizados. La skill conoce paquetes, `loom.fs`, `loom.process` y `loom.display_image`; en ChatGPT Code Mode reenvía `content_items[type=image]` al helper `image(item)`. La visión del modelo se verificó; la visualización inline de la UI sigue siendo una limitación externa. Suite Release actual **366/366**, incluyendo **21/21 IntegrationTests** (binarios Release), catálogo **25 tools**.
+
+Los cortes anteriores de esta integración (Python 1/2 y plugin 0.4.0) quedan como historial de [[Deployment portable]] y [[Plugin metadata]].
 
 ## Notas
 

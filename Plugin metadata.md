@@ -1,6 +1,6 @@
 # Plugin metadata y verificación
 
-> Estado: **CERRADO end-to-end (2026-10-07).** Mecanismo anti-drift y reconciliación final post-Python 0.4.0 completados: fuente canónica, contrato MCP, build/verifier, publicación CAS/read-back y evaluación fresh-agent 4/4 validados.
+> Estado vigente al 2026-10-08: **CERRADO end-to-end**, plugin privado canónico/publicado **0.5.1**. Metadata/contrato MCP anti-drift, build/verifier, CAS/read-back y smoke fresh-agent validados. 0.4.0 y 0.5.0 quedan documentados abajo como cortes históricos; el Host de Release 5 sigue exponiendo 25 tools.
 
 ## Objetivo
 
@@ -137,7 +137,7 @@ El mecanismo general para evitar drift queda cerrado; la reconciliación final p
 
 ### Drift confirmado
 
-El plugin privado publicado sigue en **0.3.0** y está detrás de la fuente canónica: la skill publicada todavía no enseña el workflow de paquetes de Python 1 y tampoco conoce el bridge privado Python 2 (loom.fs / loom.process).
+**Hallazgo histórico antes de publicar 0.4.0:** el plugin privado todavía estaba en **0.3.0** y faltaba enseñar paquetes Python 1 y el bridge Python 2 (`loom.fs`/`loom.process`). Ese drift ya se resolvió; posteriormente se publicaron 0.4.0, 0.5.0 y la versión **0.5.1** vigente.
 
 El snapshot canónico MCP ya está actualizado a Python 2 y coincide byte a byte con el Host instalado 0.1.0-dev-python2: **25 tools**, SHA-256 `674e3edc6f209dbf15074b08ace8484cb7c67c122aa343d73a8df842d86e6064`. Por lo tanto esta reconciliación no debe tocar ServerInstructions/tool descriptions ni actualizar el snapshot salvo drift inesperado.
 

@@ -1,5 +1,7 @@
 # Preguntas abiertas
 
+> Revisión 2026-10-08: separar **preguntas todavía abiertas** de decisiones históricas ya resueltas. No existe una deuda crítica que impida usar la Release 5. Estado operativo y próximos pasos: [[Inicio]], [[Roadmap post-G1]].
+
 ## Arquitectura general
 
 - Baseline v0.1 reconciliada y aceptada en [[Arquitectura propuesta]], [[Especificacion interna v0.1]] y [[Estructura del repositorio v0.1]].
@@ -7,14 +9,9 @@
 
 ## Python Runtime
 
-El vertical slice E1 quedó diseñado en [[Bloque E - Python Runtime]]. Cerrado para E1: runtime privado CPython 3.14.8 embeddable, Named Pipe versionado, un worker lazy por WorkSession, timeout/reset y stdlib-only.
+**E1, Python 1, Python 2 y Python 3 (P3.0–P3.2) están cerrados.** El runtime privado CPython 3.14.8, el package store gestionado con `uv`, el bridge `loom.fs`/`loom.process` y las imágenes PNG/JPEG/WebP con `loom.display_image` se implementaron y validaron. Ver [[Bloque E - Python Runtime]], [[Python 1 - Paquetes administrados]], [[Python 2 - Bridge privado loom]] y [[Python 3 - Outputs binarios e imágenes]].
 
-Preguntas deliberadamente diferidas:
-
-- paquetes de terceros posteriores a E1;
-- forma exacta del futuro bridge `loom.*`;
-- outputs de imagen cuando la capa MCP utilizada tenga una ruta binaria estable;
-- integración PyAutoGUI/Computer.
+**Aún diferido (no bloqueante):** PyAutoGUI/Computer como integración adicional y soporte de outputs binarios genéricos/audio, que no formaron parte del cierre image-first. **Limitación del consumidor:** la UI de ChatGPT no muestra inline imágenes Python in-memory, aunque el modelo sí las recibe/ve mediante plugin 0.5.1; `UI_RENDER` no es un defecto pendiente del Host.
 
 ## Deployment portable
 
@@ -29,7 +26,7 @@ Implementado y validado en la PC principal en [[Deployment portable]]:
 - acceso directo de escritorio;
 - cutover y rollback reales validados; el legacy queda preservado y detenido como fallback.
 
-Validación en segunda PC completada. Diferido/no bloqueante:
+Validación en segunda PC completada. En la PC principal la **Release 5 `0.1.0-dev-42ee90c` (sequence 5)** quedó instalada con Host y Launcher actualizados, healthy/ready y `update check` sin novedades. El updater firmado, su rollback y el instalador convencional están cerrados. Diferido/no bloqueante:
 
 - DPAPI;
 - autoarranque al login;
@@ -69,7 +66,7 @@ Diferido después de H1:
 
 - WorkSession idle TTL, tombstone retention, ProcessHandle post-exit TTL y explicit release definidos en [[Bloque D0 - Resource lifetime y expiry]]; quedan futuras policies por nuevos resource kinds.
 - Ergonomía: `process_run` **cerrado end-to-end** como one-shot real en Core, sin handle durable y reutilizando el backend Process existente.
-- Ergonomía Work Plan: [[Ergonomía - Work Plan patch]] implementó `work_plan_patch` sin perder revision/CAS ni identidad estable. Suite Release 269/269, portable publicado/instalado y runtime healthy/ready; queda sólo smoke directo de la nueva tool en un chat con catálogo refrescado.
+- Ergonomía Work Plan: [[Ergonomía - Work Plan patch]] implementó `work_plan_patch` con revision/CAS e IDs estables. **Smoke directo en ChatGPT con catálogo refrescado completado**, incluido CAS stale/atomicidad; bloque cerrado end-to-end.
 - tamaños de buffers.
 - formato y retención del audit durable.
 - autenticación remota si se habilita HTTP fuera de localhost/tunnel.
