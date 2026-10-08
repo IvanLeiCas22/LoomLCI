@@ -87,12 +87,16 @@ public sealed class UpdateTests
                 paths,
                 runtime);
 
+            var downloadProgress = new List<UpdateDownloadProgress>();
             var result = await service.ApplyAsync(
-                CancellationToken.None);
+                CancellationToken.None, downloadProgress.Add);
 
             var config = MachineConfigStore.Load(
                 paths.MachineConfigPath);
 
+            Assert.NotEmpty(downloadProgress);
+            Assert.Equal(downloadProgress[^1].TotalBytes,
+                downloadProgress[^1].BytesReceived);
             Assert.True(result.Changed);
             Assert.Equal("v2", config.ActiveVersion);
             Assert.Equal(2, config.ActiveSequence);

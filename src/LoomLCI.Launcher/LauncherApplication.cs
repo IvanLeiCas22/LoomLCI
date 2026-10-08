@@ -271,7 +271,20 @@ public sealed class LauncherApplication
             case "apply":
             {
                 var result = await _updates.ApplyAsync(
-                    cancellationToken);
+                    cancellationToken,
+                    progress =>
+                    {
+                        var percent = 100.0 * progress.BytesReceived /
+                            progress.TotalBytes;
+                        var received = progress.BytesReceived / 1048576.0;
+                        var total = progress.TotalBytes / 1048576.0;
+                        var speed = progress.BytesPerSecond / 1024.0;
+                        _output.WriteLine(
+                            $"Descarga intento {progress.Attempt}: " +
+                            $"{percent:F1}% ({received:F1}/{total:F1} MiB), " +
+                            $"{speed:F0} KiB/s");
+                        _output.Flush();
+                    });
 
                 if (!result.Changed)
                 {

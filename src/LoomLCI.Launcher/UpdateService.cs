@@ -1,5 +1,4 @@
 using System.IO.Compression;
-using System.Security.Cryptography;
 using System.Text;
 
 namespace LoomLCI.Launcher;
@@ -8,7 +7,6 @@ public sealed class UpdateService
 {
     private const int MaxManifestBytes = 64 * 1024;
     private const int MaxSignatureBytes = 4 * 1024;
-    private const long MaxPackageBytes = 256L * 1024 * 1024;
     private const long MaxExtractedBytes = 512L * 1024 * 1024;
     private const int MaxArchiveEntries = 10_000;
 
@@ -17,13 +15,15 @@ public sealed class UpdateService
     private readonly HttpClient _httpClient;
     private readonly IUpdateSignatureVerifier _signatureVerifier;
     private readonly UpdateFeedOptions _feed;
+    private readonly UpdatePackageDownloader _downloader;
 
     public UpdateService(
         AppPaths paths,
         IUpdateRuntimeControl runtime,
         HttpClient? httpClient = null,
         IUpdateSignatureVerifier? signatureVerifier = null,
-        UpdateFeedOptions? feed = null)
+        UpdateFeedOptions? feed = null,
+        UpdateDownloadOptions? downloadOptions = null)
     {
         _paths = paths;
         _runtime = runtime;
@@ -31,6 +31,7 @@ public sealed class UpdateService
         _signatureVerifier =
             signatureVerifier ?? UpdateTrust.CreateVerifier();
         _feed = feed ?? UpdateFeedOptions.Default;
+        _downloader = new UpdatePackageDownloader(_httpClient, downloadOptions);
     }
 
     public async Task<UpdateCheckResult> CheckAsync(
@@ -45,7 +46,8 @@ public sealed class UpdateService
     }
 
     public async Task<UpdateApplyResult> ApplyAsync(
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<UpdateDownloadProgress>? onDownloadProgress = null)
     {
         using var operationLock = DeploymentLock.Acquire(_paths);
         await RecoverIfNeededLockedAsync(cancellationToken);
@@ -85,9 +87,10 @@ public sealed class UpdateService
             var packagePath = Path.Combine(
                 tempRoot,
                 "update-package.zip");
-            await DownloadPackageAsync(
+            await _downloader.DownloadAsync(
                 release,
                 packagePath,
+                onDownloadProgress,
                 cancellationToken);
 
             var packageRoot = Path.Combine(tempRoot, "package");
@@ -475,90 +478,6 @@ public sealed class UpdateService
             updateAvailable,
             release.MinUpdateProtocol >
                 UpdateTrust.SupportedProtocol);
-    }
-
-    private async Task DownloadPackageAsync(
-        UpdateReleaseManifest release,
-        string destination,
-        CancellationToken cancellationToken)
-    {
-        var packageUri = new Uri(
-            release.PackageUrl,
-            UriKind.Absolute);
-
-        using var response = await _httpClient.GetAsync(
-            packageUri,
-            HttpCompletionOption.ResponseHeadersRead,
-            cancellationToken);
-        response.EnsureSuccessStatusCode();
-
-        if (response.Content.Headers.ContentLength is long declared &&
-            declared != release.PackageSizeBytes)
-        {
-            throw new InvalidDataException(
-                $"El paquete declara {declared} bytes por HTTP, " +
-                $"pero el manifest espera {release.PackageSizeBytes}.");
-        }
-
-        if (release.PackageSizeBytes > MaxPackageBytes)
-        {
-            throw new InvalidDataException(
-                $"El paquete excede el máximo de {MaxPackageBytes} bytes.");
-        }
-
-        await using var source =
-            await response.Content.ReadAsStreamAsync(
-                cancellationToken);
-        await using var target = File.Create(destination);
-
-        var buffer = new byte[64 * 1024];
-        long total = 0;
-        using var hash = IncrementalHash.CreateHash(
-            HashAlgorithmName.SHA256);
-
-        while (true)
-        {
-            var read = await source.ReadAsync(
-                buffer,
-                cancellationToken);
-            if (read == 0)
-            {
-                break;
-            }
-
-            total += read;
-            if (total > MaxPackageBytes ||
-                total > release.PackageSizeBytes)
-            {
-                throw new InvalidDataException(
-                    "El paquete descargado excede el tamaño esperado.");
-            }
-
-            hash.AppendData(buffer, 0, read);
-            await target.WriteAsync(
-                buffer.AsMemory(0, read),
-                cancellationToken);
-        }
-
-        if (total != release.PackageSizeBytes)
-        {
-            throw new InvalidDataException(
-                $"Tamaño de paquete inesperado: {total}; " +
-                $"esperado {release.PackageSizeBytes}.");
-        }
-
-        var actualHash = Convert.ToHexString(
-                hash.GetHashAndReset())
-            .ToLowerInvariant();
-
-        if (!string.Equals(
-                actualHash,
-                release.PackageSha256,
-                StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidDataException(
-                $"SHA-256 inesperado para el update: {actualHash}.");
-        }
     }
 
     private async Task<byte[]> DownloadBytesBoundedAsync(
