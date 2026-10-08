@@ -16,6 +16,7 @@ public sealed class UpdateService
     private readonly IUpdateSignatureVerifier _signatureVerifier;
     private readonly UpdateFeedOptions _feed;
     private readonly UpdatePackageDownloader _downloader;
+    private readonly Action<string>? _transitionProbe;
 
     public UpdateService(
         AppPaths paths,
@@ -23,7 +24,8 @@ public sealed class UpdateService
         HttpClient? httpClient = null,
         IUpdateSignatureVerifier? signatureVerifier = null,
         UpdateFeedOptions? feed = null,
-        UpdateDownloadOptions? downloadOptions = null)
+        UpdateDownloadOptions? downloadOptions = null,
+        Action<string>? transitionProbe = null)
     {
         _paths = paths;
         _runtime = runtime;
@@ -32,6 +34,7 @@ public sealed class UpdateService
             signatureVerifier ?? UpdateTrust.CreateVerifier();
         _feed = feed ?? UpdateFeedOptions.Default;
         _downloader = new UpdatePackageDownloader(_httpClient, downloadOptions);
+        _transitionProbe = transitionProbe;
     }
 
     public async Task<UpdateCheckResult> CheckAsync(
@@ -75,38 +78,32 @@ public sealed class UpdateService
                 original.PreviousSequence);
         }
 
+        var operationId = Guid.NewGuid().ToString("N");
         var tempRoot = Path.Combine(
-            Path.GetTempPath(),
-            "LoomLCI.Update",
-            Guid.NewGuid().ToString("N"));
+            Path.GetTempPath(), "LoomLCI.Update", operationId);
         Directory.CreateDirectory(tempRoot);
+        Directory.CreateDirectory(_paths.VersionsRoot);
+        var staging = StagingPath(release.Version, operationId);
 
         var journalWritten = false;
         try
         {
-            var packagePath = Path.Combine(
-                tempRoot,
-                "update-package.zip");
+            var packagePath = Path.Combine(tempRoot, "update-package.zip");
             await _downloader.DownloadAsync(
-                release,
-                packagePath,
-                onDownloadProgress,
-                cancellationToken);
+                release, packagePath, onDownloadProgress, cancellationToken);
 
             var packageRoot = Path.Combine(tempRoot, "package");
             ExtractPackage(packagePath, packageRoot);
+            var packageManifest = PortablePackageManifestStore.Load(packageRoot);
+            ValidatePackageMatchesRelease(packageManifest, release);
 
-            var packageManifest =
-                PortablePackageManifestStore.Load(packageRoot);
-            ValidatePackageMatchesRelease(
-                packageManifest,
-                release);
+            // Do not replace any installed version before a recovery journal exists.
+            HostPackageInstaller.StageHost(packageRoot, packageManifest, staging);
+            cancellationToken.ThrowIfCancellationRequested();
 
-            HostPackageInstaller.InstallHost(
-                packageRoot,
-                packageManifest,
-                _paths,
-                replaceExisting: true);
+            var destination = _paths.VersionDirectory(release.Version);
+            var existed = Directory.Exists(destination);
+            ValidateExistingTarget(original, release, existed);
 
             var target = original with
             {
@@ -114,47 +111,37 @@ public sealed class UpdateService
                 ActiveSequence = release.Sequence,
                 PreviousVersion = original.ActiveVersion,
                 PreviousSequence = original.ActiveSequence,
-                HighestSequence = Math.Max(
-                    original.HighestSequence,
-                    release.Sequence)
+                HighestSequence = Math.Max(original.HighestSequence, release.Sequence)
             };
-
             var journal = new UpdateJournal
             {
                 Operation = "update",
-                OperationId = Guid.NewGuid().ToString("N"),
+                OperationId = operationId,
                 Stage = UpdateJournalStage.Prepared,
                 OriginalConfig = original,
                 TargetConfig = target,
+                TargetExisted = existed,
                 StartedAt = DateTimeOffset.UtcNow
             };
 
-            UpdateJournalStore.Save(
-                _paths.UpdateJournalPath,
-                journal);
+            UpdateJournalStore.Save(_paths.UpdateJournalPath, journal);
             journalWritten = true;
+            _transitionProbe?.Invoke("prepared");
 
-            await ActivateAsync(
-                journal,
-                cancellationToken);
+            PromoteTarget(journal);
+            await ActivateAsync(journal, cancellationToken);
+            _transitionProbe?.Invoke("activated");
 
-            UpdateJournalStore.Delete(
-                _paths.UpdateJournalPath);
-            CleanupVersions(target);
-
+            CompleteUpdate(journal with { Stage = UpdateJournalStage.RuntimeStarted });
             return new UpdateApplyResult(
-                true,
-                target.ActiveVersion,
-                target.ActiveSequence,
-                target.PreviousVersion,
-                target.PreviousSequence);
+                true, target.ActiveVersion, target.ActiveSequence,
+                target.PreviousVersion, target.PreviousSequence);
         }
         catch (Exception ex) when (journalWritten)
         {
             try
             {
-                await RecoverIfNeededLockedAsync(
-                    CancellationToken.None);
+                await RecoverIfNeededLockedAsync(CancellationToken.None);
             }
             catch (Exception recoveryEx)
             {
@@ -164,12 +151,26 @@ public sealed class UpdateService
                     new AggregateException(ex, recoveryEx));
             }
 
+            var afterRecovery = MachineConfigStore.Load(_paths.MachineConfigPath);
+            if (afterRecovery.ActiveSequence == release.Sequence &&
+                string.Equals(afterRecovery.ActiveVersion, release.Version,
+                    StringComparison.Ordinal))
+            {
+                return new UpdateApplyResult(
+                    true, afterRecovery.ActiveVersion, afterRecovery.ActiveSequence,
+                    afterRecovery.PreviousVersion, afterRecovery.PreviousSequence);
+            }
+
             throw new InvalidOperationException(
-                $"El update falló; LoomLCI restauró {original.ActiveVersion}.",
-                ex);
+                $"El update falló; LoomLCI restauró {original.ActiveVersion}.", ex);
         }
         finally
         {
+            if (!journalWritten)
+            {
+                DeleteDirectoryBestEffort(staging);
+            }
+
             DeleteDirectoryBestEffort(tempRoot);
         }
     }
@@ -337,6 +338,11 @@ public sealed class UpdateService
             return false;
         }
 
+        if (journal.SchemaVersion == 2 && journal.Operation == "update")
+        {
+            return await RecoverV2UpdateAsync(journal, cancellationToken);
+        }
+
         if (journal.Stage == UpdateJournalStage.RuntimeStarted)
         {
             var current = MachineConfigStore.Load(
@@ -401,6 +407,221 @@ public sealed class UpdateService
         CleanupFailedTarget(journal);
         UpdateJournalStore.Delete(
             _paths.UpdateJournalPath);
+        return true;
+    }
+
+    private static void ValidateExistingTarget(
+        MachineConfig original, UpdateReleaseManifest release, bool existed)
+    {
+        if (string.Equals(release.Version, original.ActiveVersion,
+            StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException("No se permite sobrescribir el Host activo.");
+        }
+
+        if (existed &&
+            (!string.Equals(release.Version, original.PreviousVersion,
+                StringComparison.Ordinal) ||
+             release.Sequence != original.PreviousSequence))
+        {
+            throw new InvalidDataException(
+                "El directorio de destino ya existe y no coincide con la versión anterior.");
+        }
+    }
+
+    private string StagingPath(string version, string operationId) =>
+        _paths.VersionDirectory(version) + ".staging-" + operationId;
+
+    private string BackupPath(string version, string operationId) =>
+        _paths.VersionDirectory(version) + ".backup-" + operationId;
+
+    private void PromoteTarget(UpdateJournal journal)
+    {
+        if (journal.Operation != "update" || journal.SchemaVersion != 2)
+        {
+            throw new InvalidDataException("Promoción sin journal v2.");
+        }
+
+        var version = journal.TargetConfig.ActiveVersion;
+        var destination = _paths.VersionDirectory(version);
+        var staging = StagingPath(version, journal.OperationId);
+        var backup = BackupPath(version, journal.OperationId);
+        if (!Directory.Exists(staging) || Directory.Exists(backup) ||
+            Directory.Exists(destination) != journal.TargetExisted)
+        {
+            throw new IOException("Staging o destino de update cambió desde el preflight.");
+        }
+
+        UpdateJournalStore.Save(
+            _paths.UpdateJournalPath, journal with { Stage = UpdateJournalStage.Promoting });
+        _transitionProbe?.Invoke("promoting");
+
+        if (journal.TargetExisted)
+        {
+            Directory.Move(destination, backup);
+            _transitionProbe?.Invoke("backed_up");
+        }
+
+        Directory.Move(staging, destination);
+        _transitionProbe?.Invoke("published");
+        UpdateJournalStore.Save(
+            _paths.UpdateJournalPath, journal with { Stage = UpdateJournalStage.Promoted });
+    }
+
+    private void RestoreTarget(UpdateJournal journal)
+    {
+        var version = journal.TargetConfig.ActiveVersion;
+        if (string.Equals(version, journal.OriginalConfig.ActiveVersion,
+            StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException("Journal v2 intenta restaurar el Host activo.");
+        }
+
+        var destination = _paths.VersionDirectory(version);
+        var staging = StagingPath(version, journal.OperationId);
+        var backup = BackupPath(version, journal.OperationId);
+        var hasBackup = Directory.Exists(backup);
+        var hasStaging = Directory.Exists(staging);
+        var hasDestination = Directory.Exists(destination);
+
+        if (journal.Stage == UpdateJournalStage.Prepared)
+        {
+            if (hasBackup || hasDestination != journal.TargetExisted)
+            {
+                throw new IOException("Estado inesperado de archivos en journal Prepared.");
+            }
+        }
+        else if (hasBackup)
+        {
+            if (!journal.TargetExisted)
+            {
+                throw new IOException("El journal no esperaba un backup de destino.");
+            }
+
+            if (hasDestination)
+            {
+                Directory.Delete(destination, recursive: true);
+            }
+
+            // Keep the backup until the recovery journal has been deleted.
+            // A crash during the copy can then retry recovery safely.
+            HostPackageInstaller.CopyDirectory(backup, destination);
+        }
+        else if (journal.TargetExisted)
+        {
+            // With no backup, promotion can only be known not to have started
+            // when the complete staging folder is still present.
+            if (!hasStaging || !hasDestination)
+            {
+                throw new IOException(
+                    "Falta el backup de una versión existente. Se conservó el journal.");
+            }
+        }
+        else if (hasDestination)
+        {
+            if (hasStaging)
+            {
+                throw new IOException("Staging y destino inesperadamente presentes.");
+            }
+
+            Directory.Delete(destination, recursive: true);
+        }
+
+        if (Directory.Exists(staging))
+        {
+            Directory.Delete(staging, recursive: true);
+        }
+    }
+
+    private void CompleteUpdate(UpdateJournal journal)
+    {
+        if (journal.SchemaVersion != 2 || journal.Operation != "update")
+        {
+            throw new InvalidDataException("No se puede completar update sin journal v2.");
+        }
+
+        var committed = journal with { Stage = UpdateJournalStage.Committed };
+        UpdateJournalStore.Save(_paths.UpdateJournalPath, committed);
+        _transitionProbe?.Invoke("committed");
+
+        DeleteUpdateArtifacts(committed);
+        CleanupVersions(committed.TargetConfig);
+        UpdateJournalStore.Delete(_paths.UpdateJournalPath);
+    }
+
+    private void DeleteUpdateArtifacts(UpdateJournal journal)
+    {
+        var version = journal.TargetConfig.ActiveVersion;
+        var staging = StagingPath(version, journal.OperationId);
+        var backup = BackupPath(version, journal.OperationId);
+        if (Directory.Exists(staging))
+        {
+            Directory.Delete(staging, recursive: true);
+        }
+
+        if (Directory.Exists(backup))
+        {
+            Directory.Delete(backup, recursive: true);
+        }
+    }
+
+    private async Task<bool> RecoverV2UpdateAsync(
+        UpdateJournal journal, CancellationToken cancellationToken)
+    {
+        var current = MachineConfigStore.Load(_paths.MachineConfigPath);
+        if (journal.Stage == UpdateJournalStage.Committed)
+        {
+            if (!SameActivation(current, journal.TargetConfig) ||
+                !File.Exists(_paths.HostPath(journal.TargetConfig.ActiveVersion)))
+            {
+                throw new IOException("Update committed no coincide con Host/configuración.");
+            }
+
+            if (!await _runtime.IsReadyAsync(
+                _paths, journal.TargetConfig, cancellationToken))
+            {
+                await _runtime.StartAndConfirmAsync(
+                    _paths, journal.TargetConfig, cancellationToken);
+            }
+
+            DeleteUpdateArtifacts(journal);
+            CleanupVersions(journal.TargetConfig);
+            UpdateJournalStore.Delete(_paths.UpdateJournalPath);
+            return true;
+        }
+
+        if (journal.Stage == UpdateJournalStage.RuntimeStarted &&
+            SameActivation(current, journal.TargetConfig) &&
+            await _runtime.IsReadyAsync(
+                _paths, journal.TargetConfig, cancellationToken))
+        {
+            CompleteUpdate(journal);
+            return true;
+        }
+
+        if (journal.Stage is UpdateJournalStage.Prepared or
+            UpdateJournalStage.Promoting or UpdateJournalStage.Promoted)
+        {
+            if (!SameActivation(current, journal.OriginalConfig))
+            {
+                throw new IOException("Configuración inesperada antes de detener runtime.");
+            }
+
+            RestoreTarget(journal);
+            _transitionProbe?.Invoke("restored_files");
+            UpdateJournalStore.Delete(_paths.UpdateJournalPath);
+            DeleteUpdateArtifacts(journal);
+            return true;
+        }
+
+        await _runtime.StopAndConfirmAsync(_paths, current, cancellationToken);
+        MachineConfigStore.Save(_paths.MachineConfigPath, journal.OriginalConfig);
+        RestoreTarget(journal);
+        _transitionProbe?.Invoke("restored_files");
+        await _runtime.StartAndConfirmAsync(
+            _paths, journal.OriginalConfig, cancellationToken);
+        UpdateJournalStore.Delete(_paths.UpdateJournalPath);
+        DeleteUpdateArtifacts(journal);
         return true;
     }
 
@@ -469,6 +690,25 @@ public sealed class UpdateService
 
         var updateAvailable =
             release.Sequence > config.ActiveSequence;
+        if (updateAvailable &&
+            string.Equals(release.Version, config.ActiveVersion,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException(
+                "El feed intenta sobrescribir la versión activa con otra sequence.");
+        }
+
+        if (updateAvailable &&
+            !string.IsNullOrWhiteSpace(config.PreviousVersion) &&
+            string.Equals(release.Version, config.PreviousVersion,
+                StringComparison.OrdinalIgnoreCase) &&
+            (release.Sequence != config.PreviousSequence ||
+             !string.Equals(release.Version, config.PreviousVersion,
+                 StringComparison.Ordinal)))
+        {
+            throw new InvalidDataException(
+                "La versión anterior tiene otra identidad o sequence.");
+        }
 
         return new UpdateCheckResult(
             config.ActiveVersion,

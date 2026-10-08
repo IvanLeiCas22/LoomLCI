@@ -9,7 +9,7 @@ origen: auditoria_integral_2026-10-08
 
 # Roadmap de robustez post-auditoría
 
-> **Decisión del usuario (2026-10-08): resolver los seis bloques de la auditoría integral.** Este documento es un backlog duradero y priorizado, **no** un Work Plan efímero ni evidencia de implementación. Estado actual: **RB-01 implementado y validado en código, pendiente despliegue/smoke; RB-02 a RB-05 pendientes, RB-06 documental parcialmente avanzado**. Se conserva el workflow: investigar el punto y el código vigente → diseñar → contrastar con el usuario → implementar → probar → desplegar si procede → documentar y commitear.
+> **Decisión del usuario (2026-10-08): resolver los seis bloques de la auditoría integral.** Este documento es un backlog duradero y priorizado, **no** un Work Plan efímero ni evidencia de implementación. Estado actual: **RB-01 y RB-02 implementados y validados en fuente, pendientes de despliegue/smoke; RB-03 a RB-05 pendientes, RB-06 documental parcialmente avanzado**. Se conserva el workflow: investigar el punto y el código vigente → diseñar → contrastar con el usuario → implementar → probar → desplegar si procede → documentar y commitear.
 >
 > Baseline verificada durante la auditoría: instalación productiva **Release 6 `0.1.0-dev-6b1566a` (sequence 6)**, rollback Release 5 `0.1.0-dev-42ee90c` (sequence 5), `healthy/ready`; suite Release **379/379**, Integration **21/21**, 25 tools MCP y 16 capacidades de `loom`. El repositorio se encontraba limpio antes de iniciar los cambios documentales. El chequeo NuGet `--vulnerable --include-transitive --no-restore` no reportó vulnerabilidades conocidas. No equivale a un pentest.
 >
@@ -20,7 +20,7 @@ origen: auditoria_integral_2026-10-08
 | ID | Bloque | Prioridad | Estado | Dependencia |
 | --- | --- | --- | --- | --- |
 | RB-01 | Integridad de `filesystem_apply_patch` (`replace` y límites) | Alta | Código validado (400/400), pendiente despliegue/smoke | Primero |
-| RB-02 | Update: staging, journal y recuperación ante fallos tempranos | Alta | Pendiente | Antes de futuros cutovers |
+| RB-02 | Update: staging, journal y recuperación ante fallos tempranos | Alta | Código validado (420/420), E2E/cutover pendientes | Antes de futuros cutovers |
 | RB-03 | Propagación de fallos al cerrar WorkSession/recursos | Media-alta | Pendiente | Independiente de RB-01/02 |
 | RB-04 | Cutover/rollback externos, seguros respecto de Windows Jobs | Media-alta | Pendiente | Coordinar con RB-02 |
 | RB-05 | Uninstall sin pérdida accidental de datos locales | Media | Pendiente | Independiente |
@@ -50,18 +50,22 @@ origen: auditoria_integral_2026-10-08
 
 ## RB-02 — Robustez del actualizador
 
-**Hallazgo:** U-01, ventana entre instalar/reemplazar la carpeta de destino y crear el journal. **Evidencia:** análisis estático del orden del código; falta reproducir interrupciones en esos puntos. Se identificó además la posibilidad de `sequence` superior reutilizando el nombre de la versión activa en un feed firmado erróneo.
+**Estado (2026-10-08): implementación validada en código; instalación real y pruebas de terminación abrupta pendientes.** Nota técnica: [[RB-02 - Journal y promoción recuperable]]. No declararlo `CERRADO end-to-end` sin prueba instalada y cutover externo seguro.
 
-**Código:** `src/LoomLCI.Launcher/UpdateService.cs` (`ApplyAsync`, `Evaluate`, `RecoverIfNeededLockedAsync`) y `HostPackageInstaller.cs`; pruebas `tests/LoomLCI.Launcher.Tests/UpdateTests.cs`.
+**Hallazgos:** sustitución del directorio antes de guardar journal, eliminación potencial de una versión anterior, reutilización del nombre active con otro sequence y persistencia incompleta de archivos de control.
 
-- [ ] Diseñar preflight que prohíba sobrescribir la versión activa y valide coherencia nombre de versión/`sequence`/rutas.
-- [ ] Revisar promoción de staging con preservación recuperable de versiones previas.
-- [ ] Persistir estado de recuperación **antes de la primera mutación riesgosa** y hacerlo consistente con la recuperación por etapa.
-- [ ] Inyectar fallos en descarga/extracción/staging/journal/promoción/stop/start y verificar integridad de original/rollback.
-- [ ] Preservar firma ECDSA, SHA-256, límites, `highestSequence` anti-rollback y compatibilidad de protocolo.
-- [ ] Validar E2E con un entorno aislado; no ejecutar el propio actualizador dentro del árbol LoomLCI que debe detener.
+**Código:** `UpdateService.cs`, `UpdateJournal.cs`, `HostPackageInstaller.cs`, `MachineConfig.cs`, `DurableFile.cs`; pruebas `UpdateTests.cs`.
 
-**Aceptación:** interrupción en cada etapa ensayada permite recuperar un runtime verificado; jamás se borra la versión activa antes de contar con protección suficiente; no hay activación de contenido no validado.
+- [x] Preflight rechaza sobrescritura de active y colisiones con previous; conserva re-aplicación legítima tras rollback.
+- [x] Staging verificado con SHA-256 por archivo y respaldo recuperable de una versión preexistente.
+- [x] Journal v2 ANTES de promover versiones, stages explícitas, flush de config/journal, recuperación reintentable e interoperabilidad de journals v1.
+- [x] Casos de fallo inyectado y escenarios recreados en disco en preparación, promoción, activación, confirmación y restauración.
+- [x] Preservar ECDSA, SHA-256 del feed, límites, `highestSequence` y compatibilidad de protocolo.
+- [x] Suite Release de fuente: **420/420**, Launcher **50/50**, Integration **21/21**. Primera corrida con un fallo transitorio ajeno al Launcher (Core deadline), reintento individual y segunda corrida completa aprobaron.
+- [ ] Ensayos aislados con kill real del Launcher y E2E completo con instalador + rollback.
+- [ ] Instalación en entorno productivo con supervisor externo RB-04 y verificación ChatGPT.
+
+**Aceptación definitiva:** journaling previo a cambios riesgosos, rollback/reanudación sin perder active/previous, ejecución real aislada del Launcher y smoke instalado. No prometer durabilidad física absoluta ante corte eléctrico.
 
 ## RB-03 — Fallos de limpieza de recursos
 

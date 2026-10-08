@@ -1,5 +1,7 @@
 # Auto-update firmado
 
+> **Actualización de robustez (2026-10-08):** el flujo descrito en esta nota corresponde al cierre histórico del updater anterior. La auditoría posterior identificó una ventana de riesgo entre la publicación de un directorio y el journal. La corrección del código fuente está implementada y validada bajo [[RB-02 - Journal y promoción recuperable]] (**420/420 pruebas Release**), pero **no está desplegada**. El nuevo flujo publica journal antes de promocionar, conserva backups y recupera estados interrumpidos; las pruebas con kill real y E2E aislado del Launcher siguen pendientes, como también el cutover externo RB-04. No interpretar la descripción histórica de recuperación por corte eléctrico como garantía física comprobada.
+
 > Estado: **CERRADO end-to-end; cierre actualizado el 2026-10-08.** El updater firmado verifica manifest/ZIP, descarga con progreso y reanudación, activa transaccionalmente, recupera ante fallos y conserva rollback. **Release 5 `0.1.0-dev-42ee90c` (sequence 5) instalada con Host y Launcher nuevos**, healthy/ready; `update check` sin novedades. Publicación periódica/automática sigue diferida.
 
 ## Alcance final

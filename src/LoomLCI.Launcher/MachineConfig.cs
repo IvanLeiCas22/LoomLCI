@@ -69,8 +69,6 @@ public static class MachineConfigStore
     public static void Save(string path, MachineConfig config)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        var temp = path + ".tmp";
-        File.WriteAllText(temp, JsonSerializer.Serialize(config, JsonOptions));
-        File.Move(temp, path, overwrite: true);
+        DurableFile.WriteText(path, JsonSerializer.Serialize(config, JsonOptions));
     }
 }

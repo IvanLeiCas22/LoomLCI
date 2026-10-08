@@ -250,6 +250,7 @@ public sealed class UpdateTests
                 {
                     Operation = "update",
                     OperationId = "test-finalize",
+                    SchemaVersion = 1,
                     Stage = UpdateJournalStage.RuntimeStarted,
                     OriginalConfig = original,
                     TargetConfig = target,
@@ -322,6 +323,7 @@ public sealed class UpdateTests
                 {
                     Operation = "update",
                     OperationId = "test",
+                    SchemaVersion = 1,
                     Stage = UpdateJournalStage.Starting,
                     OriginalConfig = original,
                     TargetConfig = target,
@@ -487,6 +489,395 @@ public sealed class UpdateTests
 
             Assert.Throws<InvalidOperationException>(
                 () => DeploymentLock.Acquire(paths));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("prepared")]
+    [InlineData("promoting")]
+    [InlineData("backed_up")]
+    [InlineData("published")]
+    public async Task InterruptedReapplyRestoresPreviouslyInstalledTarget(string stage)
+    {
+        var root = CreateScratch();
+        try
+        {
+            var paths = CreateInstalledState(
+                root, "v1", 1, "v2", 2, 2);
+            File.WriteAllText(paths.HostPath("v2"), "older-v2-bytes");
+            var original = MachineConfigStore.Load(paths.MachineConfigPath);
+            var runtime = new FakeUpdateRuntimeControl("v1");
+            var fixture = CreateFeed("v2", 2);
+            var service = fixture.CreateService(
+                paths, runtime, probe: reached =>
+                {
+                    if (reached == stage)
+                    {
+                        throw new IOException("Injected interruption at " + stage);
+                    }
+                });
+
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => service.ApplyAsync(CancellationToken.None));
+
+            Assert.Equal(original, MachineConfigStore.Load(paths.MachineConfigPath));
+            Assert.Equal("older-v2-bytes", File.ReadAllText(paths.HostPath("v2")));
+            Assert.Equal("v1", runtime.ReadyVersion);
+            Assert.False(File.Exists(paths.UpdateJournalPath));
+            Assert.Empty(Directory.EnumerateDirectories(paths.VersionsRoot, "*.staging-*"));
+            Assert.Empty(Directory.EnumerateDirectories(paths.VersionsRoot, "*.backup-*"));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("promoting")]
+    [InlineData("published")]
+    public async Task InterruptedFreshTargetDoesNotDamageCurrentVersion(string stage)
+    {
+        var root = CreateScratch();
+        try
+        {
+            var paths = CreateInstalledState(root, "v1", 1, "v0", 0, 1);
+            var original = MachineConfigStore.Load(paths.MachineConfigPath);
+            var fixture = CreateFeed("v2", 2);
+            var runtime = new FakeUpdateRuntimeControl("v1");
+            var service = fixture.CreateService(paths, runtime, probe: reached =>
+            {
+                if (reached == stage)
+                {
+                    throw new IOException("interrupted");
+                }
+            });
+
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => service.ApplyAsync(CancellationToken.None));
+
+            Assert.Equal(original, MachineConfigStore.Load(paths.MachineConfigPath));
+            Assert.Equal("v1", File.ReadAllText(paths.HostPath("v1")));
+            Assert.False(Directory.Exists(paths.VersionDirectory("v2")));
+            Assert.False(File.Exists(paths.UpdateJournalPath));
+            Assert.Empty(Directory.EnumerateDirectories(paths.VersionsRoot, "*.staging-*"));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RestartRecoversPromotionInterruptedBeforeOrAfterPublishing(bool published)
+    {
+        var root = CreateScratch();
+        try
+        {
+            var paths = CreateInstalledState(root, "v1", 1, "v2", 2, 2);
+            var original = MachineConfigStore.Load(paths.MachineConfigPath);
+            File.WriteAllText(paths.HostPath("v2"), "old-copy");
+            var id = Guid.NewGuid().ToString("N");
+            var staging = paths.VersionDirectory("v2") + ".staging-" + id;
+            var backup = paths.VersionDirectory("v2") + ".backup-" + id;
+            CreateVersion(paths, "v2.staging-" + id);
+            File.WriteAllText(Path.Combine(staging, "LoomLCI.Host.exe"), "new-copy");
+            Directory.Move(paths.VersionDirectory("v2"), backup);
+            if (published)
+            {
+                Directory.Move(staging, paths.VersionDirectory("v2"));
+            }
+
+            var target = original with
+            {
+                ActiveVersion = "v2", ActiveSequence = 2,
+                PreviousVersion = "v1", PreviousSequence = 1
+            };
+            UpdateJournalStore.Save(paths.UpdateJournalPath, new UpdateJournal
+            {
+                Operation = "update", OperationId = id,
+                Stage = UpdateJournalStage.Promoting,
+                TargetExisted = true, OriginalConfig = original,
+                TargetConfig = target, StartedAt = DateTimeOffset.UtcNow
+            });
+            var runtime = new FakeUpdateRuntimeControl("v1");
+            var service = CreateFeed("v3", 3).CreateService(paths, runtime);
+
+            Assert.True(await service.RecoverIfNeededAsync(CancellationToken.None));
+            Assert.Equal(original, MachineConfigStore.Load(paths.MachineConfigPath));
+            Assert.Equal("old-copy", File.ReadAllText(paths.HostPath("v2")));
+            Assert.False(Directory.Exists(backup));
+            Assert.False(Directory.Exists(staging));
+            Assert.False(File.Exists(paths.UpdateJournalPath));
+            Assert.False(await service.RecoverIfNeededAsync(CancellationToken.None));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RestartFinalizesCommittedUpdateAndPreservesRollback()
+    {
+        var root = CreateScratch();
+        try
+        {
+            var paths = CreateInstalledState(root, "v1", 1, "v2", 2, 2);
+            var original = MachineConfigStore.Load(paths.MachineConfigPath);
+            var id = Guid.NewGuid().ToString("N");
+            var destination = paths.VersionDirectory("v2");
+            var backup = destination + ".backup-" + id;
+            Directory.Move(destination, backup);
+            CreateVersion(paths, "v2");
+            File.WriteAllText(paths.HostPath("v2"), "new-release");
+            var target = original with
+            {
+                ActiveVersion = "v2", ActiveSequence = 2,
+                PreviousVersion = "v1", PreviousSequence = 1
+            };
+            MachineConfigStore.Save(paths.MachineConfigPath, target);
+            UpdateJournalStore.Save(paths.UpdateJournalPath, new UpdateJournal
+            {
+                Operation = "update", OperationId = id, TargetExisted = true,
+                Stage = UpdateJournalStage.Committed,
+                OriginalConfig = original, TargetConfig = target,
+                StartedAt = DateTimeOffset.UtcNow
+            });
+            var runtime = new FakeUpdateRuntimeControl("v2");
+            var service = CreateFeed("v3", 3).CreateService(paths, runtime);
+
+            Assert.True(await service.RecoverIfNeededAsync(CancellationToken.None));
+            Assert.Equal("new-release", File.ReadAllText(paths.HostPath("v2")));
+            Assert.True(File.Exists(paths.HostPath("v1")));
+            Assert.False(Directory.Exists(backup));
+            Assert.False(File.Exists(paths.UpdateJournalPath));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("v1", 2)]
+    [InlineData("V1", 2)]
+    public async Task HigherSequenceCannotOverwriteActiveHost(string releaseVersion, long sequence)
+    {
+        var root = CreateScratch();
+        try
+        {
+            var paths = CreateInstalledState(root, "v1", 1, "v0", 0, 1);
+            var original = MachineConfigStore.Load(paths.MachineConfigPath);
+            var fixture = CreateFeed(releaseVersion, sequence);
+            var service = fixture.CreateService(paths, new FakeUpdateRuntimeControl("v1"));
+
+            await Assert.ThrowsAsync<InvalidDataException>(
+                () => service.CheckAsync(CancellationToken.None));
+            Assert.Equal(original, MachineConfigStore.Load(paths.MachineConfigPath));
+            Assert.Equal("v1", File.ReadAllText(paths.HostPath("v1")));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PreviousVersionCannotBeReusedWithDifferentSequence()
+    {
+        var root = CreateScratch();
+        try
+        {
+            var paths = CreateInstalledState(root, "v1", 1, "v2", 2, 2);
+            var service = CreateFeed("v2", 3).CreateService(
+                paths, new FakeUpdateRuntimeControl("v1"));
+
+            await Assert.ThrowsAsync<InvalidDataException>(
+                () => service.CheckAsync(CancellationToken.None));
+            Assert.Equal("v2", File.ReadAllText(paths.HostPath("v2")));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(UpdateJournalStage.Stopping, false)]
+    [InlineData(UpdateJournalStage.RuntimeStopped, false)]
+    [InlineData(UpdateJournalStage.Activated, true)]
+    [InlineData(UpdateJournalStage.Starting, true)]
+    [InlineData(UpdateJournalStage.RuntimeStarted, true)]
+    public async Task InterruptedRuntimeActivationRestoresPreviousFilesAndConfig(
+        UpdateJournalStage stage, bool configSwitched)
+    {
+        var root = CreateScratch();
+        try
+        {
+            var paths = CreateInstalledState(root, "v1", 1, "v2", 2, 2);
+            var original = MachineConfigStore.Load(paths.MachineConfigPath);
+            File.WriteAllText(paths.HostPath("v2"), "saved-previous");
+            var id = Guid.NewGuid().ToString("N");
+            var backup = paths.VersionDirectory("v2") + ".backup-" + id;
+            Directory.Move(paths.VersionDirectory("v2"), backup);
+            CreateVersion(paths, "v2");
+            File.WriteAllText(paths.HostPath("v2"), "published-target");
+            var target = original with
+            {
+                ActiveVersion = "v2", ActiveSequence = 2,
+                PreviousVersion = "v1", PreviousSequence = 1
+            };
+            if (configSwitched)
+            {
+                MachineConfigStore.Save(paths.MachineConfigPath, target);
+            }
+
+            UpdateJournalStore.Save(paths.UpdateJournalPath, new UpdateJournal
+            {
+                Operation = "update", OperationId = id,
+                Stage = stage, TargetExisted = true,
+                OriginalConfig = original, TargetConfig = target,
+                StartedAt = DateTimeOffset.UtcNow
+            });
+
+            // A healthy target at RuntimeStarted is committed, not rolled back;
+            // force a not-ready runtime to exercise the restoration branch.
+            var runtime = new FakeUpdateRuntimeControl(null);
+            var service = CreateFeed("v3", 3).CreateService(paths, runtime);
+            Assert.True(await service.RecoverIfNeededAsync(CancellationToken.None));
+            Assert.Equal(original, MachineConfigStore.Load(paths.MachineConfigPath));
+            Assert.Equal("saved-previous", File.ReadAllText(paths.HostPath("v2")));
+            Assert.Equal("v1", runtime.ReadyVersion);
+            Assert.False(File.Exists(paths.UpdateJournalPath));
+            Assert.False(Directory.Exists(backup));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task MissingPreviousTargetBackupPreservesJournalForManualRecovery()
+    {
+        var root = CreateScratch();
+        try
+        {
+            var paths = CreateInstalledState(root, "v1", 1, "v2", 2, 2);
+            var original = MachineConfigStore.Load(paths.MachineConfigPath);
+            var id = Guid.NewGuid().ToString("N");
+            Directory.Delete(paths.VersionDirectory("v2"), recursive: true);
+            var target = original with
+            {
+                ActiveVersion = "v2", ActiveSequence = 2,
+                PreviousVersion = "v1", PreviousSequence = 1
+            };
+            UpdateJournalStore.Save(paths.UpdateJournalPath, new UpdateJournal
+            {
+                Operation = "update", OperationId = id,
+                Stage = UpdateJournalStage.Promoting,
+                TargetExisted = true,
+                OriginalConfig = original, TargetConfig = target,
+                StartedAt = DateTimeOffset.UtcNow
+            });
+            var service = CreateFeed("v3", 3).CreateService(
+                paths, new FakeUpdateRuntimeControl("v1"));
+
+            await Assert.ThrowsAsync<IOException>(
+                () => service.RecoverIfNeededAsync(CancellationToken.None));
+            Assert.True(File.Exists(paths.UpdateJournalPath));
+            Assert.Equal(original, MachineConfigStore.Load(paths.MachineConfigPath));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ExceptionAfterDurableCommitFinalizesInsteadOfClaimingRollback()
+    {
+        var root = CreateScratch();
+        try
+        {
+            var paths = CreateInstalledState(root, "v1", 1, "v2", 2, 2);
+            var runtime = new FakeUpdateRuntimeControl("v1");
+            var service = CreateFeed("v2", 2).CreateService(
+                paths, runtime, probe: stage =>
+                {
+                    if (stage == "committed")
+                    {
+                        throw new IOException("Process lost after commit");
+                    }
+                });
+
+            var result = await service.ApplyAsync(CancellationToken.None);
+            Assert.True(result.Changed);
+            Assert.Equal("v2", result.ActiveVersion);
+            Assert.Equal("host-v2", File.ReadAllText(paths.HostPath("v2")));
+            Assert.False(File.Exists(paths.UpdateJournalPath));
+            Assert.Empty(Directory.EnumerateDirectories(paths.VersionsRoot, "*.backup-*"));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RecoveryCanBeRepeatedAfterInterruptionDuringRestore()
+    {
+        var root = CreateScratch();
+        try
+        {
+            var paths = CreateInstalledState(root, "v1", 1, "v2", 2, 2);
+            var original = MachineConfigStore.Load(paths.MachineConfigPath);
+            File.WriteAllText(paths.HostPath("v2"), "saved-original-target");
+            var id = Guid.NewGuid().ToString("N");
+            var backup = paths.VersionDirectory("v2") + ".backup-" + id;
+            Directory.Move(paths.VersionDirectory("v2"), backup);
+            CreateVersion(paths, "v2");
+            File.WriteAllText(paths.HostPath("v2"), "new-target");
+            var target = original with
+            {
+                ActiveVersion = "v2", ActiveSequence = 2,
+                PreviousVersion = "v1", PreviousSequence = 1
+            };
+            UpdateJournalStore.Save(paths.UpdateJournalPath, new UpdateJournal
+            {
+                Operation = "update", OperationId = id, Stage = UpdateJournalStage.Promoting,
+                OriginalConfig = original, TargetConfig = target, TargetExisted = true,
+                StartedAt = DateTimeOffset.UtcNow
+            });
+
+            var failOnce = true;
+            var runtime = new FakeUpdateRuntimeControl("v1");
+            var service = CreateFeed("v3", 3).CreateService(
+                paths, runtime, probe: stage =>
+                {
+                    if (stage == "restored_files" && failOnce)
+                    {
+                        failOnce = false;
+                        throw new IOException("Simulated crash during recovery");
+                    }
+                });
+            await Assert.ThrowsAsync<IOException>(
+                () => service.RecoverIfNeededAsync(CancellationToken.None));
+            Assert.True(File.Exists(paths.UpdateJournalPath));
+            Assert.True(Directory.Exists(backup));
+            Assert.Equal("saved-original-target", File.ReadAllText(paths.HostPath("v2")));
+
+            Assert.True(await service.RecoverIfNeededAsync(CancellationToken.None));
+            Assert.Equal("saved-original-target", File.ReadAllText(paths.HostPath("v2")));
+            Assert.False(File.Exists(paths.UpdateJournalPath));
+            Assert.False(Directory.Exists(backup));
         }
         finally
         {
@@ -678,7 +1069,8 @@ public sealed class UpdateTests
     {
         public UpdateService CreateService(
             AppPaths paths,
-            IUpdateRuntimeControl runtime)
+            IUpdateRuntimeControl runtime,
+            Action<string>? probe = null)
         {
             return new UpdateService(
                 paths,
@@ -689,7 +1081,8 @@ public sealed class UpdateTests
                     new Uri(
                         "https://updates.test/manifest.json"),
                     new Uri(
-                        "https://updates.test/manifest.sig")));
+                        "https://updates.test/manifest.sig")),
+                transitionProbe: probe);
         }
     }
 

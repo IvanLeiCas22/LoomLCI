@@ -9,12 +9,15 @@ public enum UpdateJournalStage
     RuntimeStopped = 2,
     Activated = 3,
     Starting = 4,
-    RuntimeStarted = 5
+    RuntimeStarted = 5,
+    Promoting = 6,
+    Promoted = 7,
+    Committed = 8
 }
 
 public sealed record UpdateJournal
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
     public required string Operation { get; init; }
@@ -23,6 +26,7 @@ public sealed record UpdateJournal
     public required MachineConfig OriginalConfig { get; init; }
     public required MachineConfig TargetConfig { get; init; }
     public required DateTimeOffset StartedAt { get; init; }
+    public bool TargetExisted { get; init; }
 }
 
 public static class UpdateJournalStore
@@ -46,10 +50,19 @@ public static class UpdateJournalStore
             ?? throw new InvalidDataException(
                 "El journal de update está vacío o es inválido.");
 
-        if (journal.SchemaVersion != UpdateJournal.CurrentSchemaVersion)
+        if (journal.SchemaVersion is not (1 or UpdateJournal.CurrentSchemaVersion))
         {
             throw new InvalidDataException(
                 $"Schema de journal no soportado: {journal.SchemaVersion}.");
+        }
+
+        VersionName.Validate(journal.OriginalConfig.ActiveVersion);
+        VersionName.Validate(journal.TargetConfig.ActiveVersion);
+        if (journal.SchemaVersion == 2 &&
+            (!Guid.TryParseExact(journal.OperationId, "N", out _) ||
+             journal.Operation is not ("update" or "rollback")))
+        {
+            throw new InvalidDataException("Journal v2 con operación o identificador inválidos.");
         }
 
         return journal;
@@ -58,11 +71,7 @@ public static class UpdateJournalStore
     public static void Save(string path, UpdateJournal journal)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        var temp = path + ".tmp";
-        File.WriteAllText(
-            temp,
-            JsonSerializer.Serialize(journal, JsonOptions));
-        File.Move(temp, path, overwrite: true);
+        DurableFile.WriteText(path, JsonSerializer.Serialize(journal, JsonOptions));
     }
 
     public static void Delete(string path)
