@@ -174,4 +174,14 @@ Investigación en PC `GAMING`, sin cambios del Host instalado:
 
 **Limitación de despliegue:** el updater existente **actualiza solamente el Host**. Para incorporar esta corrección del Launcher en la PC de escritorio hay que distribuir/instalar un nuevo Launcher (normalmente mediante instalador, con secuencia de release nueva si corresponde); ejecutar `update apply` con el Launcher viejo no incorpora esta mejora. La release 4 permanece publicada sin esta modificación.
 
-**Estado del despliegue real:** `0.1.0-dev-python3` sigue activo en `GAMING`. No se ejecutó `update apply` desde el código modificado ni se realizó cutover del runtime. La validación de código y pruebas es independiente de la instalación.
+**Estado histórico previo a release 5:** al cierre de la investigación inicial, `0.1.0-dev-python3` seguía activo en `GAMING` y todavía no se había ejecutado el update real.
+
+## Release 5: publicación y E2E real (2026-10-08)
+
+- Commit `42ee90c` y tag `v0.1.0-dev-42ee90c` publicados en GitHub. Release `0.1.0-dev-42ee90c`, sequence **5**, publicada como **Latest**, no prerelease, con los cuatro assets (setup, ZIP, manifest JSON y firma).
+- El ZIP de update mide **49.365.306 bytes**, SHA-256 `13a1772549d14554ee95fe0c4a6c76c622fed42ea2c37d21309a99849b0899d8`; tamaño, digest y firma ECDSA del manifest verificados. Setup: **59.753.924 bytes**, SHA-256 `041af9b9b8b63c2b3be51275e032810fcb0f45414a7a16dc67ffe4c00d04ceb7`.
+- Build firmado y pruebas del Launcher **30/30**, IntegrationTests contra Host publicado **21/21**. Prueba de installer aislado: exit code 0, launcher/payload/profile/config completos, runtime key con ACL user-only, registro HKCU correcto; desinstalación aislada completa. La descarga inicial del tunnel-client se evitó en el ensayo manual mediante binario local verificado por SHA-256.
+- Ejecutado `update apply` desde el **Launcher corregido de la carpeta portable**, mediante **IvanSpace** para evitar perder el canal MCP. Progreso visible `0%, 63,7%, 100%`, descarga completa en primer intento; proceso terminó **exit code 0** en ~7,3 s.
+- Runtime instalado activo `0.1.0-dev-42ee90c`, sequence **5**; previous `0.1.0-dev-python3`, sequence **0**; highestSequence **5**. Estado **healthy/ready**; tunnel correcto; sin journal. `update check`: ya actualizado. Sólo directorios active/previous.
+- Smoke fresh-agent posterior con LoomLCI: `work_create`, `process_run`, `python_execute` con `import loom, loom.fs, loom.process`; 15 capabilities, lectura del árbol del repo y git status, exit 0. Repo limpio y sincronizado con origin/main.
+- **Pendiente separado:** el updater actualizó únicamente el Host; **el Launcher instalado** aún es el antiguo (SHA distinto al de release 5), y el registro Windows continúa mostrando `0.1.0-dev-autoupdate-base`. Instalar el setup real release 5, comprobar que preserva previous y recuperar estado healthy/ready. No confundir el E2E del Host completado con el despliegue completo del Launcher.
