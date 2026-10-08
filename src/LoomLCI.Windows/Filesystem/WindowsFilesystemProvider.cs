@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 using LoomLCI.Core;
 using LoomLCI.Core.Filesystem;
@@ -7,20 +8,25 @@ namespace LoomLCI.Windows.Filesystem;
 public sealed class WindowsFilesystemProvider : IFilesystemProvider
 {
     private const long MaxTextFileBytes = 16L * 1024 * 1024;
+    private static readonly object PatchGate = new();
     private const long DefaultMaxSearchTotalBytes = 64L * 1024 * 1024;
     private const long MaxReadTotalBytes = 64L * 1024 * 1024;
     private readonly long _maxSearchTotalBytes;
+    private readonly Action<string, string>? _patchStageHook;
 
     public WindowsFilesystemProvider()
         : this(DefaultMaxSearchTotalBytes)
     {
     }
 
-    internal WindowsFilesystemProvider(long maxSearchTotalBytes)
+    internal WindowsFilesystemProvider(
+        long maxSearchTotalBytes,
+        Action<string, string>? patchStageHook = null)
     {
         _maxSearchTotalBytes = maxSearchTotalBytes > 0
             ? maxSearchTotalBytes
             : throw new ArgumentOutOfRangeException(nameof(maxSearchTotalBytes));
+        _patchStageHook = patchStageHook;
     }
     private const int MaxSkippedFileSamples = 20;
 
@@ -550,158 +556,188 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
         CancellationToken cancellationToken)
         => Task.Run(() =>
         {
-            try
+            // A batch is serialized with every other patch batch in this Host.
+            // External processes may still edit files: each text target is rechecked
+            // immediately before publishing.
+            lock (PatchGate)
             {
-                ValidatePatch(changes, cancellationToken);
-
-                var undo = new Stack<Action>();
-                var cleanup = new Stack<Action>();
                 try
                 {
-                    foreach (var change in changes)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
+                    var snapshots = ValidatePatch(changes, cancellationToken);
+                    var undo = new Stack<(string Path, Action Restore)>();
+                    var cleanup = new Stack<(string Path, Action Delete)>();
 
-                        switch (change.Operation)
-                        {
-                            case FilesystemPatchOperation.Write:
-                            {
-                                var path = change.Path!;
-                                var existed = File.Exists(path);
-                                var encoding = existed ? GetExistingTextEncoding(path) : new UTF8Encoding(false);
-                                string? backup = null;
-
-                                if (existed)
-                                {
-                                    backup = CreateSiblingBackupPath(path);
-                                    File.Move(path, backup);
-                                    var capturedBackup = backup;
-                                    undo.Push(() =>
-                                    {
-                                        if (File.Exists(path))
-                                        {
-                                            File.Delete(path);
-                                        }
-                                        if (File.Exists(capturedBackup))
-                                        {
-                                            File.Move(capturedBackup, path, true);
-                                        }
-                                    });
-                                    cleanup.Push(() => DeleteFileIfExists(capturedBackup));
-                                }
-                                else
-                                {
-                                    undo.Push(() => DeleteFileIfExists(path));
-                                }
-
-                                File.WriteAllText(path, change.Content!, encoding);
-                                break;
-                            }
-
-                            case FilesystemPatchOperation.Replace:
-                            {
-                                var path = change.Path!;
-                                var originalBytes = File.ReadAllBytes(path);
-                                var original = File.ReadAllText(path);
-                                var updated = original.Replace(change.OldText!, change.NewText!, StringComparison.Ordinal);
-                                File.WriteAllText(path, updated, GetExistingTextEncoding(path));
-                                undo.Push(() => File.WriteAllBytes(path, originalBytes));
-                                break;
-                            }
-
-                            case FilesystemPatchOperation.Delete:
-                            {
-                                var path = change.Path!;
-                                var backup = CreateSiblingBackupPath(path);
-                                File.Move(path, backup);
-                                undo.Push(() =>
-                                {
-                                    if (File.Exists(backup))
-                                    {
-                                        File.Move(backup, path, true);
-                                    }
-                                });
-                                cleanup.Push(() => DeleteFileIfExists(backup));
-                                break;
-                            }
-
-                            case FilesystemPatchOperation.Move:
-                            {
-                                var from = change.FromPath!;
-                                var to = change.ToPath!;
-                                string? destinationBackup = null;
-
-                                if (File.Exists(to))
-                                {
-                                    destinationBackup = CreateSiblingBackupPath(to);
-                                    File.Move(to, destinationBackup);
-                                    var capturedBackup = destinationBackup;
-                                    undo.Push(() =>
-                                    {
-                                        if (File.Exists(capturedBackup))
-                                        {
-                                            File.Move(capturedBackup, to, true);
-                                        }
-                                    });
-                                    cleanup.Push(() => DeleteFileIfExists(capturedBackup));
-                                }
-
-                                File.Move(from, to, overwrite: false);
-                                undo.Push(() =>
-                                {
-                                    if (File.Exists(to))
-                                    {
-                                        File.Move(to, from, true);
-                                    }
-                                });
-                                break;
-                            }
-                        }
-                    }
-                }
-                catch
-                {
-                    while (undo.Count > 0)
-                    {
-                        try
-                        {
-                            undo.Pop().Invoke();
-                        }
-                        catch
-                        {
-                            // Preserve the original failure. Rollback is best-effort.
-                        }
-                    }
-
-                    throw;
-                }
-
-                while (cleanup.Count > 0)
-                {
                     try
                     {
-                        cleanup.Pop().Invoke();
-                    }
-                    catch
-                    {
-                        // The requested changes are already committed. Cleanup is best-effort.
-                    }
-                }
+                        foreach (var change in changes)
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
 
-                return LoomResult<FilesystemPatchResult>.Success(
-                    new FilesystemPatchResult(changes.Count));
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (PatchValidationException ex)
-            {
-                return LoomResult<FilesystemPatchResult>.Failure(ex.Error);
-            }
-            catch (Exception ex)
-            {
-                return LoomResult<FilesystemPatchResult>.Failure(MapException(ex));
+                            switch (change.Operation)
+                            {
+                                case FilesystemPatchOperation.Write:
+                                {
+                                    var path = change.Path!;
+                                    var existed = snapshots.TryGetValue(path, out var originalHash);
+                                    var encoding = existed
+                                        ? ReadTextSnapshot(path).Encoding
+                                        : new UTF8Encoding(false, true);
+                                    var bytes = EncodeText(change.Content!, encoding, path);
+                                    PublishTextChange(
+                                        path, bytes, existed, originalHash, undo, cleanup, cancellationToken, _patchStageHook);
+                                    break;
+                                }
+
+                                case FilesystemPatchOperation.Replace:
+                                {
+                                    var path = change.Path!;
+                                    var snapshot = ReadTextSnapshot(path);
+                                    var occurrences = CountOccurrences(snapshot.Text, change.OldText!);
+                                    if (occurrences != change.ExpectedOccurrences)
+                                    {
+                                        throw Conflict(
+                                            $"Expected {change.ExpectedOccurrences} occurrence(s) of old_text in '{path}', found {occurrences}.");
+                                    }
+
+                                    ValidateReplacementSize(
+                                        snapshot, change.OldText!, change.NewText!, occurrences, path);
+                                    var updated = snapshot.Text.Replace(
+                                        change.OldText!, change.NewText!, StringComparison.Ordinal);
+                                    var bytes = EncodeText(updated, snapshot.Encoding, path);
+                                    PublishTextChange(
+                                        path, bytes, true, snapshots[path], undo, cleanup, cancellationToken, _patchStageHook);
+                                    break;
+                                }
+
+                                case FilesystemPatchOperation.Delete:
+                                {
+                                    var path = change.Path!;
+                                    var backup = CreateSiblingBackupPath(path);
+                                    File.Move(path, backup);
+                                    undo.Push((path, () =>
+                                    {
+                                        if (File.Exists(backup))
+                                        {
+                                            File.Move(backup, path, true);
+                                        }
+                                    }));
+                                    cleanup.Push((backup, () => DeleteFileIfExists(backup)));
+                                    break;
+                                }
+
+                                case FilesystemPatchOperation.Move:
+                                {
+                                    var from = change.FromPath!;
+                                    var to = change.ToPath!;
+                                    if (File.Exists(to))
+                                    {
+                                        var destinationBackup = CreateSiblingBackupPath(to);
+                                        File.Move(to, destinationBackup);
+                                        undo.Push((to, () =>
+                                        {
+                                            if (File.Exists(destinationBackup))
+                                            {
+                                                File.Move(destinationBackup, to, true);
+                                            }
+                                        }));
+                                        cleanup.Push((
+                                            destinationBackup,
+                                            () => DeleteFileIfExists(destinationBackup)));
+                                    }
+
+                                    File.Move(from, to, overwrite: false);
+                                    undo.Push((from, () =>
+                                    {
+                                        if (File.Exists(to))
+                                        {
+                                            File.Move(to, from, true);
+                                        }
+                                    }));
+                                    break;
+                                }
+                            }
+
+                            _patchStageHook?.Invoke("after_change", change.Path ?? change.ToPath!);
+                        }
+                    }
+                    catch (Exception originalFailure)
+                    {
+                        var failedPaths = new List<string>();
+                        var restoreErrors = new List<string>();
+                        while (undo.Count > 0)
+                        {
+                            var entry = undo.Pop();
+                            try
+                            {
+                                entry.Restore();
+                            }
+                            catch (Exception rollbackFailure)
+                            {
+                                failedPaths.Add(entry.Path);
+                                restoreErrors.Add(rollbackFailure.Message);
+                            }
+                        }
+
+                        if (failedPaths.Count > 0)
+                        {
+                            throw new PatchValidationException(new LoomError(
+                                "rollback_failed",
+                                "Patch failed and at least one file could not be restored. " +
+                                "Recovery backups have been retained where available.",
+                                false,
+                                new Dictionary<string, object?>
+                                {
+                                    ["originalError"] = originalFailure.Message,
+                                    ["failedPaths"] = failedPaths,
+                                    ["restoreErrors"] = restoreErrors
+                                }));
+                        }
+
+                        throw;
+                    }
+
+                    var cleanupFailures = new List<string>();
+                    while (cleanup.Count > 0)
+                    {
+                        var entry = cleanup.Pop();
+                        try
+                        {
+                            entry.Delete();
+                        }
+                        catch (Exception)
+                        {
+                            cleanupFailures.Add(entry.Path);
+                        }
+                    }
+
+                    if (cleanupFailures.Count > 0)
+                    {
+                        return LoomResult<FilesystemPatchResult>.Failure(new LoomError(
+                            "cleanup_failed",
+                            "Patch changes were applied, but backup cleanup was incomplete.",
+                            false,
+                            new Dictionary<string, object?>
+                            {
+                                ["appliedChanges"] = changes.Count,
+                                ["remainingBackups"] = cleanupFailures
+                            }));
+                    }
+
+                    return LoomResult<FilesystemPatchResult>.Success(
+                        new FilesystemPatchResult(changes.Count));
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (PatchValidationException ex)
+                {
+                    return LoomResult<FilesystemPatchResult>.Failure(ex.Error);
+                }
+                catch (Exception ex)
+                {
+                    return LoomResult<FilesystemPatchResult>.Failure(MapException(ex));
+                }
             }
         }, cancellationToken);
 
@@ -756,11 +792,12 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
             }
         }, cancellationToken);
 
-    private static void ValidatePatch(
+    private static Dictionary<string, byte[]> ValidatePatch(
         IReadOnlyList<FilesystemPatchChange> changes,
         CancellationToken cancellationToken)
     {
         var touched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var snapshots = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var change in changes)
         {
@@ -774,12 +811,25 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                     EnsureUnique(touched, path);
                     EnsureParentExists(path);
 
-                    if (File.Exists(path) && !change.Overwrite)
+                    if (Directory.Exists(path))
+                    {
+                        throw Conflict($"Path '{path}' is a directory, not a file.");
+                    }
+
+                    var existed = File.Exists(path);
+                    if (existed && !change.Overwrite)
                     {
                         throw Conflict($"File '{path}' already exists. Set overwrite=true to replace it.");
                     }
 
-                    EnsureContentSize(change.Content!, path);
+                    var snapshot = existed ? ReadTextSnapshot(path) : null;
+                    var encoding = snapshot?.Encoding ?? new UTF8Encoding(false, true);
+                    _ = EncodeText(change.Content!, encoding, path);
+                    if (snapshot is not null)
+                    {
+                        snapshots.Add(path, snapshot.Hash);
+                    }
+
                     break;
                 }
 
@@ -787,16 +837,17 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                 {
                     var path = change.Path!;
                     EnsureUnique(touched, path);
-                    EnsureTextFile(path);
-
-                    var text = File.ReadAllText(path);
-                    var occurrences = CountOccurrences(text, change.OldText!);
+                    var snapshot = ReadTextSnapshot(path);
+                    var occurrences = CountOccurrences(snapshot.Text, change.OldText!);
                     if (occurrences != change.ExpectedOccurrences)
                     {
                         throw Conflict(
                             $"Expected {change.ExpectedOccurrences} occurrence(s) of old_text in '{path}', found {occurrences}.");
                     }
 
+                    ValidateReplacementSize(
+                        snapshot, change.OldText!, change.NewText!, occurrences, path);
+                    snapshots.Add(path, snapshot.Hash);
                     break;
                 }
 
@@ -831,6 +882,8 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                 }
             }
         }
+
+        return snapshots;
     }
 
     private static IEnumerable<(
@@ -1152,49 +1205,240 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
         return builder.ToString();
     }
 
-    private static Encoding GetExistingTextEncoding(string path)
+    private static TextFileSnapshot ReadTextSnapshot(string path)
     {
-        Span<byte> prefix = stackalloc byte[4];
+        EnsureFileExists(path);
+        if (new FileInfo(path).Length > MaxTextFileBytes)
+        {
+            throw new PatchValidationException(
+                LoomErrors.Unsupported($"File '{path}' exceeds the 16 MiB text patch limit."));
+        }
+
+        var bytes = File.ReadAllBytes(path);
+        if (bytes.LongLength > MaxTextFileBytes)
+        {
+            throw new PatchValidationException(
+                LoomErrors.Unsupported($"File '{path}' exceeds the 16 MiB text patch limit."));
+        }
+
+        var encoding = GetStrictTextEncoding(bytes);
+        var preambleSize = encoding.GetPreamble().Length;
+        string text;
+        try
+        {
+            text = encoding.GetString(bytes, preambleSize, bytes.Length - preambleSize);
+        }
+        catch (DecoderFallbackException)
+        {
+            throw new PatchValidationException(
+                LoomErrors.Unsupported($"File '{path}' has invalid text encoding."));
+        }
+
+        if (text.IndexOf('\0') >= 0)
+        {
+            throw new PatchValidationException(
+                LoomErrors.Unsupported($"File '{path}' does not appear to be a text file."));
+        }
+
+        return new TextFileSnapshot(text, encoding, SHA256.HashData(bytes));
+    }
+
+    private static Encoding GetStrictTextEncoding(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.StartsWith(new byte[] { 0x00, 0x00, 0xFE, 0xFF }))
+        {
+            return new UTF32Encoding(true, true, true);
+        }
+
+        if (bytes.StartsWith(new byte[] { 0xFF, 0xFE, 0x00, 0x00 }))
+        {
+            return new UTF32Encoding(false, true, true);
+        }
+
+        if (bytes.StartsWith(new byte[] { 0xEF, 0xBB, 0xBF }))
+        {
+            return new UTF8Encoding(true, true);
+        }
+
+        if (bytes.StartsWith(new byte[] { 0xFE, 0xFF }))
+        {
+            return new UnicodeEncoding(true, true, true);
+        }
+
+        if (bytes.StartsWith(new byte[] { 0xFF, 0xFE }))
+        {
+            return new UnicodeEncoding(false, true, true);
+        }
+
+        return new UTF8Encoding(false, true);
+    }
+
+    private static byte[] EncodeText(string text, Encoding encoding, string path)
+    {
+        if (text.IndexOf('\0') >= 0)
+        {
+            throw new PatchValidationException(
+                LoomErrors.Unsupported($"Content for '{path}' contains a NUL character."));
+        }
+
+        try
+        {
+            var preamble = encoding.GetPreamble();
+            var bodySize = encoding.GetByteCount(text);
+            if ((long)preamble.Length + bodySize > MaxTextFileBytes)
+            {
+                throw new PatchValidationException(
+                    LoomErrors.Unsupported($"Content for '{path}' exceeds the 16 MiB text patch limit."));
+            }
+
+            var result = new byte[preamble.Length + bodySize];
+            preamble.CopyTo(result, 0);
+            _ = encoding.GetBytes(text, 0, text.Length, result, preamble.Length);
+            return result;
+        }
+        catch (EncoderFallbackException)
+        {
+            throw new PatchValidationException(
+                LoomErrors.Unsupported($"Content for '{path}' has invalid Unicode characters."));
+        }
+    }
+
+    private static void ValidateReplacementSize(
+        TextFileSnapshot snapshot,
+        string oldText,
+        string newText,
+        int occurrences,
+        string path)
+    {
+        try
+        {
+            var encoding = snapshot.Encoding;
+            var originalSize = (long)encoding.GetPreamble().Length + encoding.GetByteCount(snapshot.Text);
+            var replacementDelta = (long)encoding.GetByteCount(newText) - encoding.GetByteCount(oldText);
+            var predictedSize = originalSize + replacementDelta * occurrences;
+            if (predictedSize > MaxTextFileBytes)
+            {
+                throw new PatchValidationException(
+                    LoomErrors.Unsupported($"Content for '{path}' exceeds the 16 MiB text patch limit."));
+            }
+        }
+        catch (EncoderFallbackException)
+        {
+            throw new PatchValidationException(
+                LoomErrors.Unsupported($"Replacement for '{path}' contains invalid Unicode characters."));
+        }
+    }
+
+    private static void VerifyUnchanged(string path, byte[] expectedHash)
+    {
         using var stream = File.OpenRead(path);
-        var read = stream.Read(prefix);
-
-        if (read >= 4 &&
-            prefix[0] == 0x00 &&
-            prefix[1] == 0x00 &&
-            prefix[2] == 0xFE &&
-            prefix[3] == 0xFF)
+        if (stream.Length > MaxTextFileBytes)
         {
-            return new UTF32Encoding(bigEndian: true, byteOrderMark: true);
+            throw Conflict($"File '{path}' grew beyond the 16 MiB text patch limit.");
         }
 
-        if (read >= 4 &&
-            prefix[0] == 0xFF &&
-            prefix[1] == 0xFE &&
-            prefix[2] == 0x00 &&
-            prefix[3] == 0x00)
+        var actualHash = SHA256.HashData(stream);
+        if (!actualHash.AsSpan().SequenceEqual(expectedHash))
         {
-            return new UTF32Encoding(bigEndian: false, byteOrderMark: true);
+            throw Conflict($"File '{path}' changed while the patch was being prepared.");
+        }
+    }
+
+    private static void RestoreTextBackup(string backup, string path)
+    {
+        if (!File.Exists(backup))
+        {
+            return;
         }
 
-        if (read >= 3 &&
-            prefix[0] == 0xEF &&
-            prefix[1] == 0xBB &&
-            prefix[2] == 0xBF)
+        if (File.Exists(path))
         {
-            return new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
+            File.Replace(backup, path, null, ignoreMetadataErrors: true);
         }
-
-        if (read >= 2 && prefix[0] == 0xFE && prefix[1] == 0xFF)
+        else
         {
-            return new UnicodeEncoding(bigEndian: true, byteOrderMark: true);
+            File.Move(backup, path);
         }
+    }
 
-        if (read >= 2 && prefix[0] == 0xFF && prefix[1] == 0xFE)
+    private static void PublishTextChange(
+        string path,
+        byte[] content,
+        bool existed,
+        byte[]? originalHash,
+        Stack<(string Path, Action Restore)> undo,
+        Stack<(string Path, Action Delete)> cleanup,
+        CancellationToken cancellationToken,
+        Action<string, string>? patchStageHook)
+    {
+        var staging = CreateSiblingTemporaryPath(path);
+        try
         {
-            return new UnicodeEncoding(bigEndian: false, byteOrderMark: true);
-        }
+            using (var stream = new FileStream(staging, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                stream.Write(content);
+                stream.Flush(flushToDisk: true);
+            }
 
-        return new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+            cancellationToken.ThrowIfCancellationRequested();
+            patchStageHook?.Invoke("before_publish", path);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!existed)
+            {
+                if (File.Exists(path) || Directory.Exists(path))
+                {
+                    throw Conflict($"File '{path}' was created by another operation.");
+                }
+
+                File.Move(staging, path);
+                undo.Push((path, () => DeleteFileIfExists(path)));
+                return;
+            }
+
+            var expectedHash = originalHash
+                ?? throw new InvalidOperationException("Missing original text fingerprint.");
+            var backup = CreateSiblingBackupPath(path);
+            try
+            {
+                VerifyUnchanged(path, expectedHash);
+                File.Copy(path, backup);
+                VerifyUnchanged(backup, expectedHash);
+                VerifyUnchanged(path, expectedHash);
+            }
+            catch
+            {
+                DeleteFileIfExists(backup);
+                throw;
+            }
+
+            // The recovery action is registered before publishing, including
+            // the case where File.Replace reports a post-mutation failure.
+            undo.Push((path, () => RestoreTextBackup(backup, path)));
+            cleanup.Push((backup, () => DeleteFileIfExists(backup)));
+            cancellationToken.ThrowIfCancellationRequested();
+            File.Replace(staging, path, null, ignoreMetadataErrors: true);
+        }
+        finally
+        {
+            DeleteFileIfExists(staging);
+        }
+    }
+
+    private static string CreateSiblingTemporaryPath(string path)
+    {
+        var directory = Path.GetDirectoryName(path)
+            ?? throw new IOException($"Could not determine a parent directory for '{path}'.");
+        while (true)
+        {
+            var candidate = Path.Combine(
+                directory,
+                $".{Path.GetFileName(path)}.loomlci-{Guid.NewGuid():N}.tmp");
+            if (!File.Exists(candidate) && !Directory.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
     }
 
     private static void EnsureUnique(HashSet<string> touched, string path)
@@ -1226,34 +1470,6 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
         if (!File.Exists(path))
         {
             throw new PatchValidationException(LoomErrors.NotFound($"File '{path}' was not found."));
-        }
-    }
-
-    private static void EnsureTextFile(string path)
-    {
-        EnsureFileExists(path);
-
-        var info = new FileInfo(path);
-        if (info.Length > MaxTextFileBytes)
-        {
-            throw new PatchValidationException(
-                LoomErrors.Unsupported($"File '{path}' exceeds the 16 MiB text patch limit."));
-        }
-
-        var text = File.ReadAllText(path);
-        if (text.IndexOf('\0') >= 0)
-        {
-            throw new PatchValidationException(
-                LoomErrors.Unsupported($"File '{path}' does not appear to be a text file."));
-        }
-    }
-
-    private static void EnsureContentSize(string content, string path)
-    {
-        if (Encoding.UTF8.GetByteCount(content) > MaxTextFileBytes)
-        {
-            throw new PatchValidationException(
-                LoomErrors.Unsupported($"Content for '{path}' exceeds the 16 MiB text patch limit."));
         }
     }
 
@@ -1313,6 +1529,8 @@ public sealed class WindowsFilesystemProvider : IFilesystemProvider
                 => LoomErrors.InvalidArgument(ex.Message),
             _ => LoomErrors.Internal(ex.Message)
         };
+
+    private sealed record TextFileSnapshot(string Text, Encoding Encoding, byte[] Hash);
 
     private sealed record TextLine(string Content, string Separator);
 

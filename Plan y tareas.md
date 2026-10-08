@@ -1,15 +1,15 @@
 # Plan y tareas
 
-> Estado consolidado al **2026-10-08**: el [[Roadmap post-G1]] (incluida A4.1) quedó **CERRADO end-to-end**. El siguiente trabajo aprobado es [[Roadmap de robustez post-auditoría]], con seis bloques pendientes de resolver. [[Bloque H - Computer|Computer H1]] sigue pausado.
+> Estado consolidado al **2026-10-08**: el [[Roadmap post-G1]] (incluida A4.1) quedó **CERRADO end-to-end**. El trabajo aprobado es [[Roadmap de robustez post-auditoría]]: **RB-01 validado en código, pendiente de despliegue/smoke**; los demás bloques permanecen en backlog. [[Bloque H - Computer|Computer H1]] sigue pausado.
 
 ## Estado operativo vigente
 
 - Release productiva: **`0.1.0-dev-6b1566a`**, sequence **6**, `healthy/ready`; rollback **`0.1.0-dev-42ee90c`**, sequence **5**. Ver [[A4.1 - Release 6 desplegada]].
 - Plugin privado: **0.5.1**; catálogo MCP **25 tools** y bridge privado `loom.capabilities()` **16**.
 - Python 1–3, G1, F1, Process/Filesystem, instalador, actualización firmada y ergonomía: milestones funcionales **cerrados**, con deudas específicas halladas por auditoría; no confundir su cierre histórico con la resolución del nuevo roadmap.
-- Suite Release ejecutada el 2026-10-08: **379/379**; IntegrationTests **21/21**. Las pruebas existentes no cubren todavía todos los fallos identificados.
+- Baseline productiva Release 6: **379/379**. Tras implementar RB-01, la **suite del repositorio** aprobó **400/400**, IntegrationTests **21/21**, Filesystem focalizadas **48/48**. No confundir estos binarios compilados con el Host instalado.
 - Limitación visual externa documentada: `UI_RENDER` inline de imágenes Python en ChatGPT.
-- Prioridad vigente: **RB-01 → RB-06** en [[Roadmap de robustez post-auditoría]], sin implementaciones iniciadas. Computer H1 y automatizaciones de releases permanecen fuera de alcance.
+- Prioridad vigente: [[RB-01 - Integridad de filesystem_apply_patch|RB-01]] implementado en fuente y pendiente de cutover externo; próximo análisis técnico **RB-02** antes de instalar. RB-03 a RB-06 se conservan en [[Roadmap de robustez post-auditoría]]. Computer H1 y automatizaciones de releases permanecen fuera de alcance.
 
 > **Lectura histórica:** los recuentos, releases y referencias a pendientes en el resto de esta nota describen cada etapa tal como se verificó entonces; el estado operativo actual está en el encabezado y en [[A4.1 - Release 6 desplegada]].
 

@@ -3,13 +3,13 @@ tipo: roadmap
 proyecto: LoomLCI
 fecha: 2026-10-08
 estado: aprobado_para_resolver
-fase: documentacion
+fase: implementacion_por_bloque
 origen: auditoria_integral_2026-10-08
 ---
 
 # Roadmap de robustez post-auditoría
 
-> **Decisión del usuario (2026-10-08): resolver los seis bloques de la auditoría integral.** Este documento es un backlog duradero y priorizado, **no** un Work Plan efímero ni evidencia de implementación. Estado inicial: **documentación creada; cambios de código, validaciones y despliegues pendientes**. Se conserva el workflow: investigar el punto y el código vigente → diseñar → contrastar con el usuario → implementar → probar → desplegar si procede → documentar y commitear.
+> **Decisión del usuario (2026-10-08): resolver los seis bloques de la auditoría integral.** Este documento es un backlog duradero y priorizado, **no** un Work Plan efímero ni evidencia de implementación. Estado actual: **RB-01 implementado y validado en código, pendiente despliegue/smoke; RB-02 a RB-05 pendientes, RB-06 documental parcialmente avanzado**. Se conserva el workflow: investigar el punto y el código vigente → diseñar → contrastar con el usuario → implementar → probar → desplegar si procede → documentar y commitear.
 >
 > Baseline verificada durante la auditoría: instalación productiva **Release 6 `0.1.0-dev-6b1566a` (sequence 6)**, rollback Release 5 `0.1.0-dev-42ee90c` (sequence 5), `healthy/ready`; suite Release **379/379**, Integration **21/21**, 25 tools MCP y 16 capacidades de `loom`. El repositorio se encontraba limpio antes de iniciar los cambios documentales. El chequeo NuGet `--vulnerable --include-transitive --no-restore` no reportó vulnerabilidades conocidas. No equivale a un pentest.
 >
@@ -19,7 +19,7 @@ origen: auditoria_integral_2026-10-08
 
 | ID | Bloque | Prioridad | Estado | Dependencia |
 | --- | --- | --- | --- | --- |
-| RB-01 | Integridad de `filesystem_apply_patch` (`replace` y límites) | Alta | Pendiente | Primero |
+| RB-01 | Integridad de `filesystem_apply_patch` (`replace` y límites) | Alta | Código validado (400/400), pendiente despliegue/smoke | Primero |
 | RB-02 | Update: staging, journal y recuperación ante fallos tempranos | Alta | Pendiente | Antes de futuros cutovers |
 | RB-03 | Propagación de fallos al cerrar WorkSession/recursos | Media-alta | Pendiente | Independiente de RB-01/02 |
 | RB-04 | Cutover/rollback externos, seguros respecto de Windows Jobs | Media-alta | Pendiente | Coordinar con RB-02 |
@@ -30,18 +30,23 @@ origen: auditoria_integral_2026-10-08
 
 ## RB-01 — Integridad de Filesystem
 
-**Hallazgos:** F-01 (pérdida de bytes al reemplazar texto no UTF-8 válido) y F-02 (archivo de salida de `replace` superior a 16 MiB). **Evidencia:** reproducidos sobre archivos temporales ajenos al repositorio y eliminados después. Un `replace` aceptó bytes `FF 61 58 62` y produjo `EF BF BD 41 58 62`; otro aceptó una salida de **18.600.030 bytes** pese al límite declarado de **16.777.216 bytes**. El riesgo de rollback insuficiente ante una escritura interrumpida se deduce del código; no se provocó un fallo físico.
+**Estado (2026-10-08): código implementado y validado; pendiente deployment y smoke productivo.** Nota técnica: [[RB-01 - Integridad de filesystem_apply_patch]]. **No dar por cerrado end-to-end** hasta verificarlo desde ChatGPT tras un cutover externo seguro.
 
-**Código:** `src/LoomLCI.Windows/Filesystem/WindowsFilesystemProvider.cs`, especialmente `ValidatePatch`, `EnsureTextFile` y `ApplyPatchAsync` (caso `Replace`); contratos en `src/LoomLCI.Core/Filesystem`. Pruebas: `tests/LoomLCI.Windows.Tests/FilesystemCapabilityTests.cs`.
+**Hallazgos originales:** F-01 (corrupción de bytes UTF-8 inválidos) y F-02 (salida superior a 16 MiB); también se corrigieron la sobrescritura directa, la falta de rollback registrable antes de publicar y el silenciamiento de fallos de restauración.
 
-- [ ] Investigar encoding/BOM, escritura temporal, atomicidad y concurrencia sobre el archivo de destino.
-- [ ] Definir qué encodings se aceptan y rechazar datos inválidos sin alterarlos ni normalizarlos silenciosamente.
-- [ ] Validar el **tamaño final codificado** antes de escribir, también para reemplazos múltiples.
-- [ ] Hacer seguro el rollback ante fallo de escritura, cancelación y fallos posteriores dentro del batch; no prometer atomicidad frente a corte eléctrico sin comprobarla.
-- [ ] Añadir tests: bytes inválidos/BOM, tamaño de salida excedido, escrituras interrumpidas e interacción entre cambios.
-- [ ] Ejecutar suite Release, validar con ensayos aislados y documentar el contrato resultante.
+**Código:** `src/LoomLCI.Windows/Filesystem/WindowsFilesystemProvider.cs`; regresiones en `tests/LoomLCI.Windows.Tests/FilesystemCapabilityTests.cs`.
 
-**Aceptación:** no hay pérdida de bytes ajenos al cambio; entradas inválidas fallan sin mutación; nunca se emite una salida por encima del límite; fallo/cancelación no deja contenido truncado y los tests de reversión pasan.
+- [x] Investigar encoding/BOM, staging, atomicidad acotada, rollback y concurrencia.
+- [x] Decodificación estricta sin pérdida silenciosa; preservar BOM/encoding válidos, rechazar bytes inválidos.
+- [x] Validar **tamaño final codificado** para `write` y `replace`, incluyendo BOM, antes de publicar.
+- [x] Preparación de archivos temporales, publicación con respaldo verificable, manejo de cancelación y errores `rollback_failed`/`cleanup_failed`.
+- [x] Regresiones con bytes inválidos, UTF-8/16/32, múltiples reemplazos, sobrepaso de límites, cambio externo, fallos inyectados, concurrencia y restauración.
+- [x] Suite Release: **400/400**; Windows **196/196**, Integración **21/21**, pruebas focalizadas Filesystem **48/48** (antes 27).
+- [x] Documentar contrato y sus límites reales (sin garantía de crash/power-loss ni aislamiento absoluto de procesos externos).
+- [x] Commit de implementación/documentación.
+- [ ] Despliegue con supervisor independiente del Host y smoke de consumidor ChatGPT, coordinados con RB-02/RB-04.
+
+**Aceptación para cierre definitivo:** validar el código instalado y los rechazos F-01/F-02 desde las herramientas productivas; conservar rollback operativo y actualizar esta sección a **CERRADO end-to-end** sólo entonces.
 
 ## RB-02 — Robustez del actualizador
 

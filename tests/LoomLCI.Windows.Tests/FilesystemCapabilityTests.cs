@@ -1054,9 +1054,419 @@ public sealed class FilesystemCapabilityTests
         Assert.Equal("x x", await File.ReadAllTextAsync(path));
     }
 
+    [Fact]
+    public async Task ReplaceRejectsInvalidUtf8WithoutChangingBytes()
+    {
+        await using var fixture = new FilesystemFixture();
+        var path = Path.Combine(fixture.Root, "invalid.txt");
+        byte[] original = [0xFF, (byte)'a', (byte)'X', (byte)'b'];
+        await File.WriteAllBytesAsync(path, original);
+
+        var result = await fixture.Filesystem.ApplyPatchAsync(
+            [new FilesystemPatchChange(
+                FilesystemPatchOperation.Replace,
+                Path: path,
+                OldText: "a",
+                NewText: "A")]);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("unsupported", result.Error?.Code);
+        Assert.Equal(original, await File.ReadAllBytesAsync(path));
+        Assert.Empty(Directory.EnumerateFiles(fixture.Root, "*.loomlci-*"));
+    }
+
+    [Theory]
+    [InlineData("utf8")]
+    [InlineData("utf8bom")]
+    [InlineData("utf16le")]
+    [InlineData("utf16be")]
+    [InlineData("utf32le")]
+    [InlineData("utf32be")]
+    public async Task ReplacePreservesEncodingAndBom(string format)
+    {
+        await using var fixture = new FilesystemFixture();
+        var path = Path.Combine(fixture.Root, format + ".txt");
+        Encoding encoding = format switch
+        {
+            "utf8" => new UTF8Encoding(false, true),
+            "utf8bom" => new UTF8Encoding(true, true),
+            "utf16le" => new UnicodeEncoding(false, true, true),
+            "utf16be" => new UnicodeEncoding(true, true, true),
+            "utf32le" => new UTF32Encoding(false, true, true),
+            "utf32be" => new UTF32Encoding(true, true, true),
+            _ => throw new ArgumentOutOfRangeException(nameof(format))
+        };
+        byte[] original = [.. encoding.GetPreamble(), .. encoding.GetBytes("alpha beta\r\n")];
+        byte[] expected = [.. encoding.GetPreamble(), .. encoding.GetBytes("alpha gamma\r\n")];
+        await File.WriteAllBytesAsync(path, original);
+
+        var result = await fixture.Filesystem.ApplyPatchAsync(
+            [new FilesystemPatchChange(
+                FilesystemPatchOperation.Replace, Path: path,
+                OldText: "beta", NewText: "gamma")]);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal(expected, await File.ReadAllBytesAsync(path));
+        Assert.Empty(Directory.EnumerateFiles(fixture.Root, "*.loomlci-*"));
+    }
+
+    [Fact]
+    public async Task ReplaceRejectsInvalidUtf16SurrogateWithoutChangingBytes()
+    {
+        await using var fixture = new FilesystemFixture();
+        var path = Path.Combine(fixture.Root, "broken-utf16.txt");
+        byte[] original = [0xFF, 0xFE, 0x00, 0xD8, 0x61, 0x00];
+        await File.WriteAllBytesAsync(path, original);
+
+        var result = await fixture.Filesystem.ApplyPatchAsync(
+            [new FilesystemPatchChange(
+                FilesystemPatchOperation.Replace, Path: path,
+                OldText: "a", NewText: "b")]);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("unsupported", result.Error?.Code);
+        Assert.Equal(original, await File.ReadAllBytesAsync(path));
+    }
+
+    [Fact]
+    public async Task ReplaceRejectsOversizedFinalContentWithoutMutation()
+    {
+        await using var fixture = new FilesystemFixture();
+        var path = Path.Combine(fixture.Root, "expand.txt");
+        await File.WriteAllTextAsync(path, "q q q");
+
+        var result = await fixture.Filesystem.ApplyPatchAsync(
+            [new FilesystemPatchChange(
+                FilesystemPatchOperation.Replace, Path: path,
+                OldText: "q", NewText: new string('X', 5_600_000),
+                ExpectedOccurrences: 3)]);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("unsupported", result.Error?.Code);
+        Assert.Equal("q q q", await File.ReadAllTextAsync(path));
+        Assert.Empty(Directory.EnumerateFiles(fixture.Root, "*.loomlci-*"));
+    }
+
+    [Fact]
+    public async Task OverwriteEnforcesEncodedSizeAndPreservesUtf32OnSuccess()
+    {
+        await using var fixture = new FilesystemFixture();
+        var path = Path.Combine(fixture.Root, "wide.txt");
+        var encoding = new UTF32Encoding(false, true, true);
+        byte[] original = [.. encoding.GetPreamble(), .. encoding.GetBytes("old")];
+        await File.WriteAllBytesAsync(path, original);
+
+        var denied = await fixture.Filesystem.ApplyPatchAsync(
+            [new FilesystemPatchChange(
+                FilesystemPatchOperation.Write, Path: path,
+                Content: new string('x', 4_300_000), Overwrite: true)]);
+        Assert.False(denied.IsSuccess);
+        Assert.Equal("unsupported", denied.Error?.Code);
+        Assert.Equal(original, await File.ReadAllBytesAsync(path));
+
+        var allowed = await fixture.Filesystem.ApplyPatchAsync(
+            [new FilesystemPatchChange(
+                FilesystemPatchOperation.Write, Path: path,
+                Content: "new", Overwrite: true)]);
+        Assert.True(allowed.IsSuccess, allowed.Error?.Message);
+        byte[] expected = [.. encoding.GetPreamble(), .. encoding.GetBytes("new")];
+        Assert.Equal(expected, await File.ReadAllBytesAsync(path));
+        Assert.Empty(Directory.EnumerateFiles(fixture.Root, "*.loomlci-*"));
+    }
+
+    [Fact]
+    public async Task OverwriteRejectsInvalidExistingEncoding()
+    {
+        await using var fixture = new FilesystemFixture();
+        var path = Path.Combine(fixture.Root, "invalid-overwrite.txt");
+        byte[] original = [0xFE, (byte)'a'];
+        await File.WriteAllBytesAsync(path, original);
+
+        var result = await fixture.Filesystem.ApplyPatchAsync(
+            [new FilesystemPatchChange(
+                FilesystemPatchOperation.Write, Path: path,
+                Content: "safe text", Overwrite: true)]);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("unsupported", result.Error?.Code);
+        Assert.Equal(original, await File.ReadAllBytesAsync(path));
+    }
+
+    [Fact]
+    public async Task FailureBeforePublishLeavesExistingFileUnchangedAndNoTemporaryFiles()
+    {
+        await using var fixture = new FilesystemFixture(
+            patchStageHook: (stage, _) =>
+            {
+                if (stage == "before_publish")
+                {
+                    throw new IOException("Injected staging failure");
+                }
+            });
+        var path = Path.Combine(fixture.Root, "original.txt");
+        await File.WriteAllTextAsync(path, "one two");
+        var result = await fixture.Filesystem.ApplyPatchAsync(
+            [new FilesystemPatchChange(
+                FilesystemPatchOperation.Replace, Path: path,
+                OldText: "one", NewText: "ONE")]);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("one two", await File.ReadAllTextAsync(path));
+        Assert.Empty(Directory.EnumerateFiles(fixture.Root, "*.loomlci-*"));
+    }
+
+    [Fact]
+    public async Task OptimisticConflictPreservesExternalChanges()
+    {
+        var changed = false;
+        await using var fixture = new FilesystemFixture(
+            patchStageHook: (stage, path) =>
+            {
+                if (stage == "before_publish" && !changed)
+                {
+                    File.WriteAllText(path, "external edit");
+                    changed = true;
+                }
+            });
+        var path = Path.Combine(fixture.Root, "conflict.txt");
+        await File.WriteAllTextAsync(path, "original");
+
+        var result = await fixture.Filesystem.ApplyPatchAsync(
+            [new FilesystemPatchChange(
+                FilesystemPatchOperation.Replace, Path: path,
+                OldText: "original", NewText: "updated")]);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("conflict", result.Error?.Code);
+        Assert.Equal("external edit", await File.ReadAllTextAsync(path));
+        Assert.Empty(Directory.EnumerateFiles(fixture.Root, "*.loomlci-*"));
+    }
+
+    [Fact]
+    public async Task FailureAfterPublishingSecondFileRestoresWholeBatch()
+    {
+        var changesPublished = 0;
+        await using var fixture = new FilesystemFixture(
+            patchStageHook: (stage, _) =>
+            {
+                if (stage == "after_change" && ++changesPublished == 2)
+                {
+                    throw new IOException("Injected failure after second publication");
+                }
+            });
+        var first = Path.Combine(fixture.Root, "one.txt");
+        var second = Path.Combine(fixture.Root, "two.txt");
+        await File.WriteAllTextAsync(first, "one");
+        await File.WriteAllTextAsync(second, "two");
+
+        var result = await fixture.Filesystem.ApplyPatchAsync(
+        [
+            new FilesystemPatchChange(
+                FilesystemPatchOperation.Replace, Path: first,
+                OldText: "one", NewText: "ONE"),
+            new FilesystemPatchChange(
+                FilesystemPatchOperation.Write, Path: second,
+                Content: "TWO", Overwrite: true)
+        ]);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("one", await File.ReadAllTextAsync(first));
+        Assert.Equal("two", await File.ReadAllTextAsync(second));
+        Assert.Empty(Directory.EnumerateFiles(fixture.Root, "*.loomlci-*"));
+    }
+
+    [Fact]
+    public async Task FailedRollbackReportsErrorAndKeepsRecoverableBackup()
+    {
+        FileStream? lockedFile = null;
+        await using var fixture = new FilesystemFixture(
+            patchStageHook: (stage, path) =>
+            {
+                if (stage == "after_change")
+                {
+                    lockedFile = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
+                    throw new IOException("Injected failure with locked destination");
+                }
+            });
+        var path = Path.Combine(fixture.Root, "recover.txt");
+        await File.WriteAllTextAsync(path, "original");
+        try
+        {
+            var result = await fixture.Filesystem.ApplyPatchAsync(
+                [new FilesystemPatchChange(
+                    FilesystemPatchOperation.Replace, Path: path,
+                    OldText: "original", NewText: "updated")]);
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal("rollback_failed", result.Error?.Code);
+            Assert.NotNull(result.Error?.Details);
+        }
+        finally
+        {
+            lockedFile?.Dispose();
+        }
+
+        var backup = Assert.Single(Directory.EnumerateFiles(fixture.Root, "*.loomlci-*.bak"));
+        Assert.Equal("original", await File.ReadAllTextAsync(backup));
+        File.Replace(backup, path, null, ignoreMetadataErrors: true);
+        Assert.Equal("original", await File.ReadAllTextAsync(path));
+        Assert.Empty(Directory.EnumerateFiles(fixture.Root, "*.loomlci-*"));
+    }
+
+    [Fact]
+    public async Task CancellationAfterStagingLeavesOriginalAndNoTemporaryFiles()
+    {
+        using var source = new CancellationTokenSource();
+        await using var fixture = new FilesystemFixture(
+            patchStageHook: (stage, _) =>
+            {
+                if (stage == "before_publish")
+                {
+                    source.Cancel();
+                }
+            });
+        var path = Path.Combine(fixture.Root, "cancelled.txt");
+        await File.WriteAllTextAsync(path, "unchanged");
+
+        var result = await fixture.Filesystem.ApplyPatchAsync(
+            [new FilesystemPatchChange(
+                FilesystemPatchOperation.Replace, Path: path,
+                OldText: "unchanged", NewText: "changed")],
+            cancellationToken: source.Token);
+        Assert.False(result.IsSuccess);
+        Assert.Equal("cancelled", result.Error?.Code);
+
+        Assert.Equal("unchanged", await File.ReadAllTextAsync(path));
+        Assert.Empty(Directory.EnumerateFiles(fixture.Root, "*.loomlci-*"));
+    }
+
+    [Fact]
+    public async Task BatchFailureRestoresNewFilesAndBinaryMoveOverwrites()
+    {
+        await using var fixture = new FilesystemFixture(
+            patchStageHook: (stage, _) =>
+            {
+                if (stage == "after_change")
+                {
+                    throw new IOException("Injected failure after binary move");
+                }
+            });
+        var source = Path.Combine(fixture.Root, "src.dat");
+        var destination = Path.Combine(fixture.Root, "dst.dat");
+        byte[] fromBytes = [1, 2, 3];
+        byte[] toBytes = [4, 5, 6];
+        await File.WriteAllBytesAsync(source, fromBytes);
+        await File.WriteAllBytesAsync(destination, toBytes);
+
+        var result = await fixture.Filesystem.ApplyPatchAsync(
+            [new FilesystemPatchChange(
+                FilesystemPatchOperation.Move, FromPath: source,
+                ToPath: destination, Overwrite: true)]);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(fromBytes, await File.ReadAllBytesAsync(source));
+        Assert.Equal(toBytes, await File.ReadAllBytesAsync(destination));
+        Assert.Empty(Directory.EnumerateFiles(fixture.Root, "*.loomlci-*"));
+    }
+
+    [Fact]
+    public async Task ConcurrentPatchBatchesCanOverwriteSameFileWithoutInterleaving()
+    {
+        await using var fixture = new FilesystemFixture();
+        var path = Path.Combine(fixture.Root, "shared.txt");
+        await File.WriteAllTextAsync(path, "original");
+        var requests = Enumerable.Range(0, 8).Select(index =>
+            fixture.Filesystem.ApplyPatchAsync(
+                [new FilesystemPatchChange(
+                    FilesystemPatchOperation.Write, Path: path,
+                    Content: "value" + index, Overwrite: true)]));
+        var results = await Task.WhenAll(requests);
+
+        Assert.All(results, result => Assert.True(result.IsSuccess, result.Error?.Message));
+        Assert.StartsWith("value", await File.ReadAllTextAsync(path));
+        Assert.Empty(Directory.EnumerateFiles(fixture.Root, "*.loomlci-*"));
+    }
+
+    [Fact]
+    public async Task WriteRejectsInvalidInputSurrogateWithoutMutation()
+    {
+        await using var fixture = new FilesystemFixture();
+        var path = Path.Combine(fixture.Root, "surrogate.txt");
+
+        var result = await fixture.Filesystem.ApplyPatchAsync(
+            [new FilesystemPatchChange(
+                FilesystemPatchOperation.Write, Path: path,
+                Content: "broken " + '\uD800')]);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("unsupported", result.Error?.Code);
+        Assert.False(File.Exists(path));
+        Assert.Empty(Directory.EnumerateFiles(fixture.Root, "*.loomlci-*"));
+    }
+
+    [Fact]
+    public async Task Utf8BomOverwriteHonorsExactSixteenMiBBoundary()
+    {
+        await using var fixture = new FilesystemFixture();
+        var path = Path.Combine(fixture.Root, "exact-boundary.txt");
+        await File.WriteAllBytesAsync(path, [0xEF, 0xBB, 0xBF, (byte)'a']);
+
+        var exact = await fixture.Filesystem.ApplyPatchAsync(
+            [new FilesystemPatchChange(
+                FilesystemPatchOperation.Write, Path: path,
+                Content: new string('A', 16 * 1024 * 1024 - 3),
+                Overwrite: true)]);
+        Assert.True(exact.IsSuccess, exact.Error?.Message);
+        Assert.Equal(16L * 1024 * 1024, new FileInfo(path).Length);
+
+        var denied = await fixture.Filesystem.ApplyPatchAsync(
+            [new FilesystemPatchChange(
+                FilesystemPatchOperation.Write, Path: path,
+                Content: new string('B', 16 * 1024 * 1024 - 2),
+                Overwrite: true)]);
+        Assert.False(denied.IsSuccess);
+        Assert.Equal("unsupported", denied.Error?.Code);
+        Assert.Equal(16L * 1024 * 1024, new FileInfo(path).Length);
+        var prefix = new byte[4];
+        using (var stream = File.OpenRead(path))
+        {
+            Assert.Equal(4, stream.Read(prefix));
+        }
+        Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF, (byte)'A' }, prefix);
+        Assert.Empty(Directory.EnumerateFiles(fixture.Root, "*.loomlci-*"));
+    }
+
+    [Fact]
+    public async Task ReplacementPreservesDestinationHiddenAttribute()
+    {
+        await using var fixture = new FilesystemFixture();
+        var path = Path.Combine(fixture.Root, "hidden.txt");
+        await File.WriteAllTextAsync(path, "old");
+        File.SetAttributes(path, File.GetAttributes(path) | FileAttributes.Hidden);
+
+        try
+        {
+            var result = await fixture.Filesystem.ApplyPatchAsync(
+                [new FilesystemPatchChange(
+                    FilesystemPatchOperation.Replace, Path: path,
+                    OldText: "old", NewText: "new")]);
+            Assert.True(result.IsSuccess, result.Error?.Message);
+            Assert.True(File.GetAttributes(path).HasFlag(FileAttributes.Hidden));
+            Assert.Equal("new", await File.ReadAllTextAsync(path));
+        }
+        finally
+        {
+            File.SetAttributes(path, FileAttributes.Normal);
+        }
+
+        Assert.Empty(Directory.EnumerateFiles(fixture.Root, "*.loomlci-*"));
+    }
+
     private sealed class FilesystemFixture : IAsyncDisposable
     {
-        public FilesystemFixture(long? maxSearchTotalBytes = null)
+        public FilesystemFixture(
+            long? maxSearchTotalBytes = null,
+            Action<string, string>? patchStageHook = null)
         {
             Root = Path.Combine(Path.GetTempPath(), "LoomLCI.Tests", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(Root);
@@ -1066,8 +1476,10 @@ public sealed class FilesystemCapabilityTests
             Sessions = new WorkSessionManager(Resources, Events);
             Invocations = new InvocationRunner(Events, Sessions);
             Filesystem = new FilesystemCapability(
-                maxSearchTotalBytes is long budget
-                    ? new WindowsFilesystemProvider(budget)
+                maxSearchTotalBytes.HasValue || patchStageHook is not null
+                    ? new WindowsFilesystemProvider(
+                        maxSearchTotalBytes ?? 64L * 1024 * 1024,
+                        patchStageHook)
                     : new WindowsFilesystemProvider(),
                 Invocations,
                 Events);
