@@ -1,6 +1,6 @@
 # Roadmap post-G1
 
-> Estado al 2026-10-08: **CERRADO end-to-end.** Ergonomía, Producto/Deployment, Python 1–3 y la extensión A4.1 completados. Release **6** instalada; Computer H1 continúa pausado. Se conserva el orden histórico de ejecución.
+> Estado al 2026-10-08: **CERRADO end-to-end.** Ergonomía, Producto/Deployment, Python 1–3 y A4.1 completados. Release **6** instalada; Computer H1 continúa pausado. Este es un historial de trabajo completado: el nuevo backlog aprobado se encuentra en [[Roadmap de robustez post-auditoría]].
 
 ## Objetivo
 
@@ -66,4 +66,4 @@ Por ahora el modelo operativo aceptado sigue siendo: **publicación manual de la
 
 ## Siguiente etapa a decidir
 
-El roadmap post-G1 quedó **cerrado** y no tiene tareas técnicas de P3 pendientes. **No se aprobó todavía otro bloque de implementación.** Una opción natural es retomar [[Bloque H - Computer|Computer H1]] (diseño cerrado, implementación pausada), previa revisión específica y aprobación del usuario. Publicación automática y auto-update periódico siguen en el horizonte lejano. La limitación externa `UI_RENDER` no bloquea la evolución de LoomLCI.
+El roadmap post-G1 quedó **cerrado** y no tiene tareas técnicas de P3 pendientes. **Actualización al 2026-10-08:** la auditoría posterior originó seis prioridades cuya resolución fue aprobada por el usuario y quedó registrada en [[Roadmap de robustez post-auditoría]]. Ese es el próximo tramo de trabajo; su implementación aún no se inició. [[Bloque H - Computer|Computer H1]] permanece pausado y publicación/auto-update automáticos siguen en el horizonte lejano. La limitación externa `UI_RENDER` no bloquea la evolución de LoomLCI.

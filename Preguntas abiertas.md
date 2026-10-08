@@ -1,6 +1,6 @@
 # Preguntas abiertas
 
-> Revisión 2026-10-08: separar **preguntas todavía abiertas** de decisiones históricas ya resueltas. No existe una deuda crítica que impida usar la Release 5. Estado operativo y próximos pasos: [[Inicio]], [[Roadmap post-G1]].
+> Revisión 2026-10-08: separar **preguntas todavía abiertas** de decisiones históricas ya resueltas. La productiva es Release 6; la auditoría identificó deudas concretas de integridad y recuperación que deben corregirse aunque el runtime siga operativo. Prioridades aprobadas en [[Roadmap de robustez post-auditoría]]. Estado general: [[Inicio]], [[Roadmap post-G1]].
 
 ## Arquitectura general
 
@@ -26,7 +26,7 @@ Implementado y validado en la PC principal en [[Deployment portable]]:
 - acceso directo de escritorio;
 - cutover y rollback reales validados; el legacy queda preservado y detenido como fallback.
 
-Validación en segunda PC completada. En la PC principal la **Release 5 `0.1.0-dev-42ee90c` (sequence 5)** quedó instalada con Host y Launcher actualizados, healthy/ready y `update check` sin novedades. El updater firmado, su rollback y el instalador convencional están cerrados. Diferido/no bloqueante:
+Validación en segunda PC completada. **Actualización operativa al 2026-10-08:** la PC principal ejecuta **Release 6 `0.1.0-dev-6b1566a` (sequence 6)**, healthy/ready; **Release 5** queda como rollback. El updater firmado, rollback e instalador completaron sus milestones históricos, pero la auditoría posterior abrió ajustes de robustez RB-02, RB-04 y RB-05 en [[Roadmap de robustez post-auditoría]]. Diferido/no bloqueante fuera de ese mini-roadmap:
 
 - DPAPI;
 - autoarranque al login;

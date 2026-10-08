@@ -1,17 +1,17 @@
 # Plan y tareas
 
-> Estado consolidado al **2026-10-08**: el [[Roadmap post-G1]] de Ergonomía, Producto/Deployment y Python 1–3 está **CERRADO end-to-end**. [[Bloque H - Computer|Computer H1]] sigue pausado, con investigación/diseño terminado e implementación pendiente de decisión.
+> Estado consolidado al **2026-10-08**: el [[Roadmap post-G1]] (incluida A4.1) quedó **CERRADO end-to-end**. El siguiente trabajo aprobado es [[Roadmap de robustez post-auditoría]], con seis bloques pendientes de resolver. [[Bloque H - Computer|Computer H1]] sigue pausado.
 
 ## Estado operativo vigente
 
-- Release instalada: **`0.1.0-dev-42ee90c`**, sequence **5**, Host + Launcher actualizados y `healthy/ready`; previous `0.1.0-dev-python3` (sequence 0); `update check`: sin actualizaciones.
-- Plugin privado: **0.5.1** publicado y reconciliado, con workaround visual de Code Mode; catálogo MCP **25 tools**.
-- Python 1, 2 y 3 (P3.0–P3.2), G1, F1, Process/Filesystem, instalador, actualización firmada y ergonomía: **cerrados**.
-- Suite Release verificada el 2026-10-08: **366/366**, incluyendo **21/21 IntegrationTests**, sobre los binarios Release existentes.
-- Única limitación visual remanente documentada: `UI_RENDER` inline de imagen Python in-memory en ChatGPT, **externa y no bloqueante**.
-- Backlog futuro: Computer H1, automatización de publicación/consumo de releases y mejoras diferidas indicadas en [[Preguntas abiertas]]. No hay próximo bloque aprobado.
+- Release productiva: **`0.1.0-dev-6b1566a`**, sequence **6**, `healthy/ready`; rollback **`0.1.0-dev-42ee90c`**, sequence **5**. Ver [[A4.1 - Release 6 desplegada]].
+- Plugin privado: **0.5.1**; catálogo MCP **25 tools** y bridge privado `loom.capabilities()` **16**.
+- Python 1–3, G1, F1, Process/Filesystem, instalador, actualización firmada y ergonomía: milestones funcionales **cerrados**, con deudas específicas halladas por auditoría; no confundir su cierre histórico con la resolución del nuevo roadmap.
+- Suite Release ejecutada el 2026-10-08: **379/379**; IntegrationTests **21/21**. Las pruebas existentes no cubren todavía todos los fallos identificados.
+- Limitación visual externa documentada: `UI_RENDER` inline de imágenes Python en ChatGPT.
+- Prioridad vigente: **RB-01 → RB-06** en [[Roadmap de robustez post-auditoría]], sin implementaciones iniciadas. Computer H1 y automatizaciones de releases permanecen fuera de alcance.
 
-> **Lectura histórica:** las cifras de tests, versiones descritas como «activas» o «finales», referencias a plugin 0.4.0 y frases sobre pendientes en los apartados siguientes corresponden a los cortes de cada etapa; no reemplazan este estado vigente. Ver [[Auto-update firmado]] para el cierre de Release 5.
+> **Lectura histórica:** los recuentos, releases y referencias a pendientes en el resto de esta nota describen cada etapa tal como se verificó entonces; el estado operativo actual está en el encabezado y en [[A4.1 - Release 6 desplegada]].
 
 ## Distinciones necesarias
 
