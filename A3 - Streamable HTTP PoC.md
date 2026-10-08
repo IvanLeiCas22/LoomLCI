@@ -1,6 +1,6 @@
 # A3 — Streamable HTTP
 
-**Estado 2026-10-08:** A3.1 implementada y validada localmente; NO instalada ni conectada a ChatGPT. A3.2 (prueba mediante túnel HTTP separado) pendiente de investigación/aprobación.
+**Estado 2026-10-08:** A3.1 validada localmente. A3.2: perfil HTTP independiente y preflight de tunnel-client validados; E2E ChatGPT pendiente de un segundo túnel real con credenciales propias. El transporte STDIO productivo sigue intacto.
 
 ## Objetivo
 
@@ -39,3 +39,20 @@ Proyecto experimental fuera de solución: experiments/LoomLCI.HttpPoc/ (README y
 A3.1 demuestra concurrencia local, NO demuestra mejora real desde ChatGPT. Falta probar la autenticación del túnel HTTP y su paralelismo real. El PoC no está diseñado como servicio productivo, no tiene integración con Launcher o rollback ni storage de clave local persistente. No modificar LoomLCI instalado ni sustituir STDIO sin pruebas aisladas de un túnel distinto y plan de retorno. Aunque los 25 contratos coinciden, validar PDF/Python/imágenes por separado antes de adoptar.
 
 Fuente SDK: https://github.com/modelcontextprotocol/csharp-sdk/blob/main/docs/concepts/stateless/stateless.md
+
+## A3.2 — Perfil HTTP de túnel aislado
+
+Estado 2026-10-08: preflight local COMPLETADO; E2E remoto en ChatGPT PENDIENTE por falta de segundo túnel registrado y clave administrativa disponible.
+
+- tunnel-client 0.0.14 soporta --mcp-server-url y encabezados MCP extra/discovery con secretos referenciados por env: o file:.
+- El perfil admin local apunta a una variable de entorno no definida. Crear un nuevo túnel requiere admin key y Tunnels Read+Manage. No se reutilizó el tunnel ID productivo, perfil ni runtime key instalados.
+- experiments/LoomLCI.HttpPoc/tunnel_preflight.py inicia el Host HTTP con Bearer y puerto efímeros, crea perfil y estado temporales con ID sintético y clave ficticia, ejecuta tunnel-client doctor y limpia todo. NO llama a la plataforma remota.
+- Se corrigió A3.1: los GET exactos /.well-known/oauth-protected-resource y /.well-known/oauth-protected-resource/mcp devuelven 404 sin token para descubrimiento OAuth opcional; todos los endpoints funcionales siguen exigiendo token y la validación Host/Origin permanece.
+- doctor local: PASS. Importante: doctor PASS NO demuestra que el ID sintético exista ni que la clave de prueba funcione con OpenAI.
+- Smoke tras el cambio: PASS, 25 contratos sin diferencias; tres procesos secuenciales 4.312 s, concurrentes 1.512 s.
+
+Pendiente E2E: crear segundo tunnel ID real asociado al workspace, runtime API key restringida Tunnels Read+Use y plugin de prueba. Mantener credenciales fuera de repositorio/chat; un secreto user-only y encabezados localmente referenciados. Medir process_run desde el segundo plugin y comparar con A2, sin modificar loomlci-installed.
+
+Fuentes:
+- https://developers.openai.com/api/docs/guides/secure-mcp-tunnels
+- https://github.com/openai/tunnel-client/blob/master/docs/configuration.md

@@ -7,7 +7,7 @@ Esta es una PoC **experimental**, fuera de LoomLCI.slnx y del instalador/Launche
 - Modelo: Microsoft.NET.Sdk.Web (.NET 10) + ModelContextProtocol.AspNetCore 2.2.0.
 - Escucha IPv4 loopback 127.0.0.1 y puerto definido en LOOMLCI_HTTP_POC_PORT (1024–65535).
 - Arranque exige LOOMLCI_HTTP_POC_TOKEN (secreto aleatorio de al menos 32 bytes UTF-8); rechaza solicitudes sin Bearer o con Bearer erróneo.
-- Toda ruta exige Host=127.0.0.1:puerto, rechaza el encabezado Origin y no habilita CORS. La comparación de credenciales usa SHA-256 y tiempo constante.
+- Cada ruta valida Host=127.0.0.1:puerto y rechaza Origin; sin CORS. Todos los endpoints funcionales requieren Bearer (comparación SHA-256 en tiempo constante). **Única excepción:** los dos GET de /.well-known/oauth-protected-resource[/mcp] responden 404 sin token, para indicar ausencia de metadata OAuth y permitir el doctor del túnel; no exponen tools ni datos de Loom.
 - MCP Stateless en /mcp; WorkSession persistente dentro del Host mediante workId; /health también autenticado.
 - Full Trust Windows: nunca exponer el puerto ni reutilizar la runtime API key del túnel.
 
@@ -32,6 +32,16 @@ smoke.py inicia un Host aislado con secreto aleatorio en memoria y un puerto loo
 - Benchmark sleep 1,6 s × 3: secuencial 5,547 s; paralelo 1,867 s, todos exitCode=0.
 - Smoke automatizado sleep 1,2 s × 3: secuencial 4,345 s; paralelo 1,494 s, PASS.
 - work_close OK; proceso experimental detenido; runtime de ChatGPT original sin cambios.
+
+## A3.2: preflight HTTP con tunnel-client, sin OpenAI remoto
+
+    python experiments/LoomLCI.HttpPoc/tunnel_preflight.py --tunnel-client "C:\ruta\tunnel-client.exe"
+
+El script usa un Host HTTP protegido, token y puerto aleatorios, perfil/estado aislados en carpeta temporal, tunnel ID sintético y runtime key deliberadamente ficticia. Activa referencias de encabezados locales mediante env:, ejecuta tunnel-client init y doctor, y detiene/limpia todo al terminar.
+
+**Validado**: preflight de config, host HTTP, metadata OAuth opcional y listener de health: PASS. **No validado**: registro real del túnel en OpenAI Platform, autenticación de runtime remoto, polling, plugin ChatGPT ni paralelismo completo desde ChatGPT. Un doctor exitoso con key ficticia no prueba esas partes.
+
+Para E2E hace falta crear un túnel real adicional con workspace asociado y runtime key restringida, registrar un segundo plugin, y comprobar el recorrido remoto, sin reutilizar el ID ni la clave productivos.
 
 ## Fuera de alcance
 

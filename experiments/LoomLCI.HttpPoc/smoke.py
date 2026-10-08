@@ -118,6 +118,12 @@ def main():
         assert request(root + "/health", token=token, headers={"Origin": "https://evil.example"})[0] == 403
         assert request(root + "/health", token=token, headers={"Host": f"evil.example:{port}"})[0] == 403
         assert request(root + "/health", token=token)[0] == 200
+        assert request(root + "/.well-known/oauth-protected-resource")[0] == 404
+        assert request(root + "/.well-known/oauth-protected-resource/mcp")[0] == 404
+        assert request(root + "/.well-known/oauth-protected-resource",
+                       headers={"Origin": "https://evil.example"})[0] == 403
+        assert request(root + "/.well-known/oauth-protected-resource",
+                       headers={"Host": f"evil.example:{port}"})[0] == 403
         assert request(root + "/mcp", token="incorrect" * 8,
                        body={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})[0] == 401
         print("PASS security (token, Origin, Host, health, MCP)")

@@ -122,6 +122,18 @@ app.Use(async (context, next) =>
         return;
     }
 
+    // OAuth Protected Resource Metadata discovery is public by specification.
+    // This PoC does not offer OAuth. Reply with an empty 404 on only the two
+    // well-known discovery GET paths; every operational endpoint still requires
+    // its independent, unguessable local Bearer token.
+    if (HttpMethods.IsGet(request.Method) &&
+        (string.Equals(request.Path.Value, "/.well-known/oauth-protected-resource", StringComparison.Ordinal) ||
+         string.Equals(request.Path.Value, "/.well-known/oauth-protected-resource/mcp", StringComparison.Ordinal)))
+    {
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        return;
+    }
+
     var header = request.Headers.Authorization.ToString();
     if (!header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
     {
