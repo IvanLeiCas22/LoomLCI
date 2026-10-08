@@ -21,6 +21,7 @@ public sealed class PythonProcessBridgeModuleTests
                 "process.release",
                 "process.resize",
                 "process.run",
+                "process.run_many",
                 "process.start",
                 "process.status",
                 "process.terminate",

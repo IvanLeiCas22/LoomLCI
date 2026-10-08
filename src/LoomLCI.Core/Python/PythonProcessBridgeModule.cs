@@ -12,6 +12,7 @@ public sealed class PythonProcessBridgeModule : IPythonBridgeModule
         "process.release",
         "process.resize",
         "process.run",
+        "process.run_many",
         "process.start",
         "process.status",
         "process.terminate",
@@ -35,6 +36,10 @@ public sealed class PythonProcessBridgeModule : IPythonBridgeModule
         => call.Method switch
         {
             "process.run" => RunAsync(
+                workId,
+                call.Arguments,
+                cancellationToken),
+            "process.run_many" => RunManyAsync(
                 workId,
                 call.Arguments,
                 cancellationToken),
@@ -128,6 +133,122 @@ public sealed class PythonProcessBridgeModule : IPythonBridgeModule
                 run.StdoutObservedChars,
                 run.StderrObservedChars));
     }
+
+    // One-shot processes are supervised by ProcessCapability, which awaits
+    // exit, output pumps and resource disposal before completing.
+    private async Task<LoomResult<JsonElement>> RunManyAsync(
+        WorkId workId,
+        JsonElement arguments,
+        CancellationToken cancellationToken)
+    {
+        var parsed = PythonBridgeJson.Deserialize<RunManyArguments>(
+            arguments, "process.run_many");
+        if (!parsed.IsSuccess)
+            return LoomResult<JsonElement>.Failure(parsed.Error!);
+
+        var value = parsed.Value!;
+        if (value.Jobs is null or { Length: < 1 or > 32 } ||
+            value.MaxConcurrent is < 1 or > 8 ||
+            value.JobTimeoutSeconds is < 1 or > 600 ||
+            value.BatchTimeoutSeconds is < 1 or > 540 ||
+            value.MaxOutputChars is < 1 or > 65_536)
+        {
+            return LoomResult<JsonElement>.Failure(
+                LoomErrors.InvalidArgument(
+                    "process.run_many requires 1-32 jobs, max_concurrent 1-8, " +
+                    "job_timeout_seconds 1-600, batch_timeout_seconds 1-540, " +
+                    "and max_output_chars 1-65536."));
+        }
+
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var job in value.Jobs)
+        {
+            if (job is null ||
+                string.IsNullOrWhiteSpace(job.Id) ||
+                job.Id.Length > 64 ||
+                !ids.Add(job.Id) ||
+                string.IsNullOrWhiteSpace(job.Executable))
+                return LoomResult<JsonElement>.Failure(
+                    LoomErrors.InvalidArgument(
+                        "Each job requires a unique nonempty id (up to 64 chars) and executable."));
+        }
+
+        using var deadline = new CancellationTokenSource(
+            TimeSpan.FromSeconds(value.BatchTimeoutSeconds));
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken, deadline.Token);
+        using var limiter = new SemaphoreSlim(value.MaxConcurrent);
+        var results = new RunManyJobResult[value.Jobs.Length];
+
+        async Task RunJobAsync(int index)
+        {
+            var job = value.Jobs[index];
+            var entered = false;
+            try
+            {
+                await limiter.WaitAsync(linked.Token).ConfigureAwait(false);
+                entered = true;
+                linked.Token.ThrowIfCancellationRequested();
+                var run = await _processes.RunAsync(
+                    new ProcessRunRequest(
+                        job.Executable!, job.Arguments, job.WorkingDirectory,
+                        job.Environment, workId,
+                        TimeSpan.FromSeconds(value.JobTimeoutSeconds),
+                        value.MaxOutputChars),
+                    linked.Token).ConfigureAwait(false);
+
+                if (run.IsSuccess)
+                {
+                    var done = run.Value!;
+                    results[index] = new RunManyJobResult(
+                        job.Id!, done.ExitCode == 0 ? "success" : "nonzero_exit",
+                        done.ExitCode, done.ProcessId, done.StartedAt, done.ExitedAt,
+                        done.Stdout, done.Stderr,
+                        done.StdoutTruncated, done.StderrTruncated,
+                        done.StdoutObservedChars, done.StderrObservedChars,
+                        null, null);
+                }
+                else
+                {
+                    var error = run.Error!;
+                    var timeout = error.Code == "deadline_exceeded" ||
+                        deadline.IsCancellationRequested;
+                    results[index] = FailureJob(
+                        job.Id!, timeout ? "timeout" : "launch_error",
+                        timeout ? "deadline_exceeded" : error.Code, error.Message);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                results[index] = FailureJob(job.Id!,
+                    entered ? "timeout" : "not_started",
+                    deadline.IsCancellationRequested ? "deadline_exceeded" : "cancelled",
+                    "Batch was cancelled before the job completed.");
+            }
+            catch (Exception ex)
+            {
+                results[index] = FailureJob(job.Id!, "launch_error",
+                    "execution_failed", ex.Message);
+            }
+            finally
+            {
+                if (entered) limiter.Release();
+            }
+        }
+
+        // When externally cancelled, await every active ProcessCapability.RunAsync
+        // before propagating cancellation; its disposal must not be skipped.
+        await Task.WhenAll(Enumerable.Range(0, value.Jobs.Length)
+            .Select(RunJobAsync)).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        return PythonBridgeJson.MapValue("process.run_many",
+            new RunManyBridgeResult(results, deadline.IsCancellationRequested));
+    }
+
+    private static RunManyJobResult FailureJob(
+        string id, string outcome, string errorCode, string errorMessage)
+        => new(id, outcome, null, null, null, null, "", "", false, false,
+            0, 0, errorCode, errorMessage);
 
     private async Task<LoomResult<JsonElement>> StartAsync(
         WorkId workId,
@@ -584,6 +705,34 @@ public sealed class PythonProcessBridgeModule : IPythonBridgeModule
         public int TimeoutSeconds { get; init; } = 30;
         public int MaxOutputChars { get; init; } = 65_536;
     }
+
+    private sealed class RunManyArguments
+    {
+        public RunManyJobArguments[]? Jobs { get; init; }
+        public int MaxConcurrent { get; init; } = 4;
+        public int JobTimeoutSeconds { get; init; } = 30;
+        public int BatchTimeoutSeconds { get; init; } = 45;
+        public int MaxOutputChars { get; init; } = 4096;
+    }
+
+    private sealed class RunManyJobArguments
+    {
+        public string? Id { get; init; }
+        public string? Executable { get; init; }
+        public string[]? Arguments { get; init; }
+        public string? WorkingDirectory { get; init; }
+        public Dictionary<string, string?>? Environment { get; init; }
+    }
+
+    private sealed record RunManyJobResult(
+        string Id, string Outcome, int? ExitCode, int? ProcessId,
+        DateTimeOffset? StartedAt, DateTimeOffset? ExitedAt,
+        string Stdout, string Stderr, bool StdoutTruncated, bool StderrTruncated,
+        long StdoutObservedChars, long StderrObservedChars,
+        string? ErrorCode, string? ErrorMessage);
+
+    private sealed record RunManyBridgeResult(
+        IReadOnlyList<RunManyJobResult> Jobs, bool TimedOut);
 
     private sealed class StartArguments
     {

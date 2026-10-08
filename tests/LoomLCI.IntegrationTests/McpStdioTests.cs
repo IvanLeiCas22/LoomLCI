@@ -2388,7 +2388,7 @@ public sealed class McpStdioTests
                     bridgeResult,
                     "status").GetString());
             Assert.Equal(
-                "2\n15\nfs.apply_patch\nprocess.write\n",
+                "2\n16\nfs.apply_patch\nprocess.write\n",
                 GetRequiredProperty(
                     bridgeResult,
                     "stdout").GetString());
@@ -2912,6 +2912,7 @@ expected = [
     "process.release",
     "process.resize",
     "process.run",
+    "process.run_many",
     "process.start",
     "process.status",
     "process.terminate",
@@ -3201,7 +3202,7 @@ import time
 import loom
 import loom.process
 
-assert len(loom.capabilities()) == 15
+assert len(loom.capabilities()) == 16
 
 quick = loom.process.run(
     "cmd.exe",
@@ -3212,6 +3213,29 @@ quick = loom.process.run(
 assert quick["exit_code"] == 7
 assert "quick-out" in quick["stdout"]
 assert "quick-err" in quick["stderr"]
+
+batch = loom.process.run_many(
+    [
+        {"id":"first","executable":"cmd.exe",
+         "arguments":["/d","/s","/c","echo ONE"]},
+        {"id":"second","executable":"cmd.exe",
+         "arguments":["/d","/s","/c","echo TWO & exit /b 9"]},
+        {"id":"third","executable":"cmd.exe",
+         "arguments":["/d","/s","/c","echo THREE"]},
+    ],
+    max_concurrent=2,
+    job_timeout_seconds=5,
+    batch_timeout_seconds=12,
+    max_output_chars=500,
+)
+assert not batch["timed_out"]
+assert [job["id"] for job in batch["jobs"]] == ["first","second","third"]
+assert [job["outcome"] for job in batch["jobs"]] == [
+    "success","nonzero_exit","success"]
+assert [job["exit_code"] for job in batch["jobs"]] == [0,9,0]
+assert "ONE" in batch["jobs"][0]["stdout"]
+assert "TWO" in batch["jobs"][1]["stdout"]
+assert "THREE" in batch["jobs"][2]["stdout"]
 
 proc = loom.process.start(
     "powershell.exe",

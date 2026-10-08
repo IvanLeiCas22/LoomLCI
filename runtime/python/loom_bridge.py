@@ -525,6 +525,31 @@ def _process_run(
     )
 
 
+def _process_run_many(
+    jobs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    *,
+    max_concurrent: int = 4,
+    job_timeout_seconds: int = 30,
+    batch_timeout_seconds: int = 45,
+    max_output_chars: int = 4096,
+) -> dict[str, Any]:
+    """Run 1-32 one-shot processes concurrently, with bounded results.
+
+    Results preserve input order. Normal job errors do not abort other jobs.
+    Requires an active python_execute and its WorkSession.
+    """
+    return _bridge_call(
+        "process.run_many",
+        {
+            "jobs": jobs,
+            "max_concurrent": max_concurrent,
+            "job_timeout_seconds": job_timeout_seconds,
+            "batch_timeout_seconds": batch_timeout_seconds,
+            "max_output_chars": max_output_chars,
+        },
+    )
+
+
 def _process_start(
     executable: str,
     arguments: list[str] | tuple[str, ...] | None = None,
@@ -637,6 +662,7 @@ def _create_process_module() -> types.ModuleType:
     process.__dict__.update(
         {
             "run": _process_run,
+            "run_many": _process_run_many,
             "start": _process_start,
             "status": _process_status,
             "read": _process_read,
@@ -646,6 +672,7 @@ def _create_process_module() -> types.ModuleType:
             "release": _process_release,
             "__all__": [
                 "run",
+                "run_many",
                 "start",
                 "status",
                 "read",
