@@ -533,9 +533,42 @@ def _process_run_many(
     batch_timeout_seconds: int = 45,
     max_output_chars: int = 4096,
 ) -> dict[str, Any]:
-    """Run 1-32 one-shot processes concurrently, with bounded results.
+    """Run 1-32 one-shot Windows processes concurrently in one bridge call.
 
-    Results preserve input order. Normal job errors do not abort other jobs.
+    Each entry in jobs MUST be a dictionary with:
+      - id: unique, nonempty string (1-64 characters; case-sensitive).
+      - executable: nonempty executable name or path.
+
+    Optional per-job fields:
+      - arguments: list of command-line strings.
+      - working_directory: working directory string.
+      - environment: mapping of variable names to string values or None.
+
+    Every job is validated before any process starts. In particular, omitting
+    an id or repeating one raises LoomError(invalid_argument).
+
+    Example (both jobs run without modifying files):
+        import loom.process
+        batch = loom.process.run_many(
+            [
+                {"id": "one", "executable": "cmd.exe",
+                 "arguments": ["/d", "/c", "echo ONE"]},
+                {"id": "two", "executable": "cmd.exe",
+                 "arguments": ["/d", "/c", "echo TWO"]},
+            ],
+            max_concurrent=2,
+        )
+        print([(job["id"], job["outcome"]) for job in batch["jobs"]])
+
+    max_concurrent: 1-8 (default 4); job_timeout_seconds: 1-600 (default
+    30); batch_timeout_seconds: 1-540 (default 45); max_output_chars:
+    1-65536 per job (default 4096).
+
+    Returns {"jobs": [...], "timed_out": bool}; jobs remain in input order
+    and include id, outcome, exit_code and bounded stdout/stderr. Outcomes:
+    success, nonzero_exit, timeout, launch_error, not_started. A nonzero
+    process exit does not abort other jobs. The parent python_execute
+    timeoutSeconds should exceed batch_timeout_seconds to allow cleanup.
     Requires an active python_execute and its WorkSession.
     """
     return _bridge_call(

@@ -1,6 +1,6 @@
 # Roadmap post-G1
 
-> Estado al 2026-10-08: **CERRADO end-to-end.** Ergonomía, Producto/Deployment y Python 1–3 completados. Release 5 instalada; Computer H1 continúa pausado. Se conserva el orden histórico de ejecución.
+> Estado al 2026-10-08: **CERRADO end-to-end.** Ergonomía, Producto/Deployment, Python 1–3 y la extensión A4.1 completados. Release **6** instalada; Computer H1 continúa pausado. Se conserva el orden histórico de ejecución.
 
 ## Objetivo
 
@@ -33,6 +33,10 @@ Secuencia ejecutada:
 3. [[Python 3 - Outputs binarios e imágenes|outputs binarios/imágenes desde Python hacia el modelo]] — **CERRADO end-to-end (P3.0–P3.2)**. Al cerrar P3, el runtime era `0.1.0-dev-python3`, con Python 2 como rollback. Quedaron validados el Host de 25 tools, `loom.display_image`, `ImageContentBlock`, presupuesto MCP de 9 MiB, Integration 21/21, suite Release 356/356 y fresh-agent ciego PASS. El workaround visual se publicó en el plugin **0.5.1**, sin drift del contrato MCP. `UI_RENDER` inline sigue siendo una limitación del consumidor; audio/blobs genéricos continúan diferidos.
 
 **Despliegue posterior (2026-10-08):** Release 5 `0.1.0-dev-42ee90c` (sequence 5) instalada end-to-end con Host y Launcher corregidos; runtime healthy/ready y `update check` sin novedades. Suite Release actual **366/366**. Rollback: `0.1.0-dev-python3` (sequence 0). Ver [[Auto-update firmado]].
+
+## Extensión posterior A4.1 — Ejecución paralela local
+
+**CERRADA end-to-end** en Release 6 `0.1.0-dev-6b1566a` (sequence 6). Se incorporó `loom.process.run_many()` a la API privada de Python, con límites de concurrencia, timeout y limpieza de procesos, sin alterar las 25 herramientas MCP públicas. Suite **379/379**, prueba de cancelación real, despliegue GitHub/Launcher y smoke fresh-agent `A41_FRESH_AGENT_OK` (3 trabajos, 2,229 s). Ver [[A4.1 - Ejecucion paralela local]] y [[A4.1 - Release 6 desplegada]]. La mejora menor del docstring queda en fuente para una actualización futura, sin nuevo despliegue ahora.
 
 ## Horizonte lejano / post-roadmap actual
 
