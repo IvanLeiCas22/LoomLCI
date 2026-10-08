@@ -1,6 +1,6 @@
 # A3 — Streamable HTTP
 
-**Estado 2026-10-08:** A3.1 validada localmente. A3.2: perfil HTTP independiente y preflight de tunnel-client validados; E2E ChatGPT pendiente de un segundo túnel real con credenciales propias. El transporte STDIO productivo sigue intacto.
+**Estado 2026-10-08:** A3.1 validada localmente. A3.2: **segundo túnel HTTP real creado y cliente en ejecución, `healthz=200` / `readyz=200`**; pendiente registrar plugin separado en ChatGPT y medir concurrencia remota. Transporte STDIO productivo intacto.
 
 ## Objetivo
 
@@ -56,3 +56,18 @@ Pendiente E2E: crear segundo tunnel ID real asociado al workspace, runtime API k
 Fuentes:
 - https://developers.openai.com/api/docs/guides/secure-mcp-tunnels
 - https://github.com/openai/tunnel-client/blob/master/docs/configuration.md
+
+## A3.2 - Túnel HTTP remoto real iniciado (2026-10-08)
+
+Se creó manualmente en OpenAI Platform el túnel LoomLCI HTTP Test, ID tunnel_6ac73f6a8cfc8191b551818597fc5413. El túnel STDIO productivo es diferente y no se modificó.
+
+- Clave de runtime restringida en %LOCALAPPDATA%\LoomLCI\http-test\secrets\runtime-api-key.txt, con ACL de usuario exclusiva; nunca guardar valor en Git ni documentación.
+- Bearer HTTP local independiente y aleatorio en %LOCALAPPDATA%\LoomLCI\http-test\secrets\local-bearer-header.txt, ACL exclusiva del usuario. Contiene un encabezado Bearer completo; nunca imprimirlo.
+- Perfil a32-http-test en %LOCALAPPDATA%\LoomLCI\http-test\profiles\a32-http-test.yaml. Referencia a la clave remota mediante file: y apunta a http://127.0.0.1:57831/mcp.
+- Estado del cliente en %LOCALAPPDATA%\LoomLCI\http-test\state; MCP_EXTRA_HEADERS y MCP_DISCOVERY_EXTRA_HEADERS usan Authorization: file:<ruta_absoluta_al_bearer_local>, no contienen la credencial literal.
+- Host experimental lee LOOMLCI_HTTP_POC_TOKEN_FILE desde archivo protegido (nuevo soporte de A3.2) sin modificar el Host STDIO instalado. El modo de token literal por entorno sigue disponible en los smoke tests.
+- Los procesos arrancaron con ownership Independent para mantener la prueba: HTTP Host PID 16012, handle proc_bd9632be5f25a6266c8ac79bada69dfa; tunnel-client PID 10164, handle proc_c3c36820f55950842f0139385a3f6f30. Para terminar: process_terminate y luego process_release de cada handle. No hay autoarranque tras reinicio Windows.
+- Host /health autenticado: HTTP 200; tunnel-client doctor: PASS. Tunnel-client recibió metadatos remotos, inicializó MCP y arrancó. Endpoint local de salud http://127.0.0.1:61161/healthz = 200 y /readyz = 200. Advertencia no fatal por discovery OAuth 404.
+- Se mantuvo LoomLCI Release 5 productivo healthy=true ready=true, sin tocar launcher, perfil ni runtime key.
+
+PENDIENTE: crear un segundo plugin ChatGPT con conexión Tunnel apuntando a LoomLCI HTTP Test, sin enviar el Bearer local como credencial de ChatGPT. Verificar catálogo de 25 tools y medir 3 process_run concurrentes desde el nuevo plugin. No atribuir todavía mejoras end-to-end.

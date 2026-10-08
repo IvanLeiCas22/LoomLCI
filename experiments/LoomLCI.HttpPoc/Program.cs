@@ -47,6 +47,23 @@ if (!int.TryParse(rawPort, out var port) || port is < 1024 or > 65535)
 }
 
 var secret = Environment.GetEnvironmentVariable("LOOMLCI_HTTP_POC_TOKEN");
+var tokenFile = Environment.GetEnvironmentVariable("LOOMLCI_HTTP_POC_TOKEN_FILE");
+if (!string.IsNullOrEmpty(tokenFile))
+{
+    if (!string.IsNullOrEmpty(secret) || !Path.IsPathFullyQualified(tokenFile))
+    {
+        throw new InvalidOperationException(
+            "Provide exactly one token source: LOOMLCI_HTTP_POC_TOKEN or absolute LOOMLCI_HTTP_POC_TOKEN_FILE.");
+    }
+
+    var header = File.ReadAllText(tokenFile).Trim();
+    if (!header.StartsWith("Bearer ", StringComparison.Ordinal) || header.Length <= 7)
+    {
+        throw new InvalidOperationException("Token file must contain a single Bearer credential.");
+    }
+
+    secret = header[7..];
+}
 if (string.IsNullOrWhiteSpace(secret) || Encoding.UTF8.GetByteCount(secret) < 32 ||
     !string.Equals(secret, secret.Trim(), StringComparison.Ordinal))
 {

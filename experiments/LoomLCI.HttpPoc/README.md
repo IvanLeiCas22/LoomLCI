@@ -6,7 +6,7 @@ Esta es una PoC **experimental**, fuera de LoomLCI.slnx y del instalador/Launche
 
 - Modelo: Microsoft.NET.Sdk.Web (.NET 10) + ModelContextProtocol.AspNetCore 2.2.0.
 - Escucha IPv4 loopback 127.0.0.1 y puerto definido en LOOMLCI_HTTP_POC_PORT (1024–65535).
-- Arranque exige LOOMLCI_HTTP_POC_TOKEN (secreto aleatorio de al menos 32 bytes UTF-8); rechaza solicitudes sin Bearer o con Bearer erróneo.
+- Arranque exige un secreto aleatorio (mínimo 32 bytes UTF-8), proporcionado mediante **una sola** fuente: `LOOMLCI_HTTP_POC_TOKEN` o `LOOMLCI_HTTP_POC_TOKEN_FILE` (ruta absoluta a un archivo protegido que contiene `Bearer <secreto>`). El token del archivo no se pasa por línea de comandos; se rechazan solicitudes sin Bearer o con Bearer erróneo.
 - Cada ruta valida Host=127.0.0.1:puerto y rechaza Origin; sin CORS. Todos los endpoints funcionales requieren Bearer (comparación SHA-256 en tiempo constante). **Única excepción:** los dos GET de /.well-known/oauth-protected-resource[/mcp] responden 404 sin token, para indicar ausencia de metadata OAuth y permitir el doctor del túnel; no exponen tools ni datos de Loom.
 - MCP Stateless en /mcp; WorkSession persistente dentro del Host mediante workId; /health también autenticado.
 - Full Trust Windows: nunca exponer el puerto ni reutilizar la runtime API key del túnel.
@@ -45,4 +45,4 @@ Para E2E hace falta crear un túnel real adicional con workspace asociado y runt
 
 ## Fuera de alcance
 
-No hay aún integración con Secure MCP Tunnel HTTP, ni integración de start/stop, rollback, estado o autenticación persistente en Launcher. Las 25 herramientas conservan sus clases, pero PDF, Python e imágenes necesitarían pruebas específicas antes de un cutover. Para probar conexión con ChatGPT, crear un túnel de test distinto al de producción con sus propias credenciales. No inferir rendimiento end-to-end a partir de este benchmark local.
+La conexión experimental con un segundo Secure MCP Tunnel HTTP se inició de forma independiente el 2026-10-08; todavía falta comprobar las herramientas desde un segundo plugin de ChatGPT y medir el paralelismo de extremo a extremo. No hay integración de start/stop, rollback, estado o autenticación persistente en Launcher. Las 25 herramientas conservan sus clases, pero PDF, Python e imágenes necesitarían pruebas específicas antes de un cutover. Para probar conexión con ChatGPT, crear un túnel de test distinto al de producción con sus propias credenciales. No inferir rendimiento end-to-end a partir de este benchmark local.
