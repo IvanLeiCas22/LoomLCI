@@ -261,15 +261,125 @@ public sealed class LauncherTests
                 Path.Combine(root, "Detener LoomLCI.lnk"),
                 shortcuts.StopPath);
 
-            var start = ReadShortcut(shortcuts.StartPath);
+            var start = ReadShortcut(shortcuts.StartPath!);
             Assert.Equal(launcherPath, start.TargetPath);
             Assert.Equal("start --pause", start.Arguments);
             Assert.Equal("Iniciar LoomLCI", start.Description);
 
-            var stop = ReadShortcut(shortcuts.StopPath);
+            var stop = ReadShortcut(shortcuts.StopPath!);
             Assert.Equal(launcherPath, stop.TargetPath);
             Assert.Equal("stop --pause", stop.Arguments);
             Assert.Equal("Detener LoomLCI", stop.Description);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ShortcutsAreRemovedOnlyWhenOwnedAndUnmodified()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var root = CreateScratch();
+        try
+        {
+            var install = Path.Combine(root, "install");
+            var desktop = Path.Combine(root, "desktop");
+            Directory.CreateDirectory(install);
+            var launcher = Path.Combine(install, "LoomLCI.Launcher.exe");
+            File.WriteAllBytes(launcher, []);
+            var links = ShortcutCreator.CreateDesktopShortcuts(launcher, desktop);
+            Assert.True(File.Exists(links.StartPath));
+            Assert.True(File.Exists(links.StopPath));
+
+            // A foreign installation must never overwrite a link with the same name.
+            var otherInstall = Path.Combine(root, "other");
+            Directory.CreateDirectory(otherInstall);
+            var other = Path.Combine(otherInstall, "LoomLCI.Launcher.exe");
+            File.WriteAllBytes(other, []);
+            var refused = ShortcutCreator.CreateDesktopShortcuts(other, desktop);
+            Assert.Null(refused.StartPath);
+            Assert.Null(refused.StopPath);
+
+            // Changing one shortcut invalidates the stored SHA-256.
+            File.AppendAllText(links.StartPath!, "user change");
+            Assert.Equal(1, ShortcutCreator.RemoveOwnedDesktopShortcuts(launcher, desktop));
+            Assert.True(File.Exists(links.StartPath));
+            Assert.False(File.Exists(links.StopPath));
+            Assert.Equal(0, ShortcutCreator.RemoveOwnedDesktopShortcuts(other, desktop));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ShortcutCleanupWithoutOwnershipDoesNotDeleteLegacyFiles()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var root = CreateScratch();
+        try
+        {
+            var launcher = Path.Combine(root, "LoomLCI.Launcher.exe");
+            File.WriteAllBytes(launcher, []);
+            var links = ShortcutCreator.CreateDesktopShortcuts(launcher, root);
+            File.Delete(Path.Combine(root, ".loomlci-shortcuts.json"));
+            Assert.Equal(0, ShortcutCreator.RemoveOwnedDesktopShortcuts(launcher, root));
+            Assert.True(File.Exists(links.StartPath));
+            Assert.True(File.Exists(links.StopPath));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void PurgeRequiresOwnerAndPreservesSharedSiblingData()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var root = CreateScratch();
+        try
+        {
+            var install = Path.Combine(root, "app");
+            var shared = Path.Combine(root, "loom");
+            var data = Path.Combine(shared, "deployment");
+            var paths = new AppPaths(install, data);
+            Directory.CreateDirectory(data);
+            var foreignFile = Path.Combine(shared, "http-test", "keep.txt");
+            Directory.CreateDirectory(Path.GetDirectoryName(foreignFile)!);
+            File.WriteAllText(foreignFile, "keep");
+            File.WriteAllText(Path.Combine(data, "secret.txt"), "test");
+
+            Assert.Throws<InvalidOperationException>(() => LocalDataOwnership.Purge(paths));
+            LocalDataOwnership.Record(paths);
+            var anotherOwner = new AppPaths(Path.Combine(root, "another"), data);
+            Assert.Throws<InvalidOperationException>(() => LocalDataOwnership.EnsureAvailable(anotherOwner));
+            Assert.Throws<InvalidOperationException>(() => LocalDataOwnership.Purge(anotherOwner));
+            LocalDataOwnership.Purge(paths);
+            Assert.False(Directory.Exists(data));
+            Assert.Equal("keep", File.ReadAllText(foreignFile));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PurgeCommandRequiresExplicitConfirmation()
+    {
+        var root = CreateScratch();
+        try
+        {
+            var output = new StringWriter();
+            var error = new StringWriter();
+            var app = CreateApplication(root, new StringReader(""), output, error);
+            var code = await app.RunAsync(["purge-data"], CancellationToken.None);
+            Assert.Equal(1, code);
+            Assert.Contains("--confirm-erase-deployment", error.ToString());
         }
         finally
         {

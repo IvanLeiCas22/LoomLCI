@@ -39,6 +39,9 @@ DirExistsWarning=no
 CloseApplications=no
 RestartApplications=no
 SetupLogging=yes
+; RB-05: a legacy uninstall log can still contain recursive data deletion.
+; Overwrite it on upgrade; isolated migration E2E must remain a release gate.
+UninstallLogMode=overwrite
 
 [Files]
 Source: "{#PackageRoot}\*"; DestDir: "{tmp}\LoomLCI-Package"; Flags: recursesubdirs createallsubdirs deleteafterinstall ignoreversion
@@ -47,7 +50,8 @@ Source: "{#PackageRoot}\*"; DestDir: "{tmp}\LoomLCI-Package"; Flags: recursesubd
 Type: filesandordirs; Name: "{app}\versions"
 Type: filesandordirs; Name: "{app}\tools"
 Type: files; Name: "{app}\LoomLCI.Launcher.exe"
-Type: filesandordirs; Name: "{#LoomRoot}"
+; User data, credentials, profiles, Python and experiments are preserved by default.
+Type: files; Name: "{app}\.loomlci-shortcuts.json"
 
 [Code]
 var
@@ -196,16 +200,21 @@ begin
   end;
 end;
 
-procedure StopInstalledRuntime();
+function StopAndCleanupInstalledRuntime(): Boolean;
 var
   LauncherPath: String;
+  ConfigPath: String;
   BatchPath: String;
   BatchText: String;
   ResultCode: Integer;
 begin
   LauncherPath := ExpandConstant('{app}\LoomLCI.Launcher.exe');
+  ConfigPath := ExpandConstant('{#LoomRoot}\deployment\config\machine.json');
   if not FileExists(LauncherPath) then
+  begin
+    Result := not FileExists(ConfigPath);
     exit;
+  end;
 
   BatchPath := ExpandConstant('{tmp}\loomlci-uninstall-stop.cmd');
   BatchText :=
@@ -213,20 +222,29 @@ begin
     'set "LOOMLCI_INSTALL_ROOT=' + ExpandConstant('{app}') + '"' + #13#10 +
     'set "LOOMLCI_DATA_ROOT=' +
       ExpandConstant('{#LoomRoot}\deployment') + '"' + #13#10 +
-    '"' + LauncherPath + '" stop' + #13#10 +
+    'if exist "' + ConfigPath + '" (' + #13#10 +
+    '  "' + LauncherPath + '" stop' + #13#10 +
+    '  if errorlevel 1 exit /b 30' + #13#10 +
+    ')' + #13#10 +
+    '"' + LauncherPath + '" uninstall-shortcuts' + #13#10 +
     'exit /b %errorlevel%' + #13#10;
 
+  Result := False;
   if not SaveStringToFile(BatchPath, BatchText, False) then
     exit;
 
   try
-    Exec(
+    if not Exec(
       ExpandConstant('{cmd}'),
       '/d /s /c ' + AddQuotes(BatchPath),
       ExpandConstant('{app}'),
       SW_HIDE,
       ewWaitUntilTerminated,
-      ResultCode);
+      ResultCode) then
+      exit;
+    Result := ResultCode = 0;
+    if not Result then
+      Log(Format('RB-05: aborting uninstall, preflight exit code %d.', [ResultCode]));
   finally
     DeleteFile(BatchPath);
   end;
@@ -249,8 +267,9 @@ begin
   Result := ConfigurationExitCode;
 end;
 
-procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+function InitializeUninstall(): Boolean;
 begin
-  if CurUninstallStep = usUninstall then
-    StopInstalledRuntime();
+  Result := StopAndCleanupInstalledRuntime();
+  if not Result then
+    Log('RB-05: uninstall blocked because runtime stop/shortcut cleanup failed.');
 end;

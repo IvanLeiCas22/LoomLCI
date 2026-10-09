@@ -64,6 +64,8 @@ public sealed class LauncherApplication
                     "setup" => await SetupAsync(effectiveArgs[1..], cancellationToken),
                     "update" => await UpdateAsync(effectiveArgs[1..], cancellationToken),
                     "rollback" => await RollbackAsync(effectiveArgs[1..], cancellationToken),
+                    "uninstall-shortcuts" => CleanupShortcuts(effectiveArgs[1..]),
+                    "purge-data" => await PurgeDataAsync(effectiveArgs[1..], cancellationToken),
                     "help" or "--help" or "-h" => PrintHelp(),
                     _ => UnknownCommand(command)
                 };
@@ -359,6 +361,36 @@ public sealed class LauncherApplication
         return 0;
     }
 
+    private int CleanupShortcuts(string[] args)
+    {
+        if (args.Length != 0)
+            throw new ArgumentException("Uso: uninstall-shortcuts.");
+        var removed = ShortcutCreator.RemoveOwnedDesktopShortcuts(_paths.LauncherPath);
+        _output.WriteLine($"Shortcuts propios eliminados: {removed}.");
+        return 0;
+    }
+
+    private async Task<int> PurgeDataAsync(
+        string[] args, CancellationToken cancellationToken)
+    {
+        if (args.Length != 1 ||
+            !string.Equals(args[0], "--confirm-erase-deployment", StringComparison.Ordinal))
+            throw new ArgumentException(
+                "Uso: purge-data --confirm-erase-deployment (irreversible).");
+
+        // The owner and directory are checked again after acquiring the lock.
+        LocalDataOwnership.EnsureAvailable(_paths);
+        var stopped = await StopAsync(cancellationToken);
+        if (stopped != 0)
+            return stopped;
+
+        // Purge rechecks ownership and refuses links. The deployment lock
+        // lives inside the directory and cannot remain open during removal.
+        LocalDataOwnership.Purge(_paths);
+        _output.WriteLine("Deployment propio eliminado; caches compartidas preservadas.");
+        return 0;
+    }
+
     private MachineConfig ValidateInstalledState()
     {
         var config = MachineConfigStore.Load(_paths.MachineConfigPath);
@@ -424,6 +456,7 @@ public sealed class LauncherApplication
         _output.WriteLine("  update check   Busca una release firmada más nueva.");
         _output.WriteLine("  update apply   Aplica update con rollback automático si falla.");
         _output.WriteLine("  rollback       Vuelve transaccionalmente a previousVersion.");
+        _output.WriteLine("  purge-data --confirm-erase-deployment   Purga explícita del deployment propio.");
         _output.WriteLine();
         _output.WriteLine("opciones generales:");
         _output.WriteLine("  --pause  Espera Enter antes de cerrar; pensado para accesos directos.");

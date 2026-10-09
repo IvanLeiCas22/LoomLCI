@@ -9,7 +9,7 @@ origen: auditoria_integral_2026-10-08
 
 # Roadmap de robustez post-auditoría
 
-> **Decisión del usuario (2026-10-08): resolver los seis bloques de la auditoría integral.** Este documento es un backlog duradero y priorizado, **no** un Work Plan efímero ni evidencia de implementación. Estado actual: **RB-01, RB-02 y RB-04 CERRADOS end-to-end en Release 7**; **RB-03 CERRADO end-to-end en build local seq8** (sin GitHub Release), RB-05 pendiente y RB-06 documental parcialmente avanzado. Se conserva el workflow: investigar el punto y el código vigente → diseñar → contrastar con el usuario → implementar → probar → desplegar si procede → documentar y commitear.
+> **Decisión del usuario (2026-10-08): resolver los seis bloques de la auditoría integral.** Este documento es un backlog duradero y priorizado, **no** un Work Plan efímero ni evidencia de implementación. Estado actual: **RB-01, RB-02 y RB-04 CERRADOS end-to-end en Release 7**; **RB-03 CERRADO end-to-end en build local seq8** (sin GitHub Release), RB-05 implementado/validado en fuente y E2E aislado, **pendiente de despliegue productivo**, y RB-06 documental parcialmente avanzado. Se conserva el workflow: investigar el punto y el código vigente → diseñar → contrastar con el usuario → implementar → probar → desplegar si procede → documentar y commitear.
 >
 > Baseline verificada durante la auditoría: instalación productiva **Release 6 `0.1.0-dev-6b1566a` (sequence 6)**, rollback Release 5 `0.1.0-dev-42ee90c` (sequence 5), `healthy/ready`; suite Release **379/379**, Integration **21/21**, 25 tools MCP y 16 capacidades de `loom`. El repositorio se encontraba limpio antes de iniciar los cambios documentales. El chequeo NuGet `--vulnerable --include-transitive --no-restore` no reportó vulnerabilidades conocidas. No equivale a un pentest.
 >
@@ -27,7 +27,7 @@ origen: auditoria_integral_2026-10-08
 | RB-02 | Update: staging, journal y recuperación ante fallos tempranos | Alta | **CERRADO end-to-end — Release 7** | Antes de futuros cutovers |
 | RB-03 | Propagación de fallos al cerrar WorkSession/recursos | Media-alta | **CERRADO end-to-end — build local sequence 8** | Independiente de RB-01/02 |
 | RB-04 | Cutover/rollback externos, seguros respecto de Windows Jobs | Media-alta | **CERRADO end-to-end — Release 7** | Coordinar con RB-02 |
-| RB-05 | Uninstall sin pérdida accidental de datos locales | Media | Pendiente | Independiente |
+| RB-05 | Uninstall sin pérdida accidental de datos locales | Media | **VALIDADO en fuente y E2E aislado; despliegue pendiente (seq>=10)** | Independiente |
 | RB-06 | Reconciliación documental y observabilidad durable/opt-in | Baja | Parcial: navegación y estado operativo reconciliados; observabilidad pendiente | Transversal |
 
 **Regla de cierre:** ningún bloque se da por `CERRADO` sólo porque pase la suite existente. Debe cumplir los criterios específicos de abajo, tener pruebas de regresión, una verificación end-to-end cuando corresponda y estado actualizado en este documento. No considerar Computer H1 ni la automatización de publicaciones/actualizaciones como parte de este mini-roadmap.
@@ -108,16 +108,17 @@ origen: auditoria_integral_2026-10-08
 
 ## RB-05 — Desinstalación y preservación de datos
 
-> **Ajuste puntual ya aplicado durante las pruebas de RB-04:** se quitaron de `[UninstallDelete]` dos reglas que borraban `LoomLCI.lnk` y `Detener LoomLCI.lnk` del escritorio por nombre incluso desde un AppId aislado. Los dos accesos directos se habían eliminado en la primera prueba y se restauraron/verificaron; la repetición con SHA-256 pasó. **No equivale al cierre de RB-05**: la eliminación recursiva de datos y el ownership de shortcuts requieren todavía su diseño y ensayos propios.
+**Estado 2026-10-09: IMPLEMENTADO y VALIDADO en fuente + E2E genuino aislado; NO DESPLEGADO sobre el producto seq9.** Nota completa: [[RB-05 - Desinstalación segura y preservación de datos]].
 
-**Hallazgo:** I-01. **Evidencia:** `installer/LoomLCI.iss`, sección `[UninstallDelete]`, elimina recursivamente `%LOCALAPPDATA%\LoomLCI`, que puede contener datos compartidos por la instalación y experimentos.
+**Hallazgo histórico I-01:** `[UninstallDelete]` borraba recursivamente `%LOCALAPPDATA%\LoomLCI`, incluyendo datos de usuario y pruebas. La fuente actual quita esa regla, utiliza `UninstallLogMode=overwrite` para migrar entradas antiguas y hace fallar `InitializeUninstall` si el stop falla. Los accesos directos sólo se eliminan con prueba de propiedad (destino, argumentos, hash).
 
-- [ ] Inventariar rutas propias de la instalación, secretos, caches, perfiles y datos de experimentos.
-- [ ] Definir comportamiento de uninstall seguro: preservar datos del usuario por defecto y ofrecer eliminación explícita y suficientemente advertida, si se aprueba ese diseño.
-- [ ] Delimitar exactamente las rutas que el uninstall puede borrar; considerar reinstalación y coexistencia de instalaciones.
-- [ ] Agregar smoke de desinstalar/reinstalar conservando datos y de purga explícita en entorno aislado.
+- [x] Inventariar directorios del programa, deployment, secretos, perfiles, datos de HTTP-test y runtimes/paquetes Python compartidos.
+- [x] Implementar uninstall estándar conservador; añadir `purge-data --confirm-erase-deployment` como comando irreversible separado, con marca de ownership y protección ante junctions.
+- [x] Delimitar las rutas: uninstall conserva `LoomRoot` y sólo limpia `{app}` gestionado; purga sólo `DataRoot=...\deployment`. Documentar que instalaciones legacy no marcadas y archivos adicionales bajo `{app}` tienen limitaciones específicas.
+- [x] E2E con instaladores Inno 7.1.0 reales: upgrade de log peligroso, stop fallido que bloquea uninstall (exit 1), datos ajenos intactos, reinstalación con datos preservados, purga explícita acotada, shortcut SHA-256 sin cambios. Marcador `RB05_GENUINE_E2E_PASS`.
+- [ ] Desplegar de forma supervisada en producción con installer/Launcher nuevos **sequence >=10**; smoke productivo no destructivo y backup externo.
 
-**Aceptación:** desinstalación estándar no elimina datos ajenos ni secretos/perfiles que deban conservarse; purga total requiere elección consciente y es comprobable.
+**Aceptación en entorno aislado:** alcanzada, suite Release final **437/437** y E2E genuino PASS. **Cierre productivo:** pendiente por decisión de cutover; hasta ese momento evitar el uninstall productivo seq9.
 
 ## RB-06 — Documentación y observabilidad
 

@@ -24,7 +24,9 @@ El builder requiere Inno Setup 7.1.0 ya disponible en la máquina de desarrollo.
 
 ## Uninstall
 
-El uninstall convencional:
+> **Esta sección reproduce el comportamiento histórico ya instalado (seq9). NO describe el código RB-05 recién validado y pendiente de desplegar.** La política correctiva preserva los datos por defecto, migra el log anterior y exige confirmación independiente para la purga. Ver [[RB-05 - Desinstalación segura y preservación de datos]]. No ejecutar el uninstaller productivo antiguo.
+
+El uninstall convencional histórico:
 
 1. intenta detener el runtime instalado usando `LoomLCI.Launcher.exe stop` con los roots correctos;
 2. elimina `LoomLCI.lnk` y `Detener LoomLCI.lnk`;

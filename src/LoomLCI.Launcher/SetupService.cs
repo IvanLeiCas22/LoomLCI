@@ -51,6 +51,8 @@ public sealed class SetupService
         var runtimeKey = ResolveRuntimeKey(options.RuntimeKeyFile, input, output);
         using var deploymentLock = DeploymentLock.Acquire(paths);
 
+        LocalDataOwnership.EnsureAvailable(paths);
+
         var currentConfig = File.Exists(paths.MachineConfigPath)
             ? MachineConfigStore.Load(paths.MachineConfigPath)
             : null;
@@ -115,6 +117,7 @@ public sealed class SetupService
         EnsureDoctorOk(doctor.Stdout);
 
         MachineConfigStore.Save(paths.MachineConfigPath, config);
+        LocalDataOwnership.Record(paths);
 
         string? startShortcutPath = null;
         string? stopShortcutPath = null;
