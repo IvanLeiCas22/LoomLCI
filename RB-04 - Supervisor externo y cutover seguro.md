@@ -37,9 +37,18 @@ El incidente del primer cutover de Release 6 confirma que `Independent` a nivel 
 - Builder real de Inno Setup 7.1.0 generó un EXE para rutas aisladas con versión `0.1.0-dev-rb04-build-test` y sequence 777; el ensayo validó SHA, ruta de instalación, ruta de datos y versión/sequence de su archivo deployment.json. **Exit code 0.** No se ejecutó el instalador real ni se cambió la instalación productiva.
 - Se confirmó que el script y sus dos test runners funcionan en PowerShell de Windows. No requieren plugin nuevo ni herramientas MCP nuevas.
 
+## Evidencia adicional — interrupción real e instalador auténtico (2026-10-08)
+
+- **Kill de proceso real 11/11:** `tests/LoomLCI.Launcher.CrashHarness` ejecutó `UpdateService` del producto en un proceso .NET separado. `scripts/Test-RealLauncherCrashRecovery.ps1`, iniciado desde IvanSpace externo, esperó un checkpoint de journal persistido, aplicó `Stop-Process -Force` al proceso hijo y arrancó una instancia **nueva** para recuperar el estado. Se verificaron los checkpoints `prepared`, `promoting`, `backed_up`, `published`, `stopping`, `runtime_stopped`, `config_saved`, `activated`, `runtime_started`, `committed` y un segundo crash en `restored_files` durante el rollback. **Exit code 0, `RB04_REAL_PROCESS_KILL_RECOVERY_OK (11/11)`.** Se eliminaron los directorios temporales de prueba. El runtime fue un stub de archivos; firma ECDSA P-256 efímera de prueba, no feed productivo; no se probó health real del tunnel-client.
+- **Instalador Inno Setup auténtico ejecutado desde IvanSpace:** `scripts/Test-GenuineIsolatedInstaller.ps1` compiló Host/Launcher, generó un Inno Setup 7.1.0 con `AppId`, installation root, data root y `sequence` únicos **bajo TEMP**, usó un tunnel ID y key ficticios, y verificó SHA-256 de Launcher/Host contra el portable construido.
+- **Defecto real encontrado:** en modo `/VERYSILENT /SUPPRESSMSGBOXES`, la configuración `CurStepChanged(ssPostInstall)` falló con exit 1 del Launcher, pero Inno Setup **devolvió exit 0** y dejó `machine.json` ausente. Se corrigió con `ConfigurationExitCode := 100` antes de `ConfigureLoomLCI()`, reset a 0 solamente en éxito, y `GetCustomSetupExitCode`. Repetición: setup informó **exit 100**, la ausencia de config fue tratada como fallo esperado de credenciales de prueba, y la integridad de binarios pasó.
+- **Efecto colateral detectado y remediado:** `[UninstallDelete]` borraba los accesos directos del escritorio por nombre **incluso al desinstalar una instalación temporal con `/NOSHORTCUTS=1`**. Se restituyeron `LoomLCI.lnk` y `Detener LoomLCI.lnk` para Release 6, verificando target/argumentos originales. Se eliminaron **únicamente esas dos líneas destructivas**, como protección puntual hasta [[Roadmap de robustez post-auditoría|RB-05]]. En la última repetición el uninstaller aislado devolvió exit 0 y se verificó **`RB04_DESKTOP_SHORTCUTS_UNCHANGED`** con SHA-256 de ambos archivos antes y después.
+- **Resultado final del test del instalador:** build Inno real OK, setup con credencial ficticia **exit 100**, hash de binarios OK, `machine.json` no publicado, uninstall aislado **exit 0**, shortcuts productivos intactos, script padre **exit 0**. Esto es una **prueba satisfactoria del camino de fallo genuino y su limpieza**, no un E2E de alta de un túnel válido ni de conectividad.
+- **Suite después de los cambios:** `dotnet test LoomLCI.slnx -c Release --no-restore --verbosity quiet` **423/423** (21/21 integración). El crash-harness es un proyecto de prueba independiente de la solución, no se incluye dentro de esas 423.
+
 ## Runbook de cutover productivo futuro (NO EJECUTAR TODAVÍA)
 
-1. Terminar ensayos pendientes con un **instalador auténtico en instalación aislada** y, para RB-02, interrupciones abruptas de un Launcher real. Comprobar que IvanSpace/Tarea Programada supervisan fuera de Jobs del Host a detener.
+1. **Ya realizados:** kill real 11/11 e instalación genuina aislada del **camino de error** con credenciales ficticias. **Aún pendiente:** E2E con túnel **válido y separado del productivo**, corte/reinicio real y prueba de supervivencia del supervisor ante la detención efectiva de un Host bajo Job Objects. No sustituirlo por el E2E mock.
 2. Tras autorizar una release, construir setup y paquete con **nombre/version únicos** y siguiente sequence. Generar también release firmada `minUpdateProtocol=2` para futuros updates, y verificar explícitamente firma, digests y correspondencia de artefactos.
 3. Revisar `setup.deployment.json`, SHA-256 del setup, SHA-256 de los ejecutables Launcher/Host extraídos del portable, y que las rutas reales coincidan con las del instalador.
 4. Ejecutar primero `Invoke-SafeCutover.ps1 -Mode Preflight` de sólo lectura. Proveer `-InstallerPath`, `-InstallerSha256`, `-TargetVersion`, `-TargetSequence`, `-ExpectedCurrentVersion`, `-ExpectedCurrentSequence`, y hashes previstos. El metadata debe estar junto al EXE. Usar `-InstallRoot`/`-DataRoot` sólo si se compiló un instalador explícitamente para esas rutas.
@@ -54,8 +63,10 @@ El incidente del primer cutover de Release 6 confirma que `Independent` a nivel 
 - [x] Preflight con hashes, metadata de rutas y bloqueo de operaciones inseguras.
 - [x] Backup de Launcher/machine.json y log en carpeta separada; conservar shortcuts.
 - [x] Simulación completa aislada supervisada por IvanSpace y builder real sin ejecutar setup.
-- [ ] E2E aislado **con instalador auténtico**, túnel/credenciales de prueba y sin interferir con el productivo.
-- [ ] Kill abrupto del Launcher real durante transiciones del journal v2, recuperado en instalación aislada.
+- [x] Ensayo de instalador **auténtico** y fail-closed con credenciales ficticias, archivos verificados por SHA-256; error exit 100 y uninstall seguro, sin tocar runtime productivo.
+- [ ] E2E con **túnel válido independiente del productivo**, instalación inicial + health real, actualización y rollback end-to-end.
+- [x] Kill del **proceso real del harness .NET** que ejecuta UpdateService v2 y recuperación desde un segundo proceso **11/11** (runtime stub).
+- [ ] Kill real supervisado en instalación aislada con runtime/túnel verdaderos, si se exige cobertura end-to-end de Jobs y túnel.
 - [ ] Publicación/instalación productiva supervisada; smoke de 25 tools MCP/16 capacidades bridge, rollback y nuevo Launcher.
 - [ ] Resolver RB-05 en su propio bloque; no usar uninstall para recuperación.
 

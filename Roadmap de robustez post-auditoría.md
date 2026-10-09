@@ -93,14 +93,18 @@ origen: auditoria_integral_2026-10-08
 - [x] Rejectar Launchers antiguos vía release firmada protocolo 2; **53/53 pruebas Launcher**.
 - [x] Preflight aislado **7/7**, metadata de rutas/sha y no-journal, rechazo de ejecuciones sin `-ConfirmExternalSupervisor`.
 - [x] Ensayo completo de cutover desde IvanSpace externo contra **launcher/instalador ficticios**, con backup, start y health, `RB04_EXTERNAL_ISOLATED_EXECUTE_OK`.
-- [x] Inno Setup 7.1.0 compiló installer **auténtico** para rutas aisladas y generó metadata verificada; el EXE no se ejecutó ni instaló.
+- [x] Inno Setup 7.1.0 compiló y **ejecutó** instalador auténtico en rutas aisladas (ID distinto), verificando metadata y SHA-256 del Host/Launcher. La credencial falsa impidió terminar Setup; el error pasó de exit 0 engañoso a **exit 100** tras corregir `GetCustomSetupExitCode`. La desinstalación aislada terminó exit 0.
 - [x] Suite Release integral **423/423**, Integration **21/21**, sin corte del runtime productivo.
-- [ ] E2E genuino en entorno aislado con cuenta/túnel de prueba y terminaciones abruptas reales del Launcher; no reutilizar la credencial/túnel productivos.
+- [x] **11/11** terminaciones forzadas de proceso .NET real en puntos de journal RB-02, incluida restauración interrumpida, recuperadas desde otra instancia (controlador de runtime simulado).
+- [x] Instalador genuino probado en **ruta temporal**, camino de error por credenciales ficticias correctamente informado, binarios verificados, ambos accesos directos del escritorio preservados en la última repetición.
+- [ ] E2E genuino con túnel **válido e independiente del productivo** y supervivencia de supervisor frente al cierre del Host bajo Job Objects.
 - [ ] Supervisar cutover productivo desde IvanSpace externo, validar runtime/smoke/rollback y cierre RB-01/RB-02/RB-04.
 
-**Aceptación definitiva:** el supervisor externo sobrevive al `stop` real, reconoce versión y túnel correctos, obtiene y conserva evidencia durable; existe rollback verificable y nuevo Launcher/Host funcional. El E2E mock no prueba por sí solo la independencia de todos los Job Objects.
+**Aceptación definitiva:** el supervisor externo sobrevive al `stop` real, reconoce versión y túnel correctos, obtiene y conserva evidencia durable; existe rollback verificable y nuevo Launcher/Host funcional. El E2E mock ni el kill de UpdateService con runtime simulado prueban por sí solos la independencia de todos los Job Objects.
 
 ## RB-05 — Desinstalación y preservación de datos
+
+> **Ajuste puntual ya aplicado durante las pruebas de RB-04:** se quitaron de `[UninstallDelete]` dos reglas que borraban `LoomLCI.lnk` y `Detener LoomLCI.lnk` del escritorio por nombre incluso desde un AppId aislado. Los dos accesos directos se habían eliminado en la primera prueba y se restauraron/verificaron; la repetición con SHA-256 pasó. **No equivale al cierre de RB-05**: la eliminación recursiva de datos y el ownership de shortcuts requieren todavía su diseño y ensayos propios.
 
 **Hallazgo:** I-01. **Evidencia:** `installer/LoomLCI.iss`, sección `[UninstallDelete]`, elimina recursivamente `%LOCALAPPDATA%\LoomLCI`, que puede contener datos compartidos por la instalación y experimentos.
 

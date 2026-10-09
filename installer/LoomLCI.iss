@@ -44,8 +44,6 @@ SetupLogging=yes
 Source: "{#PackageRoot}\*"; DestDir: "{tmp}\LoomLCI-Package"; Flags: recursesubdirs createallsubdirs deleteafterinstall ignoreversion
 
 [UninstallDelete]
-Type: files; Name: "{userdesktop}\LoomLCI.lnk"
-Type: files; Name: "{userdesktop}\Detener LoomLCI.lnk"
 Type: filesandordirs; Name: "{app}\versions"
 Type: filesandordirs; Name: "{app}\tools"
 Type: files; Name: "{app}\LoomLCI.Launcher.exe"
@@ -55,6 +53,7 @@ Type: filesandordirs; Name: "{#LoomRoot}"
 var
   TunnelIdPage: TInputQueryWizardPage;
   RuntimeKeyPage: TInputQueryWizardPage;
+  ConfigurationExitCode: Integer;
 
 function ParamValue(const Name: String): String;
 begin
@@ -236,7 +235,18 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
+  begin
+    { Preserve a nonzero exit code even if /SUPPRESSMSGBOXES
+      catches and acknowledges a post-install exception. }
+    ConfigurationExitCode := 100;
     ConfigureLoomLCI();
+    ConfigurationExitCode := 0;
+  end;
+end;
+
+function GetCustomSetupExitCode: Integer;
+begin
+  Result := ConfigurationExitCode;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

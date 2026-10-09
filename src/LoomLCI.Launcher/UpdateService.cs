@@ -280,6 +280,7 @@ public sealed class UpdateService
         UpdateJournalStore.Save(
             _paths.UpdateJournalPath,
             journal);
+        _transitionProbe?.Invoke("stopping");
 
         await _runtime.StopAndConfirmAsync(
             _paths,
@@ -293,10 +294,12 @@ public sealed class UpdateService
         UpdateJournalStore.Save(
             _paths.UpdateJournalPath,
             journal);
+        _transitionProbe?.Invoke("runtime_stopped");
 
         MachineConfigStore.Save(
             _paths.MachineConfigPath,
             journal.TargetConfig);
+        _transitionProbe?.Invoke("config_saved");
 
         journal = journal with
         {
@@ -326,6 +329,7 @@ public sealed class UpdateService
         UpdateJournalStore.Save(
             _paths.UpdateJournalPath,
             journal);
+        _transitionProbe?.Invoke("runtime_started");
     }
 
     private async Task<bool> RecoverIfNeededLockedAsync(
