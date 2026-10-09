@@ -3,12 +3,12 @@ tipo: implementacion
 proyecto: LoomLCI
 bloque: RB-02
 fecha: 2026-10-08
-estado: codigo_validado_pendiente_cutover
+estado: cerrado_end_to_end
 ---
 
 # RB-02 — Journal y promoción recuperable
 
-> **Implementado y validado en el repositorio. NO DESPLEGADO.** La instalación productiva continúa en Release 6 `0.1.0-dev-6b1566a` (sequence 6). El cambio del Launcher requiere instalador convencional y supervisor de cutover externo (ver [[Roadmap de robustez post-auditoría]] y [[A4.1 - Release 6 desplegada]]). No declarar cerrado end-to-end sin E2E de instalación/recuperación.
+> **CERRADO end-to-end en Release 7 `0.1.0-dev-173b4ffc00f6` (sequence 7)** con Launcher nuevo, journal v2 y rollback Release 6 disponible. Antes del despliegue se validaron 11/11 terminaciones forzadas de proceso aislado y E2E de actualización/rollback con túnel real independiente. Ver [[RB-04 - Release 7 desplegada]].
 
 ## Hallazgos originales
 
@@ -43,13 +43,13 @@ estado: codigo_validado_pendiente_cutover
 - [x] Staging en volumen de destino, verificación de copia y journal temprano.
 - [x] Backup y promoción recuperables; recuperación reintentable; compatibilidad de journals v1.
 - [x] Tests de fallo controlado y reconstrucción de estados de crash; suite Release.
-- [ ] Ensayo de **terminación abrupta de proceso real**, en entorno independiente, en todos los puntos decisivos; los actuales ensayos reconstruyen estados en disco e inyectan excepciones, no emulan una pérdida súbita de energía.
-- [ ] Prueba E2E con instalación aislada incluyendo Launcher, actualización, rollback y control de carpeta activa.
-- [ ] Cutover productivo supervisado desde **fuera de LoomLCI**, coordinado con **RB-04**. Primero actualizar el Launcher usando instalador, luego el Host (el updater no actualiza su propio Launcher).
-- [ ] Smoke desde ChatGPT del nuevo runtime y su rollback; cerrar RB-01 y RB-02 end-to-end sólo después.
+- [x] Ensayo de **terminación abrupta de proceso real** 11/11 checkpoints del journal y recuperación desde otra instancia .NET en entorno aislado con runtime simulado.
+- [x] E2E de instalación aislada con Launcher auténtico, túnel remoto de prueba válido, actualización supervisada, rollback y healthy/ready.
+- [x] Cutover productivo supervisado por IvanSpace desde **fuera del Host**, Host+Launcher actualizados simultáneamente mediante instalador para sequence 7; el updater firmado, por separado, sólo actualiza el Host.
+- [x] Smoke directo desde ChatGPT al nuevo runtime; `previous=Release 6`, archivos y digests de rollback verificados (sin ejecutar rollback destructivo en producción).
 
 **Alcance de garantía:** las operaciones de directorio son recuperables entre las etapas persistidas y reintentables bajo los ensayos ejecutados; no se promete aislamiento absoluto de procesos externos ni durabilidad garantizada ante cortes físicos de alimentación. `IUpdateRuntimeControl.IsReadyAsync` verifica estado/túnel, no una atestación criptográfica del ejecutable efectivamente cargado por el proceso; la copia de Host publicada sí se valida byte a byte contra el paquete verificado.
 
 ## Próximo paso
 
-Investigación y ejecución segura de [[Roadmap de robustez post-auditoría|RB-04]] (supervisor externo/cutover) antes de instalar el Launcher y Host nuevos. RB-03 puede investigarse en paralelo sin interrumpir la versión actual.
+**RB-02 cerrado end-to-end en Release 7.** Mantener Release 6 como rollback, el respaldo externo y la evidencia de [[RB-04 - Release 7 desplegada]]. Próxima investigación: RB-03.

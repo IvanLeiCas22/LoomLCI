@@ -3,12 +3,12 @@ tipo: implementacion
 proyecto: LoomLCI
 bloque: RB-04
 fecha: 2026-10-08
-estado: codigo_validado_pendiente_cutover_real
+estado: cerrado_end_to_end
 ---
 
 # RB-04 — Supervisor externo y cutover seguro
 
-> **Fuente implementada y validada sin cortar el runtime productivo.** El producto sigue en Release 6 `0.1.0-dev-6b1566a` (sequence 6). RB-01, RB-02 y RB-04 están pendientes de instalación/smoke final, NO cerrados end-to-end.
+> **CERRADO end-to-end en Release 7 `0.1.0-dev-173b4ffc00f6` (sequence 7).** Cutover supervisado desde IvanSpace externo, `CUTOVER_OK`, smoke ChatGPT de 25 tools/16 capacidades, F-01/F-02, atomicidad y verificación de hashes/rollback. Ver [[RB-04 - Release 7 desplegada]].
 
 ## Causa y decisión
 
@@ -58,11 +58,11 @@ El incidente del primer cutover de Release 6 confirma que `Independent` a nivel 
 - **Limpieza:** `CLEANUP_UNINSTALL_EXIT=0`, `DESKTOP_SHORTCUTS_UNCHANGED`; el script padre cerró **exit 0**, borró el árbol de instalación temporal y conservó un log operacional **sin claves** en `%TEMP%\\LoomLCI.RB04.Evidence.3b2eea2c14da.log`.
 - **Error recuperado durante preparación:** el primer intento llegó a `GENUINE_SETUP_OK` pero un harness utilizaba `$args` (variable automática PowerShell) como parámetro propio. Esto ejecutaba `start` por defecto en vez de `status` y provocaba un **falso `Not healthy`**; tras corregirlo a `$launcherArgs`, el ensayo E2E completo pasó. No hay evidencia de fallo de disponibilidad del túnel.
 
-**Alcance:** conexión/runtime reales y dos instaladores auténticos bajo supervisión externa, sin sustituir la instalación productiva. No se reinstaló el plugin de prueba de ChatGPT ni se ejecutó un smoke remoto desde ese plugin (no es necesario para la independencia del cutover local). Sigue pendiente el **cutover productivo aprobado** y su smoke desde ChatGPT, por lo que RB-01/RB-02/RB-04 aún no están cerrados end-to-end.
+**Alcance de este ensayo previo:** conexión/runtime reales y dos instaladores auténticos bajo supervisión externa. El cutover **productivo se completó después** y se documenta en [[RB-04 - Release 7 desplegada]]. El antiguo plugin HTTP de prueba no se reinstaló.
 
-## Runbook de cutover productivo futuro (NO EJECUTAR TODAVÍA)
+## Runbook de cutover supervisado (ejecutado en Release 7)
 
-1. **Ya realizados:** kill real 11/11 e instalación genuina aislada del **camino de error** con credenciales ficticias. **Completado:** E2E con túnel **válido y separado del productivo**, corte/reinicio y supervivencia de IvanSpace ante la detención del Host aislado. Pendiente solamente desplegar y verificar la Release productiva, sin sustituir el smoke remoto desde ChatGPT.
+1. **Ya realizados:** kill real 11/11 e instalación genuina aislada del **camino de error** con credenciales ficticias. **Completado:** E2E con túnel **válido y separado del productivo**, corte/reinicio y supervivencia de IvanSpace ante la detención del Host aislado. El despliegue productivo y el smoke remoto ChatGPT se completaron después con Release 7; esta sección conserva el procedimiento ejecutado.
 2. Tras autorizar una release, construir setup y paquete con **nombre/version únicos** y siguiente sequence. Generar también release firmada `minUpdateProtocol=2` para futuros updates, y verificar explícitamente firma, digests y correspondencia de artefactos.
 3. Revisar `setup.deployment.json`, SHA-256 del setup, SHA-256 de los ejecutables Launcher/Host extraídos del portable, y que las rutas reales coincidan con las del instalador.
 4. Ejecutar primero `Invoke-SafeCutover.ps1 -Mode Preflight` de sólo lectura. Proveer `-InstallerPath`, `-InstallerSha256`, `-TargetVersion`, `-TargetSequence`, `-ExpectedCurrentVersion`, `-ExpectedCurrentSequence`, y hashes previstos. El metadata debe estar junto al EXE. Usar `-InstallRoot`/`-DataRoot` sólo si se compiló un instalador explícitamente para esas rutas.
@@ -81,7 +81,7 @@ El incidente del primer cutover de Release 6 confirma que `Independent` a nivel 
 - [x] E2E con **túnel válido independiente del productivo**, instalación inicial + health real, actualización supervisada y rollback real end-to-end.
 - [x] Kill del **proceso real del harness .NET** que ejecuta UpdateService v2 y recuperación desde un segundo proceso **11/11** (runtime stub).
 - [x] Detención real de runtime/túnel aislados con supervisor externo IvanSpace superviviente, upgrade y rollback saludables. Los 11 kill-forzados de proceso cubren separadamente journal/recuperación.
-- [ ] Publicación/instalación productiva supervisada; smoke de 25 tools MCP/16 capacidades bridge, rollback y nuevo Launcher.
+- [x] Instalación productiva Release 7 supervisada desde IvanSpace; smoke directo de 25 tools MCP/16 capacidades bridge, previous Release 6 y hashes verificados. Ver [[RB-04 - Release 7 desplegada]].
 - [ ] Resolver RB-05 en su propio bloque; no usar uninstall para recuperación.
 
-**Garantía real:** se comprueba origen del proceso por ancestría, pero los Jobs anidados requieren una prueba de supervivencia real, no se infiere su independencia completa por `ProcessId` o por `Independent`. Además del mock, el E2E con Inno Setup y tunnel-client auténticos demostró el flujo completo en un túnel de prueba separado. No equivale a demostrar el smoke de la siguiente release productiva.
+**Garantía real:** se comprueba origen del proceso por ancestría, pero los Jobs anidados requieren una prueba de supervivencia real, no se infiere su independencia completa por `ProcessId` o por `Independent`. Además del mock, el E2E con Inno Setup y tunnel-client auténticos demostró el flujo completo en un túnel de prueba separado. El smoke de la siguiente Release 7 productiva ya fue ejecutado y está documentado.

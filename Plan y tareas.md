@@ -1,15 +1,15 @@
 # Plan y tareas
 
-> Estado consolidado al **2026-10-08**: el [[Roadmap post-G1]] (incluida A4.1) quedó **CERRADO end-to-end**. El trabajo aprobado es [[Roadmap de robustez post-auditoría]]: **RB-01, RB-02 y RB-04 validados en código; los tres pendientes de cutover/smoke productivo**. RB-03 y RB-05 permanecen en backlog. [[Bloque H - Computer|Computer H1]] sigue pausado.
+> Estado consolidado al **2026-10-08**: el [[Roadmap post-G1]] (incluida A4.1) quedó **CERRADO end-to-end**. El trabajo aprobado es [[Roadmap de robustez post-auditoría]]: **RB-01, RB-02 y RB-04 CERRADOS end-to-end en Release 7**, con cutover IvanSpace, smoke ChatGPT y backups verificados. RB-03, RB-05 y observabilidad RB-06 permanecen en backlog. [[Bloque H - Computer|Computer H1]] sigue pausado.
 
 ## Estado operativo vigente
 
-- Release productiva: **`0.1.0-dev-6b1566a`**, sequence **6**, `healthy/ready`; rollback **`0.1.0-dev-42ee90c`**, sequence **5**. Ver [[A4.1 - Release 6 desplegada]].
+- Release productiva: **`0.1.0-dev-173b4ffc00f6`**, sequence **7**, `healthy/ready`; rollback **`0.1.0-dev-6b1566a`**, sequence **6**. Ver [[RB-04 - Release 7 desplegada]] y [[A4.1 - Release 6 desplegada]] (histórico).
 - Plugin privado: **0.5.1**; catálogo MCP **25 tools** y bridge privado `loom.capabilities()` **16**.
 - Python 1–3, G1, F1, Process/Filesystem, instalador, actualización firmada y ergonomía: milestones funcionales **cerrados**, con deudas específicas halladas por auditoría; no confundir su cierre histórico con la resolución del nuevo roadmap.
-- Baseline productiva Release 6: **379/379**. Tras implementar RB-01, RB-02 y RB-04, la **suite del repositorio** aprobó **423/423**, IntegrationTests **21/21**, Filesystem focalizadas **48/48**. No confundir estos binarios compilados con el Host instalado.
+- Release 7: **423/423** suite Release previa, IntegrationTests **21/21**, Filesystem focalizadas **48/48**. Nuevo Host y Launcher **instalados**; smoke real de 25 tools/16 capacidades, F-01/F-02, atomicidad, Python y Work Plan pasó desde ChatGPT.
 - Limitación visual externa documentada: `UI_RENDER` inline de imágenes Python en ChatGPT.
-- Prioridad vigente: [[RB-01 - Integridad de filesystem_apply_patch|RB-01]] implementado en fuente y pendiente de cutover externo; [[RB-02 - Journal y promoción recuperable|RB-02]] validado en fuente (**53/53 tests Launcher**) y pendiente de E2E/cutover. [[RB-04 - Supervisor externo y cutover seguro|RB-04]] implementado en fuente: preflight **7/7**, cutover mock externo, **11/11 kills reales de UpdateService con runtime simulado** e instalador Inno auténtico ejecutado en TEMP. Se corrigió el falso exit 0 por error post-install y se evitaron borrados globales de shortcuts. E2E **con túnel separado válido y dos instaladores reales APROBADO**, incluyendo upgrade supervisado y rollback healthy/ready. Pendiente cutover y smoke productivo. Próximo bloque a investigar: **RB-03**. RB-03 a RB-06 se conservan en [[Roadmap de robustez post-auditoría]]. Computer H1 y automatizaciones de releases permanecen fuera de alcance.
+- Prioridad vigente: **RB-01, RB-02 y RB-04 CERRADOS end-to-end** en [[RB-04 - Release 7 desplegada|Release 7]]. Se preservó rollback Release 6 y backup externo. Próximo bloque a investigar: **RB-03**. RB-03 a RB-06 se conservan en [[Roadmap de robustez post-auditoría]]. Computer H1 y automatizaciones de releases permanecen fuera de alcance.
 
 > **Lectura histórica:** los recuentos, releases y referencias a pendientes en el resto de esta nota describen cada etapa tal como se verificó entonces; el estado operativo actual está en el encabezado y en [[A4.1 - Release 6 desplegada]].
 

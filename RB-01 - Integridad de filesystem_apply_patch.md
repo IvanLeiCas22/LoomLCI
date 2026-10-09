@@ -3,12 +3,12 @@ tipo: implementation
 proyecto: LoomLCI
 fecha: 2026-10-08
 bloque: RB-01
-estado: codigo_validado_pendiente_despliegue
+estado: cerrado_end_to_end
 ---
 
 # RB-01 — Integridad de filesystem_apply_patch
 
-> **Implementado y validado en el repositorio; NO instalado en el runtime productivo.** Sigue activa Release 6 `0.1.0-dev-6b1566a` (sequence 6). RB-01 estará cerrado end-to-end sólo tras un despliegue seguro y smoke de consumidor. Ver [[Roadmap de robustez post-auditoría]].
+> **CERRADO end-to-end en Release 7 `0.1.0-dev-173b4ffc00f6` (sequence 7).** Despliegue con IvanSpace externo, atomicidad y rechazos F-01/F-02 comprobados directamente desde ChatGPT en el Host instalado. Ver [[RB-04 - Release 7 desplegada]]. Ver [[Roadmap de robustez post-auditoría]].
 
 ## Alcance y motivos
 
@@ -53,4 +53,4 @@ Archivo principal: `src/LoomLCI.Windows/Filesystem/WindowsFilesystemProvider.cs`
 
 ## Próximo paso
 
-Avanzar con investigación y análisis de **RB-02** antes de repetir el cutover. No usar el propio Host a detener como supervisor.
+**RB-01 cerrado end-to-end en Release 7.** Conservar evidencia en [[RB-04 - Release 7 desplegada]]; siguiente investigación de robustez: RB-03.

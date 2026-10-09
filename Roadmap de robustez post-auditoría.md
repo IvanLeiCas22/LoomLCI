@@ -9,7 +9,7 @@ origen: auditoria_integral_2026-10-08
 
 # Roadmap de robustez post-auditoría
 
-> **Decisión del usuario (2026-10-08): resolver los seis bloques de la auditoría integral.** Este documento es un backlog duradero y priorizado, **no** un Work Plan efímero ni evidencia de implementación. Estado actual: **RB-01, RB-02 y RB-04 implementados y validados en fuente, pendientes de despliegue/smoke; RB-03 y RB-05 pendientes, RB-06 documental parcialmente avanzado**. Se conserva el workflow: investigar el punto y el código vigente → diseñar → contrastar con el usuario → implementar → probar → desplegar si procede → documentar y commitear.
+> **Decisión del usuario (2026-10-08): resolver los seis bloques de la auditoría integral.** Este documento es un backlog duradero y priorizado, **no** un Work Plan efímero ni evidencia de implementación. Estado actual: **RB-01, RB-02 y RB-04 CERRADOS end-to-end en Release 7**; RB-03 y RB-05 pendientes, RB-06 documental parcialmente avanzado. Se conserva el workflow: investigar el punto y el código vigente → diseñar → contrastar con el usuario → implementar → probar → desplegar si procede → documentar y commitear.
 >
 > Baseline verificada durante la auditoría: instalación productiva **Release 6 `0.1.0-dev-6b1566a` (sequence 6)**, rollback Release 5 `0.1.0-dev-42ee90c` (sequence 5), `healthy/ready`; suite Release **379/379**, Integration **21/21**, 25 tools MCP y 16 capacidades de `loom`. El repositorio se encontraba limpio antes de iniciar los cambios documentales. El chequeo NuGet `--vulnerable --include-transitive --no-restore` no reportó vulnerabilidades conocidas. No equivale a un pentest.
 >
@@ -19,10 +19,10 @@ origen: auditoria_integral_2026-10-08
 
 | ID | Bloque | Prioridad | Estado | Dependencia |
 | --- | --- | --- | --- | --- |
-| RB-01 | Integridad de `filesystem_apply_patch` (`replace` y límites) | Alta | Código validado (400/400), pendiente despliegue/smoke | Primero |
-| RB-02 | Update: staging, journal y recuperación ante fallos tempranos | Alta | Código validado (420/420), E2E/cutover pendientes | Antes de futuros cutovers |
+| RB-01 | Integridad de `filesystem_apply_patch` (`replace` y límites) | Alta | **CERRADO end-to-end — Release 7** | Primero |
+| RB-02 | Update: staging, journal y recuperación ante fallos tempranos | Alta | **CERRADO end-to-end — Release 7** | Antes de futuros cutovers |
 | RB-03 | Propagación de fallos al cerrar WorkSession/recursos | Media-alta | Pendiente | Independiente de RB-01/02 |
-| RB-04 | Cutover/rollback externos, seguros respecto de Windows Jobs | Media-alta | Código validado (423/423), cutover real pendiente | Coordinar con RB-02 |
+| RB-04 | Cutover/rollback externos, seguros respecto de Windows Jobs | Media-alta | **CERRADO end-to-end — Release 7** | Coordinar con RB-02 |
 | RB-05 | Uninstall sin pérdida accidental de datos locales | Media | Pendiente | Independiente |
 | RB-06 | Reconciliación documental y observabilidad durable/opt-in | Baja | Parcial: navegación y estado operativo reconciliados; observabilidad pendiente | Transversal |
 
@@ -30,7 +30,7 @@ origen: auditoria_integral_2026-10-08
 
 ## RB-01 — Integridad de Filesystem
 
-**Estado (2026-10-08): código implementado y validado; pendiente deployment y smoke productivo.** Nota técnica: [[RB-01 - Integridad de filesystem_apply_patch]]. **No dar por cerrado end-to-end** hasta verificarlo desde ChatGPT tras un cutover externo seguro.
+**Estado (2026-10-08): CERRADO end-to-end tras Release 7 y smoke real desde ChatGPT.** Nota técnica: [[RB-01 - Integridad de filesystem_apply_patch]]; evidencia [[RB-04 - Release 7 desplegada]].
 
 **Hallazgos originales:** F-01 (corrupción de bytes UTF-8 inválidos) y F-02 (salida superior a 16 MiB); también se corrigieron la sobrescritura directa, la falta de rollback registrable antes de publicar y el silenciamiento de fallos de restauración.
 
@@ -44,13 +44,13 @@ origen: auditoria_integral_2026-10-08
 - [x] Suite Release: **400/400**; Windows **196/196**, Integración **21/21**, pruebas focalizadas Filesystem **48/48** (antes 27).
 - [x] Documentar contrato y sus límites reales (sin garantía de crash/power-loss ni aislamiento absoluto de procesos externos).
 - [x] Commit de implementación/documentación.
-- [ ] Despliegue con supervisor independiente del Host y smoke de consumidor ChatGPT, coordinados con RB-02/RB-04.
+- [x] Despliegue con supervisor externo y smoke ChatGPT: lote inválido no modifica archivos; válido publica todo; F-01 rechaza UTF-8 inválido y F-02 rechaza salida >16 MiB, preservando originales.
 
 **Aceptación para cierre definitivo:** validar el código instalado y los rechazos F-01/F-02 desde las herramientas productivas; conservar rollback operativo y actualizar esta sección a **CERRADO end-to-end** sólo entonces.
 
 ## RB-02 — Robustez del actualizador
 
-**Estado (2026-10-08): implementación validada en código; instalación real y pruebas de terminación abrupta pendientes.** Nota técnica: [[RB-02 - Journal y promoción recuperable]]. No declararlo `CERRADO end-to-end` sin prueba instalada y cutover externo seguro.
+**Estado (2026-10-08): CERRADO end-to-end en Release 7.** Crash recovery 11/11 y E2E con tunneling real aislado se completaron antes del cutover; instalado journal v2, previous conservado, journal pendiente ausente. Nota [[RB-02 - Journal y promoción recuperable]] y [[RB-04 - Release 7 desplegada]].
 
 **Hallazgos:** sustitución del directorio antes de guardar journal, eliminación potencial de una versión anterior, reutilización del nombre active con otro sequence y persistencia incompleta de archivos de control.
 
@@ -62,8 +62,8 @@ origen: auditoria_integral_2026-10-08
 - [x] Casos de fallo inyectado y escenarios recreados en disco en preparación, promoción, activación, confirmación y restauración.
 - [x] Preservar ECDSA, SHA-256 del feed, límites, `highestSequence` y compatibilidad de protocolo.
 - [x] Suite Release de fuente: **420/420**, Launcher **50/50**, Integration **21/21**. Primera corrida con un fallo transitorio ajeno al Launcher (Core deadline), reintento individual y segunda corrida completa aprobaron.
-- [ ] Ensayos aislados con kill real del Launcher y E2E completo con instalador + rollback.
-- [ ] Instalación en entorno productivo con supervisor externo RB-04 y verificación ChatGPT.
+- [x] Kill real de proceso .NET con UpdateService 11/11 checkpoints, recuperación desde nueva instancia; E2E aislado con dos instaladores auténticos y rollback sobre túnel real independiente.
+- [x] Instalación de Host+Launcher Release 7 desde IvanSpace externo; verificación de hashes, journal ausente, previous Release 6, healthy/ready y smoke desde ChatGPT.
 
 **Aceptación definitiva:** journaling previo a cambios riesgosos, rollback/reanudación sin perder active/previous, ejecución real aislada del Launcher y smoke instalado. No prometer durabilidad física absoluta ante corte eléctrico.
 
@@ -82,7 +82,7 @@ origen: auditoria_integral_2026-10-08
 
 ## RB-04 — Cutover externo y seguro
 
-**Estado (2026-10-08): código/procedimiento y ensayos aislados validados, E2E real aislado con túnel independiente completado; pendiente exclusivamente cutover/smoke productivo.** Nota: [[RB-04 - Supervisor externo y cutover seguro]]. No declarar `CERRADO end-to-end` hasta probar la actualización real y el smoke desde ChatGPT.
+**Estado (2026-10-08): CERRADO end-to-end.** Cutover productivo Release 6→7 y smoke ChatGPT verificados; detalle [[RB-04 - Release 7 desplegada]]. Nota: [[RB-04 - Supervisor externo y cutover seguro]]. No declarar `CERRADO end-to-end` hasta probar la actualización real y el smoke desde ChatGPT.
 
 **Hallazgo U-02:** `Independent` de WorkSession no escapa de Jobs ancestrales. Durante Release 6 un intento iniciado desde LoomLCI perdió su supervisor; el cutover iniciado desde IvanSpace funcionó.
 
@@ -98,9 +98,9 @@ origen: auditoria_integral_2026-10-08
 - [x] **11/11** terminaciones forzadas de proceso .NET real en puntos de journal RB-02, incluida restauración interrumpida, recuperadas desde otra instancia (controlador de runtime simulado).
 - [x] Instalador genuino probado en **ruta temporal**, camino de error por credenciales ficticias correctamente informado, binarios verificados, ambos accesos directos del escritorio preservados en la última repetición.
 - [x] **E2E genuino aislado con túnel real independiente**: dos instaladores, stop/upgrade/start supervisado desde IvanSpace, rollback, ambas versiones healthy/ready, uninstall y shortcuts preservados; `RB04_LIVE_TUNNEL_ISOLATED_E2E_OK`. No incluye plugin de prueba de ChatGPT.
-- [ ] Supervisar cutover productivo desde IvanSpace externo, validar runtime/smoke/rollback y cierre RB-01/RB-02/RB-04.
+- [x] IvanSpace externo supervisó Release 6→7, stop/setup/start, `CUTOVER_OK`, `healthy/ready`, rollback a Release 6 disponible y smoke ChatGPT de 25 tools / 16 capabilities.
 
-**Aceptación definitiva:** el supervisor externo sobrevive al `stop` real, reconoce versión y túnel correctos, obtiene y conserva evidencia durable; existe rollback verificable y nuevo Launcher/Host funcional. El E2E auténtico ya demostró la supervivencia de IvanSpace al detener un Host aislado; la validación desde ChatGPT del nuevo Host productivo aún no se ha ejecutado.
+**Aceptación definitiva:** el supervisor externo sobrevive al `stop` real, reconoce versión y túnel correctos, obtiene y conserva evidencia durable; existe rollback verificable y nuevo Launcher/Host funcional. El E2E auténtico ya demostró la supervivencia de IvanSpace al detener un Host aislado; la validación desde ChatGPT del nuevo Host productivo terminó correctamente; el rollback productivo permanece disponible sin ejercitarlo destructivamente.
 
 ## RB-05 — Desinstalación y preservación de datos
 
@@ -137,4 +137,4 @@ origen: auditoria_integral_2026-10-08
 
 ## Próximo paso
 
-**RB-01 — investigación específica y propuesta de corrección de `filesystem_apply_patch`**. No implementarlo hasta revisar el diseño con el usuario.
+**RB-03 — investigar propagación de fallos de limpieza de recursos**. RB-01/RB-02/RB-04 cerrados en [[RB-04 - Release 7 desplegada]].
