@@ -24,7 +24,7 @@ El builder requiere Inno Setup 7.1.0 ya disponible en la máquina de desarrollo.
 
 ## Uninstall
 
-> **Esta sección reproduce el comportamiento histórico ya instalado (seq9). NO describe el código RB-05 recién validado y pendiente de desplegar.** La política correctiva preserva los datos por defecto, migra el log anterior y exige confirmación independiente para la purga. Ver [[RB-05 - Desinstalación segura y preservación de datos]]. No ejecutar el uninstaller productivo antiguo.
+> **Sección histórica: corresponde al instalador anterior seq9, NO al instalador productivo vigente seq10.** Desde [[RB-05 - Release 10 desplegada]] la desinstalación preserva los datos por defecto, migra el uninstall log anterior y exige operación separada para la purga. No se realizó uninstall destructivo del producto: sólo E2E genuino aislado. Ver [[RB-05 - Desinstalación segura y preservación de datos]].
 
 El uninstall convencional histórico:
 

@@ -3,14 +3,14 @@ tipo: implementacion
 proyecto: LoomLCI
 fecha: 2026-10-09
 bloque: RB-05
-estado: validado_en_fuente_y_e2e_aislado_pendiente_despliegue
+estado: cerrado_desplegado_seq10
 ---
 
 # RB-05 — Desinstalación segura y preservación de datos
 
 ## Estado
 
-Implementado en fuente y comprobado en una instalación **aislada y real** de Inno Setup 7.1.0; **no desplegado todavía sobre el Launcher productivo seq9**, que continúa usando la política heredada. Se requiere aprobación independiente antes del siguiente cutover con **sequence >=10**. Nunca ejecutar el uninstaller productivo antiguo para probar este bloque.
+**CERRADO y desplegado en secuencia 10** (`0.1.0-dev-95462385fbc6`) mediante IvanSpace externo: `CUTOVER_OK`, hashes/backup/rollback y smoke productivo independientes aprobados. La migración del uninstall se probó en instalaciones genuinas aisladas; **no se desinstaló ni se purgó la instalación productiva**. Evidencia: [[RB-05 - Release 10 desplegada]]. Siguiente secuencia >=11.
 
 ## Hallazgo original y migración
 
@@ -37,7 +37,7 @@ La precondición `InitializeUninstall` ejecuta el Launcher con roots aislados pa
 5. Purga explícita exit 0, elimina únicamente deployment, conserva datos vecinos.
 6. Uninstall posterior a purga exit 0 y persistencia de datos vecinos. Marcador final: `RB05_GENUINE_E2E_PASS`.
 
-**Gate final (repetido): 437/437 suite Release completa, exit 0**, con 21/21 integración MCP. Pruebas unitarias de Launcher: **57/57**; Windows tests: **196/196**. La primera ejecución paralela de `dotnet test LoomLCI.slnx -c Release --no-restore` registró 1 fallo en `PostExitExpiryKillsIndependentDescendantsAndDeletesSpool` (ajeno a RB-05); la misma prueba aislada pasó **1/1**, seguida de la batería Windows completa **196/196**. Los otros grupos en la primera ejecución pasaron: Core 151/151, MCP 6/6, PDF 6/6 e Integration 21/21. Comprobar el resultado de la nueva suite serial antes de declarar gate final. El build Launcher Release y el builder Inno completos salieron con exit 0.
+**Gate final (repetido): 437/437 suite Release completa, exit 0**, con 21/21 integración MCP. Pruebas unitarias de Launcher: **57/57**; Windows tests: **196/196**. La primera ejecución paralela de `dotnet test LoomLCI.slnx -c Release --no-restore` registró 1 fallo en `PostExitExpiryKillsIndependentDescendantsAndDeletesSpool` (ajeno a RB-05); la misma prueba aislada pasó **1/1**, seguida de la batería Windows completa **196/196**. Los otros grupos en la primera ejecución pasaron: Core 151/151, MCP 6/6, PDF 6/6 e Integration 21/21. La repetición posterior de la suite Release completa terminó con **437/437, exit 0**; los gates finales del paquete seq10 volvieron a aprobar **57/57 Launcher** y **21/21 IntegrationTests contra Host publicado**. El build Launcher Release y el builder Inno completos salieron con exit 0.
 
 ## Alcance y precauciones
 
