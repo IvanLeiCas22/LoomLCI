@@ -28,7 +28,7 @@ origen: auditoria_integral_2026-10-08
 | RB-03 | Propagación de fallos al cerrar WorkSession/recursos | Media-alta | **CERRADO end-to-end — build local sequence 8** | Independiente de RB-01/02 |
 | RB-04 | Cutover/rollback externos, seguros respecto de Windows Jobs | Media-alta | **CERRADO end-to-end — Release 7** | Coordinar con RB-02 |
 | RB-05 | Uninstall sin pérdida accidental de datos locales | Media | **CERRADO end-to-end — Release local seq10** | Independiente |
-| RB-06 | Reconciliación documental y observabilidad durable/opt-in | Baja | Parcial: navegación y estado operativo reconciliados; observabilidad pendiente | Transversal |
+| RB-06 | Reconciliación documental y observabilidad durable/opt-in | Baja | **IMPLEMENTADO y VALIDADO en fuente (448/448); despliegue pendiente seq>=11** | Transversal |
 
 **Regla de cierre:** ningún bloque se da por `CERRADO` sólo porque pase la suite existente. Debe cumplir los criterios específicos de abajo, tener pruebas de regresión, una verificación end-to-end cuando corresponda y estado actualizado en este documento. No considerar Computer H1 ni la automatización de publicaciones/actualizaciones como parte de este mini-roadmap.
 
@@ -126,12 +126,13 @@ origen: auditoria_integral_2026-10-08
 
 - [x] Crear este roadmap y registrar las seis prioridades con criterios de cierre.
 - [x] Reconciliar páginas de entrada con Release 6/379 y enlaces al nuevo backlog (conservar hechos históricos etiquetados como tales).
-- [ ] Investigar observabilidad durable **opt-in**: eventos mínimos, límites, rotación, retención, diagnósticos de errores, privacidad y capacidad de deshabilitarla.
-- [ ] Evitar por defecto logs de credenciales, payloads sensibles y contenidos completos de archivos.
-- [ ] Agregar pruebas de límites/retención y una guía de diagnóstico.
-- [ ] Cerrar la documentación con la nueva evidencia una vez implementados RB-01 a RB-05.
+- [x] Investigar e implementar observabilidad durable **opt-in**: allowlist, cola auxiliar no bloqueante, rotación 4 MiB, cuota 32 MiB, retención 7 días y comandos de habilitación/consulta/borrado. Ver [[RB-06 - Observabilidad durable y reconciliacion documental]].
+- [x] Evitar por defecto logs de credenciales, payloads sensibles y contenidos completos de archivos; rechazar símbolos libres y distinguir excepciones Python sin contenido de traceback.
+- [x] Añadir pruebas de límites/retención/privacidad y guía de diagnóstico; **448/448 suite Release**, 23/23 integración MCP, con casos Host real activado y desactivado.
+- [x] Reconciliar documentación con productiva seq10, rollback seq9 y evidencias RB-01 a RB-05, manteniendo hechos antiguos como históricos.
+- [ ] **Desplegar y validar productivamente RB-06 seq>=11 con aprobación independiente**, preflight, backup, cutover supervisor IvanSpace, smoke y configuración opt-in desactivada por defecto.
 
-**Aceptación:** la documentación de entrada no contradice el runtime vigente; los eventos esenciales son auditables cuando el usuario habilita esa capacidad, sin almacenar secretos ni crecer indefinidamente.
+**Aceptación de fuente:** cumplida para privacidad, registro opt-in, cuotas/rotación, comandos Launcher e integración MCP, 448/448. **Aceptación productiva:** pendiente de instalación posterior secuencia >=11 y smoke real; **no afirmar RB-06 cerrado end-to-end todavía**. Los logs son de diagnóstico best-effort, no auditoría infalible ante apagado brusco.
 
 ## Ejecución y control de cambios
 
@@ -142,4 +143,4 @@ origen: auditoria_integral_2026-10-08
 
 ## Próximo paso
 
-**RB-03 — investigar propagación de fallos de limpieza de recursos**. RB-01/RB-02/RB-04 cerrados en [[RB-04 - Release 7 desplegada]].
+**RB-06 — validar en fuente la observabilidad durable opt-in** ([[RB-06 - Observabilidad durable y reconciliacion documental]]), cerrar evidencia y decidir posteriormente el despliegue productivo seq>=11. RB-01 a RB-05 están cerrados; RB-06 aún no está desplegado.

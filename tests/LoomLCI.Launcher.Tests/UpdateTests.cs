@@ -79,6 +79,7 @@ public sealed class UpdateTests
                 highestSequence: 1,
                 extraVersions: ["stale"]);
 
+            LoomLCI.Core.Observability.DiagnosticsLog.SetEnabled(paths.DataRoot, true);
             var runtime = new FakeUpdateRuntimeControl("v1");
             var fixture = CreateFeed(
                 version: "v2",
@@ -114,6 +115,10 @@ public sealed class UpdateTests
             Assert.False(File.Exists(paths.UpdateJournalPath));
             Assert.Equal(["v1"], runtime.Stops);
             Assert.Equal(["v2"], runtime.Starts);
+            var diagnosticLines = LoomLCI.Core.Observability.DiagnosticsLog.ReadTail(paths.DataRoot, 100);
+            Assert.Contains(diagnosticLines, line => line.Contains("\"kind\":\"UpdateStage\"", StringComparison.Ordinal));
+            Assert.Contains(diagnosticLines, line => line.Contains("\"outcome\":\"Committed\"", StringComparison.Ordinal));
+            Assert.DoesNotContain("manifest.sig", string.Join("\n", diagnosticLines), StringComparison.Ordinal);
         }
         finally
         {

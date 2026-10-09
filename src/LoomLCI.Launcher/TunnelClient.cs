@@ -213,6 +213,7 @@ public sealed class TunnelClient
         {
             ["TUNNEL_CLIENT_PROFILE_DIR"] = paths.ProfilesRoot,
             ["TUNNEL_CLIENT_STATE_DIR"] = paths.TunnelStateRoot,
+            ["LOOMLCI_DATA_ROOT"] = paths.DataRoot,
             ["PATH"] = hostDirectory + Path.PathSeparator + currentPath
         };
     }

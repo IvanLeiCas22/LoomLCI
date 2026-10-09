@@ -1,6 +1,6 @@
 # Decisiones
 
-> Estado operativo actualizado al **2026-10-09**: LoomLCI local **`0.1.0-dev-5f5cea9ecbf4`, sequence 9**, rollback sequence 8. La secuencia 9 se instaló manualmente **solo para medir el workflow**, no para transferir las tareas al usuario. Las decisiones siguientes incluyen acuerdos históricos; ver [[Inicio]], [[DX-01 - Optimizacion workflow de desarrollo y despliegue]] y [[Roadmap de robustez post-auditoría]].
+> Estado operativo actualizado al **2026-10-09**: LoomLCI productivo **`0.1.0-dev-95462385fbc6`, sequence 10**, rollback sequence 9, `healthy/ready` tras cutover IvanSpace externo. El despliegue manual seq9 fue únicamente un experimento anterior para medir el workflow. **RB-06 está implementado en fuente pero NO desplegado** y los diagnósticos permanecen desactivados en producción. Las decisiones siguientes incluyen acuerdos históricos; ver [[Inicio]], [[RB-05 - Release 10 desplegada]], [[RB-06 - Observabilidad durable y reconciliacion documental]] y [[Roadmap de robustez post-auditoría]].
 
 ## Acuerdo de trabajo vigente (confirmado después del experimento DX-01)
 

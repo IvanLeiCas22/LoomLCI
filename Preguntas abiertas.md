@@ -1,6 +1,6 @@
 # Preguntas abiertas
 
-> Revisión 2026-10-08: separar **preguntas todavía abiertas** de decisiones históricas ya resueltas. La productiva es Release 6; la auditoría identificó deudas concretas de integridad y recuperación que deben corregirse aunque el runtime siga operativo. Prioridades aprobadas en [[Roadmap de robustez post-auditoría]]. Estado general: [[Inicio]], [[Roadmap post-G1]].
+> Revisión 2026-10-09: separar **preguntas todavía abiertas** de decisiones históricas ya resueltas. La instalación productiva local es **sequence 10**, con rollback seq9; RB-01 a RB-05 están cerrados y **RB-06 se implementa y valida en fuente, aún sin despliegue**. Prioridades aprobadas en [[Roadmap de robustez post-auditoría]]. Estado general: [[Inicio]], [[RB-05 - Release 10 desplegada]], [[RB-06 - Observabilidad durable y reconciliacion documental]].
 
 ## Arquitectura general
 
@@ -26,7 +26,7 @@ Implementado y validado en la PC principal en [[Deployment portable]]:
 - acceso directo de escritorio;
 - cutover y rollback reales validados; el legacy queda preservado y detenido como fallback.
 
-Validación en segunda PC completada. **Actualización operativa al 2026-10-08:** la PC principal ejecuta **Release 6 `0.1.0-dev-6b1566a` (sequence 6)**, healthy/ready; **Release 5** queda como rollback. El updater firmado, rollback e instalador completaron sus milestones históricos, pero la auditoría posterior abrió ajustes de robustez RB-02, RB-04 y RB-05 en [[Roadmap de robustez post-auditoría]]. Diferido/no bloqueante fuera de ese mini-roadmap:
+**Histórico (2026-10-08):** la PC principal ejecutaba Release 6 seq6 con rollback a Release 5. **Estado vigente 2026-10-09:** productivo seq10 y rollback seq9, health/ready verificados. RB-02, RB-04 y RB-05 se corrigieron y desplegaron; RB-06 está en fuente pendiente de validación final y cutover. Ver [[RB-05 - Release 10 desplegada]], [[RB-06 - Observabilidad durable y reconciliacion documental]]. Validación de instalación en segunda PC completada históricamente. Diferido/no bloqueante fuera de ese mini-roadmap:
 
 - DPAPI;
 - autoarranque al login;

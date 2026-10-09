@@ -78,7 +78,8 @@ public sealed class InvocationRunner
             var token = all?.Token ?? linked.Token;
             var context = new InvocationContext(invocationId, operation, session, startedAt);
 
-            _events.Publish("InvocationStarted", "core.invocation", session?.Id, invocationId);
+            _events.Publish("InvocationStarted", "core.invocation", session?.Id, invocationId,
+                payload: new Dictionary<string, object?> { ["operation"] = operation });
 
             try
             {
@@ -93,6 +94,9 @@ public sealed class InvocationRunner
                     invocationId,
                     payload: new Dictionary<string, object?>
                     {
+                        ["operation"] = operation,
+                        ["duration_ms"] = (long)Math.Clamp(
+                            (_timeProvider.GetUtcNow() - startedAt).TotalMilliseconds, 0, 86_400_000),
                         ["success"] = result.IsSuccess,
                         ["error"] = result.Error?.Code
                     });
@@ -109,6 +113,9 @@ public sealed class InvocationRunner
                     invocationId,
                     payload: new Dictionary<string, object?>
                     {
+                        ["operation"] = operation,
+                        ["duration_ms"] = (long)Math.Clamp(
+                            (_timeProvider.GetUtcNow() - startedAt).TotalMilliseconds, 0, 86_400_000),
                         ["success"] = false,
                         ["error"] = error.Code
                     });
@@ -125,6 +132,9 @@ public sealed class InvocationRunner
                     invocationId,
                     payload: new Dictionary<string, object?>
                     {
+                        ["operation"] = operation,
+                        ["duration_ms"] = (long)Math.Clamp(
+                            (_timeProvider.GetUtcNow() - startedAt).TotalMilliseconds, 0, 86_400_000),
                         ["success"] = false,
                         ["error"] = error.Code
                     });
@@ -141,6 +151,9 @@ public sealed class InvocationRunner
                     invocationId,
                     payload: new Dictionary<string, object?>
                     {
+                        ["operation"] = operation,
+                        ["duration_ms"] = (long)Math.Clamp(
+                            (_timeProvider.GetUtcNow() - startedAt).TotalMilliseconds, 0, 86_400_000),
                         ["success"] = false,
                         ["error"] = error.Code
                     });

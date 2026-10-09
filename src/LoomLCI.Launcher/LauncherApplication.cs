@@ -1,3 +1,5 @@
+using LoomLCI.Core.Observability;
+
 namespace LoomLCI.Launcher;
 
 public sealed class LauncherApplication
@@ -66,6 +68,7 @@ public sealed class LauncherApplication
                     "rollback" => await RollbackAsync(effectiveArgs[1..], cancellationToken),
                     "uninstall-shortcuts" => CleanupShortcuts(effectiveArgs[1..]),
                     "purge-data" => await PurgeDataAsync(effectiveArgs[1..], cancellationToken),
+                    "diagnostics" => DiagnosticsCommand(effectiveArgs[1..]),
                     "help" or "--help" or "-h" => PrintHelp(),
                     _ => UnknownCommand(command)
                 };
@@ -83,6 +86,19 @@ public sealed class LauncherApplication
             _error.WriteLine($"Error: {ex.Message}");
             exitCode = 1;
         }
+
+        // Only a fixed operation label and exit status enter the diagnostic stream.
+        var safeOperation = command switch
+        {
+            "start" or "stop" or "status" or "setup" or "rollback" or
+            "purge-data" or "uninstall-shortcuts" or "diagnostics" => command,
+            "update" => "update",
+            _ => "unknown"
+        };
+        DiagnosticsLog.TryAppend(_paths.DataRoot, new DiagnosticRecord(
+            DateTimeOffset.UtcNow, "launcher", "LauncherCommand",
+            Operation: safeOperation, Outcome: exitCode == 0 ? "success" : "failure",
+            Code: exitCode == 0 ? null : "command_failed"));
 
         if (pause)
         {
@@ -391,6 +407,54 @@ public sealed class LauncherApplication
         return 0;
     }
 
+    private int DiagnosticsCommand(string[] args)
+    {
+        if (args.Length == 1 && args[0] == "enable")
+        {
+            DiagnosticsLog.SetEnabled(_paths.DataRoot, true);
+            _output.WriteLine("Diagnósticos locales habilitados (opt-in).");
+            return 0;
+        }
+        if (args.Length == 1 && args[0] == "disable")
+        {
+            DiagnosticsLog.SetEnabled(_paths.DataRoot, false);
+            _output.WriteLine("Diagnósticos locales deshabilitados.");
+            return 0;
+        }
+        if (args.Length == 1 && args[0] == "status")
+        {
+            var (files, bytes) = DiagnosticsLog.GetUsage(_paths.DataRoot);
+            _output.WriteLine("enabled: " + DiagnosticsLog.IsEnabled(_paths.DataRoot));
+            _output.WriteLine("files: " + files);
+            _output.WriteLine("bytes: " + bytes);
+            _output.WriteLine("retention_days: " + DiagnosticsLog.RetentionDays);
+            _output.WriteLine("max_total_bytes: " + DiagnosticsLog.MaxCombinedBytes);
+            return 0;
+        }
+        if (args.Length is 1 or 2 && args[0] == "tail")
+        {
+            var lines = 20;
+            if (args.Length == 2 && (!int.TryParse(args[1], out lines) ||
+                lines is < 1 or > 100))
+                throw new ArgumentException("tail admite 1 a 100 líneas.");
+            foreach (var line in DiagnosticsLog.ReadTail(_paths.DataRoot, lines))
+                _output.WriteLine(line);
+            return 0;
+        }
+        if (args.Length == 2 && args[0] == "clear" &&
+            args[1] == "--confirm")
+        {
+            if (DiagnosticsLog.IsEnabled(_paths.DataRoot))
+                throw new InvalidOperationException(
+                    "Deshabilite diagnósticos antes de borrar sus archivos.");
+            var count = DiagnosticsLog.Clear(_paths.DataRoot);
+            _output.WriteLine($"Archivos de diagnóstico eliminados: {count}.");
+            return 0;
+        }
+        throw new ArgumentException(
+            "Uso: diagnostics <enable|disable|status|tail [1..100]|clear --confirm>.");
+    }
+
     private MachineConfig ValidateInstalledState()
     {
         var config = MachineConfigStore.Load(_paths.MachineConfigPath);
@@ -457,6 +521,7 @@ public sealed class LauncherApplication
         _output.WriteLine("  update apply   Aplica update con rollback automático si falla.");
         _output.WriteLine("  rollback       Vuelve transaccionalmente a previousVersion.");
         _output.WriteLine("  purge-data --confirm-erase-deployment   Purga explícita del deployment propio.");
+        _output.WriteLine("  diagnostics enable|disable|status|tail [n]|clear --confirm");
         _output.WriteLine();
         _output.WriteLine("opciones generales:");
         _output.WriteLine("  --pause  Espera Enter antes de cerrar; pensado para accesos directos.");

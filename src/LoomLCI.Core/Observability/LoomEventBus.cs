@@ -22,6 +22,12 @@ public sealed class LoomEventBus
             SingleWriter = false
         });
 
+    private Action<LoomEvent>? _diagnosticsObserver;
+
+    // Optional secondary observer: never steals events from existing readers.
+    public void SetDiagnosticsObserver(Action<LoomEvent>? observer) =>
+        Volatile.Write(ref _diagnosticsObserver, observer);
+
     private readonly TimeProvider _timeProvider;
 
     public LoomEventBus(TimeProvider? timeProvider = null)
@@ -36,15 +42,20 @@ public sealed class LoomEventBus
         InvocationId? invocationId = null,
         ResourceHandle? resourceHandle = null,
         IReadOnlyDictionary<string, object?>? payload = null)
-        => _channel.Writer.TryWrite(new LoomEvent(
-            IdentifierFactory.Create("evt"),
-            _timeProvider.GetUtcNow(),
-            kind,
-            source,
-            workId,
-            invocationId,
-            resourceHandle,
-            payload));
+    {
+        var evt = new LoomEvent(IdentifierFactory.Create("evt"),
+            _timeProvider.GetUtcNow(), kind, source, workId, invocationId, resourceHandle, payload);
+        var written = _channel.Writer.TryWrite(evt);
+        try
+        {
+            Volatile.Read(ref _diagnosticsObserver)?.Invoke(evt);
+        }
+        catch
+        {
+            // Diagnostics are strictly best-effort and cannot affect the regular bus.
+        }
+        return written;
+    }
 
     public bool TryRead(out LoomEvent? loomEvent)
         => _channel.Reader.TryRead(out loomEvent);

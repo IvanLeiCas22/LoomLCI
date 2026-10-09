@@ -163,6 +163,12 @@ public sealed class PythonCapability
                         token.IsCancellationRequested ||
                         !lease.Resource.IsHealthy;
 
+                    // Python exceptions are successful MCP transports, but diagnostic failures.
+                    if (result.IsSuccess &&
+                        result.Value!.Status == PythonExecutionStatus.Exception)
+                        _events.Publish("PythonExecutionException", "python",
+                            context.WorkSession?.Id, context.Id);
+
                     return result;
                 }
                 catch

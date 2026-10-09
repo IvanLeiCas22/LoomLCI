@@ -387,6 +387,33 @@ public sealed class LauncherTests
         }
     }
 
+    [Fact]
+    public async Task DiagnosticsCliRequiresOptInAndExplicitClear()
+    {
+        var root = CreateScratch();
+        try
+        {
+            var output = new StringWriter();
+            var error = new StringWriter();
+            var app = CreateApplication(root, new StringReader(""), output, error);
+            var dataRoot = Path.Combine(root, "data");
+            Assert.Equal(0, await app.RunAsync(["diagnostics", "status"], CancellationToken.None));
+            Assert.Contains("enabled: False", output.ToString());
+            Assert.False(Directory.Exists(Path.Combine(dataRoot, "logs", "diagnostics")));
+
+            Assert.Equal(0, await app.RunAsync(["diagnostics", "enable"], CancellationToken.None));
+            Assert.True(LoomLCI.Core.Observability.DiagnosticsLog.IsEnabled(dataRoot));
+            Assert.Equal(0, await app.RunAsync(["diagnostics", "tail"], CancellationToken.None));
+            Assert.Contains("LauncherCommand", output.ToString());
+            Assert.Equal(1, await app.RunAsync(["diagnostics", "clear", "--confirm"], CancellationToken.None));
+            Assert.Equal(0, await app.RunAsync(["diagnostics", "disable"], CancellationToken.None));
+            Assert.Equal(1, await app.RunAsync(["diagnostics", "clear"], CancellationToken.None));
+            Assert.Equal(0, await app.RunAsync(["diagnostics", "clear", "--confirm"], CancellationToken.None));
+            Assert.Empty(LoomLCI.Core.Observability.DiagnosticsLog.ReadTail(dataRoot, 20));
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     private static LauncherApplication CreateApplication(
         string root,
         TextReader input,

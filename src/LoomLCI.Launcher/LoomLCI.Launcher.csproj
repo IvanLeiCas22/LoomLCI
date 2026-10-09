@@ -9,4 +9,8 @@
     <RootNamespace>LoomLCI.Launcher</RootNamespace>
   </PropertyGroup>
 
+  <ItemGroup>
+    <Compile Include="..\LoomLCI.Core\Observability\DiagnosticsLog.cs" Link="DiagnosticsLog.cs" />
+  </ItemGroup>
+
 </Project>

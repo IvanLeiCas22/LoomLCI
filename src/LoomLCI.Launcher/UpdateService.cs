@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Text;
+using LoomLCI.Core.Observability;
 
 namespace LoomLCI.Launcher;
 
@@ -124,7 +125,7 @@ public sealed class UpdateService
                 StartedAt = DateTimeOffset.UtcNow
             };
 
-            UpdateJournalStore.Save(_paths.UpdateJournalPath, journal);
+            SaveJournal(_paths.UpdateJournalPath, journal);
             journalWritten = true;
             _transitionProbe?.Invoke("prepared");
 
@@ -219,7 +220,7 @@ public sealed class UpdateService
             StartedAt = DateTimeOffset.UtcNow
         };
 
-        UpdateJournalStore.Save(
+        SaveJournal(
             _paths.UpdateJournalPath,
             journal);
 
@@ -277,7 +278,7 @@ public sealed class UpdateService
         {
             Stage = UpdateJournalStage.Stopping
         };
-        UpdateJournalStore.Save(
+        SaveJournal(
             _paths.UpdateJournalPath,
             journal);
         _transitionProbe?.Invoke("stopping");
@@ -291,7 +292,7 @@ public sealed class UpdateService
         {
             Stage = UpdateJournalStage.RuntimeStopped
         };
-        UpdateJournalStore.Save(
+        SaveJournal(
             _paths.UpdateJournalPath,
             journal);
         _transitionProbe?.Invoke("runtime_stopped");
@@ -305,7 +306,7 @@ public sealed class UpdateService
         {
             Stage = UpdateJournalStage.Activated
         };
-        UpdateJournalStore.Save(
+        SaveJournal(
             _paths.UpdateJournalPath,
             journal);
 
@@ -313,7 +314,7 @@ public sealed class UpdateService
         {
             Stage = UpdateJournalStage.Starting
         };
-        UpdateJournalStore.Save(
+        SaveJournal(
             _paths.UpdateJournalPath,
             journal);
 
@@ -326,7 +327,7 @@ public sealed class UpdateService
         {
             Stage = UpdateJournalStage.RuntimeStarted
         };
-        UpdateJournalStore.Save(
+        SaveJournal(
             _paths.UpdateJournalPath,
             journal);
         _transitionProbe?.Invoke("runtime_started");
@@ -456,7 +457,7 @@ public sealed class UpdateService
             throw new IOException("Staging o destino de update cambió desde el preflight.");
         }
 
-        UpdateJournalStore.Save(
+        SaveJournal(
             _paths.UpdateJournalPath, journal with { Stage = UpdateJournalStage.Promoting });
         _transitionProbe?.Invoke("promoting");
 
@@ -468,7 +469,7 @@ public sealed class UpdateService
 
         Directory.Move(staging, destination);
         _transitionProbe?.Invoke("published");
-        UpdateJournalStore.Save(
+        SaveJournal(
             _paths.UpdateJournalPath, journal with { Stage = UpdateJournalStage.Promoted });
     }
 
@@ -537,6 +538,15 @@ public sealed class UpdateService
         }
     }
 
+    private void SaveJournal(string path, UpdateJournal journal)
+    {
+        UpdateJournalStore.Save(path, journal);
+        DiagnosticsLog.TryAppend(_paths.DataRoot, new DiagnosticRecord(
+            DateTimeOffset.UtcNow, "launcher", "UpdateStage",
+            Operation: journal.Operation is "update" or "rollback" ? journal.Operation : null,
+            Outcome: journal.Stage.ToString()));
+    }
+
     private void CompleteUpdate(UpdateJournal journal)
     {
         if (journal.SchemaVersion != 2 || journal.Operation != "update")
@@ -545,7 +555,7 @@ public sealed class UpdateService
         }
 
         var committed = journal with { Stage = UpdateJournalStage.Committed };
-        UpdateJournalStore.Save(_paths.UpdateJournalPath, committed);
+        SaveJournal(_paths.UpdateJournalPath, committed);
         _transitionProbe?.Invoke("committed");
 
         DeleteUpdateArtifacts(committed);

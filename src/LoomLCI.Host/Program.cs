@@ -87,6 +87,7 @@ builder.Services.AddSingleton<IPythonBridgeModule, PythonProcessBridgeModule>();
 builder.Services.AddSingleton<IPythonBridgeDispatcher, PythonBridgeDispatcher>();
 builder.Services.AddSingleton<PythonCapability>();
 builder.Services.AddHostedService<LifetimeSweeperService>();
+builder.Services.AddHostedService<LoomDiagnosticsService>();
 
 builder.Services.AddLoomMcpStdio(enableWorkPlan: true);
 

@@ -1,4 +1,5 @@
 using System.Text;
+using LoomLCI.Core.Observability;
 
 namespace LoomLCI.Launcher;
 
@@ -40,6 +41,10 @@ internal static class Program
         }
         catch (Exception ex)
         {
+            // Never persist exception messages or command arguments.
+            DiagnosticsLog.TryAppend(AppPaths.ForCurrentUser().DataRoot,
+                new DiagnosticRecord(DateTimeOffset.UtcNow, "launcher",
+                    "LauncherUnhandledError", Outcome: "failure"));
             Console.Error.WriteLine($"Error inesperado: {ex.Message}");
             return 1;
         }
