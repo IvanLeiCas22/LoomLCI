@@ -367,6 +367,204 @@ public sealed class LifetimeTests
         Assert.Equal(0, resources.Count);
     }
 
+    [Fact]
+    public async Task FailedExpiryStaysClosingUntilRetryAndKeepsExpiredTarget()
+    {
+        var clock = new FakeTimeProvider(Start);
+        await using var resources = new ResourceRegistry(clock);
+        await using var sessions = new WorkSessionManager(
+            resources, new LoomEventBus(clock), Options(), clock);
+        var work = sessions.Create().Value!;
+        var attempts = 0;
+        var handle = resources.Register(
+            "fake", "fake", new object(), work.Id,
+            ResourceOwnership.SessionOwned,
+            () =>
+            {
+                if (Interlocked.Increment(ref attempts) == 1)
+                {
+                    throw new InvalidOperationException("Transient expiry failure.");
+                }
+
+                return ValueTask.CompletedTask;
+            });
+
+        clock.Advance(TimeSpan.FromMinutes(10));
+        var first = await sessions.SweepExpiredAsync();
+        Assert.Equal(0, first.ExpiredSessions);
+        Assert.Equal(1, first.FailedCleanups);
+        Assert.Equal(WorkSessionState.Closing, work.State);
+        Assert.Equal(ResourceState.Active, resources.Inspect(handle, "fake").Value!.State);
+        Assert.Equal(1, attempts);
+
+        var immediate = await sessions.SweepExpiredAsync();
+        Assert.Equal(0, immediate.ExpiredSessions);
+        Assert.Equal(0, immediate.FailedCleanups);
+        Assert.Equal(1, attempts);
+
+        clock.Advance(TimeSpan.FromMinutes(1));
+        var retried = await sessions.SweepExpiredAsync();
+        Assert.Equal(1, retried.ExpiredSessions);
+        Assert.Equal(0, retried.FailedCleanups);
+        Assert.Equal(WorkSessionState.Expired, work.State);
+        Assert.Equal(ResourceState.Expired, resources.Inspect(handle, "fake").Value!.State);
+        Assert.Equal(2, attempts);
+    }
+
+    [Fact]
+    public async Task ExplicitCloseAfterFailedExpiryCompletesAsExpired()
+    {
+        var clock = new FakeTimeProvider(Start);
+        await using var resources = new ResourceRegistry(clock);
+        await using var sessions = new WorkSessionManager(
+            resources, new LoomEventBus(clock), Options(), clock);
+        var work = sessions.Create().Value!;
+        var attempts = 0;
+        var handle = resources.Register(
+            "fake", "fake", new object(), work.Id,
+            ResourceOwnership.SessionOwned,
+            () =>
+            {
+                if (Interlocked.Increment(ref attempts) == 1)
+                {
+                    throw new InvalidOperationException("Transient.");
+                }
+
+                return ValueTask.CompletedTask;
+            });
+
+        clock.Advance(TimeSpan.FromMinutes(10));
+        Assert.Equal(1, (await sessions.SweepExpiredAsync()).FailedCleanups);
+        var completed = await sessions.CloseAsync(work.Id);
+        Assert.True(completed.IsSuccess);
+        Assert.Equal(WorkSessionState.Expired, work.State);
+        Assert.Equal(ResourceState.Expired, resources.Inspect(handle, "fake").Value!.State);
+        Assert.Equal(2, attempts);
+    }
+
+    [Fact]
+    public async Task FailedExplicitCloseRetriesDuringSweepWithoutExpiring()
+    {
+        var clock = new FakeTimeProvider(Start);
+        await using var resources = new ResourceRegistry(clock);
+        await using var sessions = new WorkSessionManager(
+            resources, new LoomEventBus(clock), Options(), clock);
+        var work = sessions.Create().Value!;
+        var attempts = 0;
+        resources.Register(
+            "fake", "fake", new object(), work.Id,
+            ResourceOwnership.SessionOwned,
+            () =>
+            {
+                if (Interlocked.Increment(ref attempts) == 1)
+                {
+                    throw new InvalidOperationException("Transient.");
+                }
+
+                return ValueTask.CompletedTask;
+            });
+
+        Assert.False((await sessions.CloseAsync(work.Id)).IsSuccess);
+        clock.Advance(TimeSpan.FromMinutes(1));
+        var sweep = await sessions.SweepExpiredAsync();
+        Assert.Equal(0, sweep.ExpiredSessions);
+        Assert.Equal(0, sweep.FailedCleanups);
+        Assert.Equal(WorkSessionState.Closed, work.State);
+        Assert.Equal(2, attempts);
+    }
+
+    [Fact]
+    public async Task ResourceRegistryShutdownRetainsFailedEntriesAndAllowsRetry()
+    {
+        var resources = new ResourceRegistry();
+        var fail = true;
+        var attempts = 0;
+        var handle = resources.Register(
+            "fake", "fake", new object(), ownerWorkId: null,
+            ResourceOwnership.Independent,
+            () =>
+            {
+                Interlocked.Increment(ref attempts);
+                if (fail) throw new InvalidOperationException("Injected shutdown error.");
+                return ValueTask.CompletedTask;
+            });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => resources.DisposeAsync().AsTask());
+        Assert.Equal(1, resources.Count);
+        Assert.Equal(ResourceState.Active, resources.Inspect(handle, "fake").Value!.State);
+
+        fail = false;
+        await resources.DisposeAsync();
+        Assert.Equal(0, resources.Count);
+        Assert.Equal(2, attempts);
+    }
+
+    [Fact]
+    public async Task PermanentCleanupFailureDoesNotBlockExpiryOfOtherSessions()
+    {
+        var clock = new FakeTimeProvider(Start);
+        await using var resources = new ResourceRegistry(clock);
+        var sessions = new WorkSessionManager(
+            resources, new LoomEventBus(clock), Options(), clock);
+        var blocked = sessions.Create().Value!;
+        var normal = sessions.Create().Value!;
+        var shouldFail = true;
+        var blockedHandle = resources.Register(
+            "fake", "fake", new object(), blocked.Id,
+            ResourceOwnership.SessionOwned,
+            () =>
+            {
+                if (shouldFail) throw new InvalidOperationException("Permanent failure.");
+                return ValueTask.CompletedTask;
+            });
+        var normalHandle = resources.Register(
+            "fake", "fake", new object(), normal.Id,
+            ResourceOwnership.SessionOwned,
+            () => ValueTask.CompletedTask);
+
+        clock.Advance(TimeSpan.FromMinutes(10));
+        var sweep = await sessions.SweepExpiredAsync();
+        Assert.Equal(1, sweep.ExpiredSessions);
+        Assert.Equal(1, sweep.FailedCleanups);
+        Assert.Equal(WorkSessionState.Closing, blocked.State);
+        Assert.Equal(WorkSessionState.Expired, normal.State);
+        Assert.Equal(ResourceState.Active, resources.Inspect(blockedHandle, "fake").Value!.State);
+        Assert.Equal(ResourceState.Expired, resources.Inspect(normalHandle, "fake").Value!.State);
+
+        // A permanently failing disposer remains tracked, not silently cleared.
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => sessions.DisposeAsync().AsTask());
+        Assert.Equal(2, sessions.Count);
+        shouldFail = false;
+        Assert.True((await sessions.CloseAsync(blocked.Id)).IsSuccess);
+        await sessions.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task IndependentResourceIsNotClosedWithSession()
+    {
+        await using var resources = new ResourceRegistry();
+        await using var sessions = new WorkSessionManager(
+            resources, new LoomEventBus());
+        var work = sessions.Create().Value!;
+        var count = 0;
+        var handle = resources.Register(
+            "fake", "fake", new object(), null,
+            ResourceOwnership.Independent,
+            () =>
+            {
+                count++;
+                return ValueTask.CompletedTask;
+            });
+
+        Assert.True((await sessions.CloseAsync(work.Id)).IsSuccess);
+        Assert.Equal(0, count);
+        Assert.Equal(ResourceState.Active, resources.Inspect(handle, "fake").Value!.State);
+        Assert.True((await resources.CloseAsync(handle)).IsSuccess);
+        Assert.Equal(1, count);
+    }
+
     private static LifetimeOptions Options()
         => new(
             workSessionIdleTimeout: TimeSpan.FromMinutes(10),

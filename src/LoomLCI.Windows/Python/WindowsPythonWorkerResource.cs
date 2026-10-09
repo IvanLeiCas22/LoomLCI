@@ -13,6 +13,8 @@ internal sealed class WindowsPythonWorkerResource : IPythonWorkerResource
     private int _executing;
     private int _healthy = 1;
     private int _disposed;
+    private readonly object _disposeGate = new();
+    private TaskCompletionSource? _disposeCompletion;
 
     public WindowsPythonWorkerResource(
         IProcessResource process,
@@ -286,30 +288,58 @@ internal sealed class WindowsPythonWorkerResource : IPythonWorkerResource
 
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(
-                ref _disposed,
-                1) != 0)
+        TaskCompletionSource completion;
+        var owner = false;
+        lock (_disposeGate)
         {
-            return;
+            if (_disposeCompletion is null)
+            {
+                _disposeCompletion = new TaskCompletionSource(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                Interlocked.Exchange(ref _disposed, 1);
+                Interlocked.Exchange(ref _healthy, 0);
+                owner = true;
+            }
+
+            completion = _disposeCompletion;
         }
 
-        Interlocked.Exchange(ref _healthy, 0);
+        if (owner)
+        {
+            var failures = new List<Exception>();
+            try
+            {
+                _pipe.Dispose();
+            }
+            catch (Exception ex)
+            {
+                failures.Add(ex);
+            }
 
-        try
-        {
-            _pipe.Dispose();
-        }
-        catch
-        {
+            // Attempt both disposals even if the pipe failed to close.
+            try
+            {
+                await _process.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                failures.Add(ex);
+            }
+
+            if (failures.Count == 0)
+            {
+                completion.TrySetResult();
+            }
+            else
+            {
+                // Repeated calls preserve the original failure instead of
+                // claiming cleanup completed after a one-shot partial disposal.
+                completion.TrySetException(new AggregateException(
+                    "Python worker cleanup failed.", failures));
+            }
         }
 
-        try
-        {
-            await _process.DisposeAsync().ConfigureAwait(false);
-        }
-        catch
-        {
-        }
+        await completion.Task.ConfigureAwait(false);
     }
 
     private async Task InvalidateAsync()

@@ -414,10 +414,10 @@ public sealed class ResourceRegistry : IAsyncDisposable
         }
     }
 
-    public Task CloseOwnedAsync(WorkId workId)
+    public Task<LoomResult<Unit>> CloseOwnedAsync(WorkId workId)
         => TransitionOwnedAsync(workId, ResourceState.Closed);
 
-    public Task ExpireOwnedAsync(WorkId workId)
+    public Task<LoomResult<Unit>> ExpireOwnedAsync(WorkId workId)
         => TransitionOwnedAsync(workId, ResourceState.Expired);
 
     public int PruneTombstones(TimeSpan retention)
@@ -451,12 +451,25 @@ public sealed class ResourceRegistry : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        var failed = new List<string>();
         foreach (var handle in _entries.Values
                      .Where(entry => entry.State is ResourceState.Active or ResourceState.Closing)
                      .Select(entry => entry.Handle)
                      .ToArray())
         {
-            await CloseAsync(handle).ConfigureAwait(false);
+            var result = await CloseAsync(handle).ConfigureAwait(false);
+            if (!result.IsSuccess)
+            {
+                failed.Add(handle.Value);
+            }
+        }
+
+        if (failed.Count > 0)
+        {
+            // Do not discard still-live entries on a failed shutdown cleanup.
+            throw new InvalidOperationException(
+                $"Resource registry shutdown failed to clean {failed.Count} resource(s): " +
+                string.Join(", ", failed));
         }
 
         _entries.Clear();
@@ -634,7 +647,8 @@ public sealed class ResourceRegistry : IAsyncDisposable
         drained?.TrySetResult();
     }
 
-    private async Task TransitionOwnedAsync(WorkId workId, ResourceState terminalState)
+    private async Task<LoomResult<Unit>> TransitionOwnedAsync(
+        WorkId workId, ResourceState terminalState)
     {
         var owned = _entries.Values
             .Where(entry =>
@@ -643,9 +657,41 @@ public sealed class ResourceRegistry : IAsyncDisposable
             .Select(entry => entry.Handle)
             .ToArray();
 
+        var failures = new List<Dictionary<string, object?>>();
         foreach (var handle in owned)
         {
-            await TransitionAsync(handle, terminalState).ConfigureAwait(false);
+            LoomResult<Unit> result;
+            try
+            {
+                result = await TransitionAsync(handle, terminalState).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                result = LoomResult<Unit>.Failure(
+                    LoomErrors.Internal($"Resource cleanup threw: {ex.Message}"));
+            }
+
+            if (!result.IsSuccess)
+            {
+                failures.Add(new Dictionary<string, object?>
+                {
+                    ["handle"] = handle.Value,
+                    ["code"] = result.Error!.Code,
+                    ["message"] = result.Error.Message
+                });
+            }
         }
+
+        return failures.Count == 0
+            ? LoomResult<Unit>.Success(Unit.Value)
+            : LoomResult<Unit>.Failure(new LoomError(
+                "cleanup_failed",
+                $"Cleanup failed for {failures.Count} of {owned.Length} session-owned resources.",
+                true,
+                new Dictionary<string, object?>
+                {
+                    ["work_id"] = workId.Value,
+                    ["failed_resources"] = failures
+                }));
     }
 }

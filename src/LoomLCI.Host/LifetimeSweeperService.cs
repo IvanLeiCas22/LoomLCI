@@ -39,22 +39,39 @@ public sealed class LifetimeSweeperService : BackgroundService
             while (await timer.WaitForNextTickAsync(stoppingToken)
                        .ConfigureAwait(false))
             {
-                var processResult = await _processes.SweepExpiredAsync()
-                    .ConfigureAwait(false);
-                var workResult = await _workSessions.SweepExpiredAsync()
-                    .ConfigureAwait(false);
-
-                if (processResult.ExpiredProcesses != 0 ||
-                    workResult.ExpiredSessions != 0 ||
-                    workResult.PrunedSessions != 0 ||
-                    workResult.PrunedResources != 0)
+                try
                 {
-                    _logger.LogDebug(
-                        "Lifetime sweep: expiredProcesses={ExpiredProcesses}, expiredSessions={ExpiredSessions}, prunedSessions={PrunedSessions}, prunedResources={PrunedResources}.",
-                        processResult.ExpiredProcesses,
-                        workResult.ExpiredSessions,
-                        workResult.PrunedSessions,
-                        workResult.PrunedResources);
+                    var processResult = await _processes.SweepExpiredAsync()
+                        .ConfigureAwait(false);
+                    var workResult = await _workSessions.SweepExpiredAsync()
+                        .ConfigureAwait(false);
+
+                    if (workResult.FailedCleanups > 0)
+                    {
+                        _logger.LogWarning(
+                            "Lifetime sweep found {FailedCleanups} incomplete work session cleanup(s); they remain retryable.",
+                            workResult.FailedCleanups);
+                    }
+
+                    if (processResult.ExpiredProcesses != 0 ||
+                        workResult.ExpiredSessions != 0 ||
+                        workResult.PrunedSessions != 0 ||
+                        workResult.PrunedResources != 0)
+                    {
+                        _logger.LogDebug(
+                            "Lifetime sweep: expiredProcesses={ExpiredProcesses}, expiredSessions={ExpiredSessions}, prunedSessions={PrunedSessions}, prunedResources={PrunedResources}.",
+                            processResult.ExpiredProcesses,
+                            workResult.ExpiredSessions,
+                            workResult.PrunedSessions,
+                            workResult.PrunedResources);
+                    }
+                }
+                catch (Exception ex) when (
+                    ex is not OperationCanceledException ||
+                    !stoppingToken.IsCancellationRequested)
+                {
+                    // A faulty disposer must not permanently stop future sweeps.
+                    _logger.LogError(ex, "Lifetime sweep failed; retrying on the next interval.");
                 }
             }
         }

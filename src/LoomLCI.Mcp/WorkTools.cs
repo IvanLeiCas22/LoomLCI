@@ -70,7 +70,7 @@ public sealed class WorkTools
         Destructive = true,
         Idempotent = true,
         OpenWorld = false)]
-    [Description("Closes a work session and cleans up its session-owned resources. After close, session-owned resource handles are closed and can no longer be inspected with tools such as process_status or process_read, so read any final state or output you need before closing. Call this when the task using that session is complete; independent resources are not owned by the session.")]
+    [Description("Closes a work session and cleans up its session-owned resources. A cleanup failure returns cleanup_failed and leaves the session Closing for an explicit retry or an automatic sweep; never treat that response as successful closure. After a successful close, session-owned handles are closed and can no longer be inspected. Independent resources are unaffected.")]
     public async Task<CallToolResult> Close(
         [Description("The work session handle returned by work_create.")] string workId,
         CancellationToken cancellationToken = default)

@@ -1,6 +1,6 @@
 # Plan y tareas
 
-> Estado consolidado al **2026-10-08**: el [[Roadmap post-G1]] (incluida A4.1) quedó **CERRADO end-to-end**. El trabajo aprobado es [[Roadmap de robustez post-auditoría]]: **RB-01, RB-02 y RB-04 CERRADOS end-to-end en Release 7**, con cutover IvanSpace, smoke ChatGPT y backups verificados. RB-03, RB-05 y observabilidad RB-06 permanecen en backlog. [[Bloque H - Computer|Computer H1]] sigue pausado.
+> Estado consolidado al **2026-10-08**: el [[Roadmap post-G1]] (incluida A4.1) quedó **CERRADO end-to-end**. El trabajo aprobado es [[Roadmap de robustez post-auditoría]]: **RB-01, RB-02 y RB-04 CERRADOS end-to-end en Release 7**, con cutover IvanSpace, smoke ChatGPT y backups verificados. RB-03 está **implementado en fuente (433/433 suite Release), pendiente despliegue/smoke**; RB-05 y observabilidad RB-06 permanecen en backlog. [[Bloque H - Computer|Computer H1]] sigue pausado.
 
 ## Estado operativo vigente
 
@@ -9,9 +9,9 @@
 - Python 1–3, G1, F1, Process/Filesystem, instalador, actualización firmada y ergonomía: milestones funcionales **cerrados**, con deudas específicas halladas por auditoría; no confundir su cierre histórico con la resolución del nuevo roadmap.
 - Release 7: **423/423** suite Release previa, IntegrationTests **21/21**, Filesystem focalizadas **48/48**. Nuevo Host y Launcher **instalados**; smoke real de 25 tools/16 capacidades, F-01/F-02, atomicidad, Python y Work Plan pasó desde ChatGPT.
 - Limitación visual externa documentada: `UI_RENDER` inline de imágenes Python en ChatGPT.
-- Prioridad vigente: **RB-01, RB-02 y RB-04 CERRADOS end-to-end** en [[RB-04 - Release 7 desplegada|Release 7]]. Se preservó rollback Release 6 y backup externo. Próximo bloque a investigar: **RB-03**. RB-03 a RB-06 se conservan en [[Roadmap de robustez post-auditoría]]. Computer H1 y automatizaciones de releases permanecen fuera de alcance.
+- Prioridad vigente: **RB-01, RB-02 y RB-04 CERRADOS end-to-end** en [[RB-04 - Release 7 desplegada|Release 7]]. Se preservó rollback Release 6 y backup externo. Bloque en curso: **RB-03**, implementado en fuente con propagación de `cleanup_failed`, reintentos y cobertura de expiración; ver [[RB-03 - Cierre recuperable de recursos]]. RB-03 a RB-06 se conservan en [[Roadmap de robustez post-auditoría]]. Computer H1 y automatizaciones de releases permanecen fuera de alcance.
 
-> **Lectura histórica:** los recuentos, releases y referencias a pendientes en el resto de esta nota describen cada etapa tal como se verificó entonces; el estado operativo actual está en el encabezado y en [[A4.1 - Release 6 desplegada]].
+> **Lectura histórica:** los recuentos, releases y referencias a pendientes en el resto de esta nota describen cada etapa tal como se verificó entonces; el estado operativo actual está en el encabezado y en [[RB-04 - Release 7 desplegada]].
 
 ## Distinciones necesarias
 

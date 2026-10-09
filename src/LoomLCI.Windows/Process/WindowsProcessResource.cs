@@ -27,6 +27,7 @@ internal sealed class WindowsProcessResource : IProcessResource
     private int? _exitCode;
     private DateTimeOffset? _exitedAt;
     private bool _disposed;
+    private TaskCompletionSource? _disposeCompletion;
     private bool _jobTerminated;
     private bool _jobDisposed;
 
@@ -202,16 +203,41 @@ internal sealed class WindowsProcessResource : IProcessResource
 
     public async ValueTask DisposeAsync()
     {
+        TaskCompletionSource completion;
+        var owner = false;
         lock (_stateGate)
         {
-            if (_disposed)
+            if (_disposeCompletion is null)
             {
-                return;
+                _disposeCompletion = new TaskCompletionSource(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                _disposed = true;
+                owner = true;
             }
 
-            _disposed = true;
+            completion = _disposeCompletion;
         }
 
+        if (owner)
+        {
+            try
+            {
+                await DisposeCoreAsync().ConfigureAwait(false);
+                completion.TrySetResult();
+            }
+            catch (Exception ex)
+            {
+                // Do not return success on a later call after partial cleanup.
+                // The underlying handles may no longer be safe to dispose twice.
+                completion.TrySetException(ex);
+            }
+        }
+
+        await completion.Task.ConfigureAwait(false);
+    }
+
+    private async Task DisposeCoreAsync()
+    {
         try
         {
             TerminateJob(suppressErrors: true);
@@ -224,8 +250,36 @@ internal sealed class WindowsProcessResource : IProcessResource
             {
             }
 
-            await _io.CloseSessionAsync().ConfigureAwait(false);
-            await _io.DisposeAsync().ConfigureAwait(false);
+            Exception? closeError = null;
+            try
+            {
+                await _io.CloseSessionAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                closeError = ex;
+            }
+
+            try
+            {
+                await _io.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                if (closeError is not null)
+                {
+                    throw new AggregateException(
+                        "Process IO cleanup failed.", closeError, ex);
+                }
+
+                throw;
+            }
+
+            if (closeError is not null)
+            {
+                throw new InvalidOperationException(
+                    "Process IO session close failed.", closeError);
+            }
         }
         finally
         {

@@ -190,6 +190,37 @@ public sealed partial class WorkSession
         }
     }
 
+    internal WorkSessionState? ClosingTarget
+    {
+        get
+        {
+            lock (_stateGate)
+            {
+                return _state == WorkSessionState.Closing ? _closingTarget : null;
+            }
+        }
+    }
+
+    internal bool ShouldRetryCleanup(DateTimeOffset now, TimeSpan interval)
+    {
+        lock (_stateGate)
+        {
+            return _state == WorkSessionState.Closing &&
+                   now - _stateChangedAt >= interval;
+        }
+    }
+
+    internal void RecordCleanupFailure(DateTimeOffset now)
+    {
+        lock (_stateGate)
+        {
+            if (_state == WorkSessionState.Closing)
+            {
+                _stateChangedAt = now;
+            }
+        }
+    }
+
     internal void CancelLifetime() => _lifetime.Cancel();
 
     internal void CompleteClose(DateTimeOffset now)
@@ -256,7 +287,8 @@ public sealed class WorkSessionInvocationLease : IDisposable
 public sealed record LifetimeSweepResult(
     int ExpiredSessions,
     int PrunedSessions,
-    int PrunedResources);
+    int PrunedResources,
+    int FailedCleanups = 0);
 
 public sealed class WorkSessionManager : IAsyncDisposable
 {
@@ -386,17 +418,50 @@ public sealed class WorkSessionManager : IAsyncDisposable
                 return LoomResult<Unit>.Success(Unit.Value);
             }
 
-            var now = _timeProvider.GetUtcNow();
-            if (!session.TryBeginClose(now, WorkSessionState.Closed))
+            if (session.State == WorkSessionState.Active)
             {
-                return LoomResult<Unit>.Success(Unit.Value);
+                if (!session.TryBeginClose(_timeProvider.GetUtcNow(), WorkSessionState.Closed))
+                {
+                    return LoomResult<Unit>.Failure(
+                        LoomErrors.Internal("Could not begin work session close."));
+                }
+
+                _events.Publish("WorkSessionClosing", "core.work", workId: workId);
+                session.CancelLifetime();
             }
 
-            _events.Publish("WorkSessionClosing", "core.work", workId: workId);
-            session.CancelLifetime();
-            await _resources.CloseOwnedAsync(workId).ConfigureAwait(false);
+            // A retry must preserve an earlier expiry target, rather than
+            // silently transforming Expired into Closed.
+            var target = session.ClosingTarget;
+            if (target is not (WorkSessionState.Closed or WorkSessionState.Expired))
+            {
+                return LoomResult<Unit>.Failure(
+                    LoomErrors.Internal("Missing work session closing target."));
+            }
+
+            var cleanup = target == WorkSessionState.Expired
+                ? await _resources.ExpireOwnedAsync(workId).ConfigureAwait(false)
+                : await _resources.CloseOwnedAsync(workId).ConfigureAwait(false);
+            if (!cleanup.IsSuccess)
+            {
+                session.RecordCleanupFailure(_timeProvider.GetUtcNow());
+                _events.Publish(
+                    "WorkSessionCleanupFailed",
+                    "core.work",
+                    workId: workId,
+                    payload: new Dictionary<string, object?>
+                    {
+                        ["code"] = cleanup.Error!.Code,
+                        ["target"] = target.Value.ToString().ToLowerInvariant()
+                    });
+                return LoomResult<Unit>.Failure(cleanup.Error!);
+            }
+
             session.CompleteClose(_timeProvider.GetUtcNow());
-            _events.Publish("WorkSessionClosed", "core.work", workId: workId);
+            _events.Publish(
+                target == WorkSessionState.Expired ? "WorkSessionExpired" : "WorkSessionClosed",
+                "core.work",
+                workId: workId);
             return LoomResult<Unit>.Success(Unit.Value);
         }
         finally
@@ -409,17 +474,56 @@ public sealed class WorkSessionManager : IAsyncDisposable
     {
         var now = _timeProvider.GetUtcNow();
         var expiredSessions = 0;
+        var failedCleanups = 0;
 
         foreach (var session in _sessions.Values.ToArray())
         {
-            if (!session.IsIdleExpired(now, _options.WorkSessionIdleTimeout))
+            try
             {
-                continue;
-            }
+                // Retry partial explicit closes as well as expirations. A failed
+                // cleanup cannot put the session back into Active.
+                if (session.ShouldRetryCleanup(now, _options.SweepInterval))
+                {
+                    var result = await CloseAsync(session.Id).ConfigureAwait(false);
+                    if (!result.IsSuccess)
+                    {
+                        failedCleanups++;
+                    }
+                    else if (session.State == WorkSessionState.Expired)
+                    {
+                        expiredSessions++;
+                    }
 
-            if (await ExpireIfIdleAsync(session, now).ConfigureAwait(false))
+                    continue;
+                }
+
+                if (!session.IsIdleExpired(now, _options.WorkSessionIdleTimeout))
+                {
+                    continue;
+                }
+
+                if (await ExpireIfIdleAsync(session, now).ConfigureAwait(false))
+                {
+                    expiredSessions++;
+                }
+                else if (session.State == WorkSessionState.Closing)
+                {
+                    failedCleanups++;
+                }
+            }
+            catch (Exception ex)
             {
-                expiredSessions++;
+                // One unexpected cleanup failure must not starve unrelated
+                // sessions. The Closing session remains eligible for retry.
+                session.RecordCleanupFailure(_timeProvider.GetUtcNow());
+                failedCleanups++;
+                _events.Publish(
+                    "WorkSessionCleanupFailed", "core.work", workId: session.Id,
+                    payload: new Dictionary<string, object?>
+                    {
+                        ["code"] = "internal",
+                        ["exception_type"] = ex.GetType().Name
+                    });
             }
         }
 
@@ -441,16 +545,29 @@ public sealed class WorkSessionManager : IAsyncDisposable
         }
 
         var prunedResources = _resources.PruneTombstones(_options.TombstoneRetention);
-        return new LifetimeSweepResult(expiredSessions, prunedSessions, prunedResources);
+        return new LifetimeSweepResult(expiredSessions, prunedSessions, prunedResources, failedCleanups);
     }
 
     public async ValueTask DisposeAsync()
     {
+        var failed = new List<string>();
         foreach (var session in _sessions.Values
-                     .Where(session => session.State == WorkSessionState.Active)
+                     .Where(session => session.State is WorkSessionState.Active or WorkSessionState.Closing)
                      .ToArray())
         {
-            await CloseAsync(session.Id).ConfigureAwait(false);
+            var result = await CloseAsync(session.Id).ConfigureAwait(false);
+            if (!result.IsSuccess)
+            {
+                failed.Add(session.Id.Value);
+            }
+        }
+
+        if (failed.Count > 0)
+        {
+            // Retain ownership information for any outstanding cleanup.
+            throw new InvalidOperationException(
+                $"Work session shutdown failed to clean {failed.Count} session(s): " +
+                string.Join(", ", failed));
         }
 
         foreach (var session in _sessions.Values)
@@ -473,7 +590,22 @@ public sealed class WorkSessionManager : IAsyncDisposable
 
             _events.Publish("WorkSessionExpiring", "core.work", workId: session.Id);
             session.CancelLifetime();
-            await _resources.ExpireOwnedAsync(session.Id).ConfigureAwait(false);
+            var cleanup = await _resources.ExpireOwnedAsync(session.Id).ConfigureAwait(false);
+            if (!cleanup.IsSuccess)
+            {
+                session.RecordCleanupFailure(_timeProvider.GetUtcNow());
+                _events.Publish(
+                    "WorkSessionCleanupFailed",
+                    "core.work",
+                    workId: session.Id,
+                    payload: new Dictionary<string, object?>
+                    {
+                        ["code"] = cleanup.Error!.Code,
+                        ["target"] = "expired"
+                    });
+                return false;
+            }
+
             session.CompleteClose(_timeProvider.GetUtcNow());
             _events.Publish("WorkSessionExpired", "core.work", workId: session.Id);
             return true;
