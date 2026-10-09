@@ -79,6 +79,7 @@ function Package([string]$version,[long]$seq) {
         LoomRoot = $script:loomRoot
         AppId = $script:appId
         SkipPortableTests = $true
+        SkipPortableZip = $true
     }
     $buildLog = Join-Path $script:root ('build-'+$version+'.log')
     & (Join-Path $script:repo 'scripts\Build-WindowsInstaller.ps1') @buildArgs *> $buildLog
@@ -162,6 +163,8 @@ try {
     $statusBefore = ProductStatus
     Assert ($statusBefore -match 'healthy:\s*True' -and $statusBefore -match 'ready:\s*True') 'Productive status invalid at baseline'
     Assert ($statusBefore -notmatch [regex]::Escape($tunnelId)) 'Test tunnel is the productive tunnel'
+    $productiveVersionBefore = [regex]::Match($statusBefore, '(?m)^LoomLCI version:\s*([^\r\n]+)').Groups[1].Value.Trim()
+    Assert (-not [string]::IsNullOrWhiteSpace($productiveVersionBefore)) 'Productive version is unavailable at baseline'
     Copy-Item -LiteralPath $productClient -Destination (Join-Path $install 'tools\tunnel-client.exe')
     Log 'PREFLIGHT_OK: separate test tunnel, pinned client and protected key'
 
@@ -212,7 +215,7 @@ try {
     Log 'ROLLBACK_AND_STOP_OK'
     $productAfter = ProductStatus
     Assert ($productAfter -match 'healthy:\s*True' -and $productAfter -match 'ready:\s*True') 'Productive runtime not healthy'
-    Assert ($productAfter -match '0.1.0-dev-6b1566a') 'Productive version changed'
+    Assert ($productAfter -match ('(?m)^LoomLCI version:\s*'+[regex]::Escape($productiveVersionBefore)+'\s*$')) 'Productive version changed'
     DesktopUnchanged
     $passed = $true
     Log 'RB04_LIVE_TUNNEL_ISOLATED_E2E_OK'

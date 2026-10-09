@@ -8,10 +8,12 @@ param(
     [string]$InstallRoot,
     [string]$LoomRoot,
     [string]$AppId,
-    [switch]$SkipPortableTests
+    [switch]$SkipPortableTests,
+    [switch]$SkipPortableZip
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'BuildStageTiming.ps1')
 
 function Remove-DirectoryBestEffort {
     param([Parameter(Mandatory)][string]$Path)
@@ -112,10 +114,15 @@ try {
     if ($SkipPortableTests) {
         $portableArgs.SkipTests = $true
     }
+    if ($SkipPortableZip) {
+        $portableArgs.SkipZip = $true
+    }
 
-    & (Join-Path $PSScriptRoot 'Build-PortablePackage.ps1') @portableArgs
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Falló Build-PortablePackage.ps1.'
+    Invoke-DxStage 'installer-portable' {
+        & (Join-Path $PSScriptRoot 'Build-PortablePackage.ps1') @portableArgs
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Falló Build-PortablePackage.ps1.'
+        }
     }
 
     $packageDir = Join-Path $PortableOutputRoot "LoomLCI-$Version-win-x64"
@@ -149,9 +156,11 @@ try {
     }
     $isccArgs += $installerScript
 
-    & $InnoCompiler @isccArgs
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Falló la compilación del instalador con Inno Setup.'
+    Invoke-DxStage 'inno-setup' {
+        & $InnoCompiler @isccArgs
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Falló la compilación del instalador con Inno Setup.'
+        }
     }
 
     $installerPath = Join-Path $OutputRoot "LoomLCI-$Version-win-x64-setup.exe"

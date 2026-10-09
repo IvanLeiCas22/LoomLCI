@@ -3,10 +3,12 @@ param(
     [string]$OutputRoot,
     [string]$Version,
     [long]$Sequence = 0,
-    [switch]$SkipTests
+    [switch]$SkipTests,
+    [switch]$SkipZip
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'BuildStageTiming.ps1')
 
 function Remove-PathWithRetry {
     param([Parameter(Mandatory)][string]$Path)
@@ -67,6 +69,16 @@ if ($Sequence -lt 0) {
     throw "Sequence inválido: $Sequence"
 }
 
+if (-not $SkipTests) {
+    # Catch MCP description/snapshot mismatches before costly publish/ZIP/installer.
+    Invoke-DxStage 'portable-fast-preflight' {
+        & (Join-Path $PSScriptRoot 'Test-FastContracts.ps1')
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Falló la prevalidación rápida de contratos MCP.'
+        }
+    }
+}
+
 $packageDir = Join-Path $OutputRoot "LoomLCI-$Version-win-x64"
 $zipPath = "$packageDir.zip"
 $hostOut = Join-Path $packageDir 'payload\host'
@@ -87,9 +99,11 @@ $hostArgs = @(
     '--self-contained', 'true',
     '-o', $hostOut
 )
-& dotnet @hostArgs
-if ($LASTEXITCODE -ne 0) {
-    throw 'Falló publish de LoomLCI.Host.'
+Invoke-DxStage 'publish-host' {
+    & dotnet @hostArgs
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Falló publish de LoomLCI.Host.'
+    }
 }
 
 $pdfWorkerAssembly = Join-Path $hostOut 'LoomLCI.PdfWorker.dll'
@@ -115,9 +129,11 @@ $launcherArgs = @(
     '-p:DebugSymbols=false',
     '-o', $launcherPublish
 )
-& dotnet @launcherArgs
-if ($LASTEXITCODE -ne 0) {
-    throw 'Falló publish de LoomLCI.Launcher.'
+Invoke-DxStage 'publish-launcher' {
+    & dotnet @launcherArgs
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Falló publish de LoomLCI.Launcher.'
+    }
 }
 
 $launcherExe = Join-Path $launcherPublish 'LoomLCI.Launcher.exe'
@@ -171,9 +187,11 @@ if (-not $SkipTests) {
         (Join-Path $repoRoot 'tests\LoomLCI.Launcher.Tests\LoomLCI.Launcher.Tests.csproj'),
         '-c', 'Release'
     )
-    & dotnet @launcherTestArgs
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Fallaron los tests de LoomLCI.Launcher.'
+    Invoke-DxStage 'launcher-tests' {
+        & dotnet @launcherTestArgs
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Fallaron los tests de LoomLCI.Launcher.'
+        }
     }
 
     Write-Host 'Running MCP integration tests against the published Host...'
@@ -185,9 +203,11 @@ if (-not $SkipTests) {
             (Join-Path $repoRoot 'tests\LoomLCI.IntegrationTests\LoomLCI.IntegrationTests.csproj'),
             '-c', 'Release'
         )
-        & dotnet @integrationArgs
-        if ($LASTEXITCODE -ne 0) {
-            throw 'Fallaron los integration tests contra el Host publicado.'
+        Invoke-DxStage 'published-host-integration' {
+            & dotnet @integrationArgs
+            if ($LASTEXITCODE -ne 0) {
+                throw 'Fallaron los integration tests contra el Host publicado.'
+            }
         }
     }
     finally {
@@ -195,10 +215,17 @@ if (-not $SkipTests) {
     }
 }
 
-Write-Host 'Creating portable ZIP...'
-Compress-Archive -Path (Join-Path $packageDir '*') -DestinationPath $zipPath -CompressionLevel Optimal
-
-$zipHash = Get-Sha256WithRetry -Path $zipPath
 Write-Host "Package: $packageDir"
-Write-Host "ZIP:     $zipPath"
-Write-Host "SHA256:  $zipHash"
+if ($SkipZip) {
+    # Inno Setup packages the directory directly. No stale ZIP must survive.
+    Write-Host 'DX01_ZIP_SKIPPED (installer consumes portable directory)'
+}
+else {
+    Invoke-DxStage 'portable-zip' {
+        Write-Host 'Creating portable ZIP...'
+        Compress-Archive -Path (Join-Path $packageDir '*') -DestinationPath $zipPath -CompressionLevel Optimal
+    }
+    $zipHash = Get-Sha256WithRetry -Path $zipPath
+    Write-Host "ZIP:     $zipPath"
+    Write-Host "SHA256:  $zipHash"
+}
