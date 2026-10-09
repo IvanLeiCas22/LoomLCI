@@ -1,6 +1,6 @@
 # Plan y tareas
 
-> Estado consolidado al **2026-10-09**: el [[Roadmap post-G1]] (incluida A4.1) quedó **CERRADO end-to-end**. El trabajo aprobado es [[Roadmap de robustez post-auditoría]]: **RB-01, RB-02 y RB-04 CERRADOS end-to-end en Release 7**, con cutover IvanSpace, smoke ChatGPT y backups verificados. RB-03 quedó **CERRADO end-to-end con actualización local seq8** tras cutover supervisado, Host publicado e integración y smoke real; **DX-01 (optimización de build/tests/deploy) implementado y comprobado con despliegue humano supervisado seq9**: [[DX-01 - Optimizacion workflow de desarrollo y despliegue]]. RB-05 y observabilidad RB-06 permanecen en backlog. [[Bloque H - Computer|Computer H1]] sigue pausado.
+> Estado consolidado al **2026-10-09**: el [[Roadmap post-G1]] (incluida A4.1) quedó **CERRADO end-to-end**. El trabajo aprobado es [[Roadmap de robustez post-auditoría]]: **RB-01, RB-02 y RB-04 CERRADOS end-to-end en Release 7**, con cutover IvanSpace, smoke ChatGPT y backups verificados. RB-03 quedó **CERRADO end-to-end con actualización local seq8** tras cutover supervisado, Host publicado e integración y smoke real; **DX-01 (optimización de build/tests/deploy) implementado y comprobado con despliegue manual excepcional seq9; no cambia el workflow habitual: el asistente ejecuta el trabajo técnico y el usuario aprueba**: [[DX-01 - Optimizacion workflow de desarrollo y despliegue]]. RB-05 y observabilidad RB-06 permanecen en backlog. [[Bloque H - Computer|Computer H1]] sigue pausado.
 
 ## Estado operativo vigente
 

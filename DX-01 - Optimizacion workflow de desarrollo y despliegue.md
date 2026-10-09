@@ -3,13 +3,13 @@ tipo: plan_tecnico
 proyecto: LoomLCI
 bloque: DX-01
 fecha: 2026-10-09
-estado: implementado_validado_en_fuente_sin_despliegue
+estado: cerrado_validado_y_desplegado_seq9
 prioridad: maxima_previa_RB05_RB06
 ---
 
 # DX-01 — Optimización del ciclo de desarrollo, tests y empaquetado
 
-> **DX-01 IMPLEMENTADO, VALIDADO Y PROBADO EN DESPLIEGUE SUPERVISADO REAL.** Decisión 2026-10-09: optimizar el workflow antes de RB-05 y RB-06; RB-04 sigue cerrado. El desarrollo de DX-01 inicialmente no necesitó cutover; posteriormente se preparó un cambio inocuo de comentario en Host y el usuario realizó una actualización de prueba seq8→seq9 desde PowerShell Windows externo. Runtime actual: **sequence 9, healthy/ready**, rollback seq8. No confundir una prevalidación rápida con la aceptación completa para producción.
+> **DX-01 IMPLEMENTADO, VALIDADO Y PROBADO EN DESPLIEGUE SUPERVISADO REAL.** Decisión 2026-10-09: optimizar el workflow antes de RB-05 y RB-06; RB-04 sigue cerrado. El desarrollo de DX-01 inicialmente no necesitó cutover; posteriormente se preparó un cambio inocuo de comentario en Host y el usuario realizó una actualización de prueba seq8→seq9 desde PowerShell Windows externo. Runtime actual: **sequence 9, healthy/ready**, rollback seq8. **La ejecución por el usuario fue un experimento único para medir tiempos; NO se adoptó como workflow regular. El asistente sigue ejecutando el ciclo técnico de principio a fin, con aprobación del usuario y supervisor externo al Host durante cutover.** No confundir una prevalidación rápida con la aceptación completa para producción.
 
 ## Investigación del estado real
 
@@ -53,7 +53,7 @@ Archivos revisados: `scripts/Build-PortablePackage.ps1`, `scripts/Build-WindowsI
 | Launcher / updater / Inno / supervisor | Tests focalizados Launcher + contratos + E2E aislado genuino | Suite total + E2E cutover/rollback + setup + supervisor externo |
 | Sólo documentación | No ejecutar full build sin necesidad | Ningún cutover por cambios sólo documentales |
 
-La secuencia monotónica y política de distribución siguen siendo obligatorias: runtime productivo seq8; próxima secuencia **>=9** si se actualiza.
+La secuencia monotónica y política de distribución siguen siendo obligatorias. **Contexto al diseñar DX-01:** runtime seq8, próxima secuencia >=9. **Estado actual tras el ensayo:** seq9, próxima secuencia **>=10**.
 
 ### DX-01.D — Medición y regresiones del workflow
 
@@ -63,19 +63,19 @@ La secuencia monotónica y política de distribución siguen siendo obligatorias
 
 ## Límites de seguridad
 
-No modificar `Invoke-SafeCutover.ps1`, rollback ni journal para ganar velocidad. No omitir la integración contra Host **publicado** ni tests Release completos en un deployment final. No publicar ni desplegar DX-01 de modo autónomo: son cambios a scripts y tests locales, y los nuevos modos se validan con staging aislado. No modificar el runtime seq8 durante esta fase.
+No modificar `Invoke-SafeCutover.ps1`, rollback ni journal para ganar velocidad. No omitir la integración contra Host **publicado** ni tests Release completos en un deployment final. El diseño original se implementó en staging aislado, sin modificar entonces el runtime seq8; **más tarde** se desplegó un cambio inocuo de prueba con supervisión externa (seq9). El cutover requiere validación final, backup y supervisión externa al Host, no necesariamente una acción humana manual.
 
 ## Criterios de aceptación
 
 - [x] Prevalidación rápida falla antes del empaquetado ante descripción/snapshot desactualizados; inyección controlada y restauración exacta verificadas.
 - [x] `Build-WindowsInstaller` genera setup verificable sin ZIP con `-SkipPortableZip` explícito; `Build-PortablePackage` mantiene ZIP por defecto y acepta `-SkipZip`. Ambos modos validados con binarios reales.
 - [x] Etapas de preflight, publicación, tests, ZIP e Inno cronometradas con `DX01_STAGE`; preservados tests de Host publicado, metadata, SHA-256 y preflight supervisor. Los switches heredados `-SkipTests`/`-SkipPortableTests` continúan siendo **sólo para validación aislada**, no aceptación de producción.
-- [x] Suite Release 433/433, empaquetado nuevo con 53/53 Launcher y 21/21 IntegrationTests contra Host publicado, más E2E genuino aislado con cutover/rollback y shortcuts intactos. Producto seq8 sin cambios.
-- [x] Documentación y mediciones de ambos modos. Cambios de scripts validados localmente: **no requiere cutover de seq8**. Git será confirmado y commiteado al cerrar la implementación.
+- [x] Suite Release 433/433, empaquetado nuevo con 53/53 Launcher y 21/21 IntegrationTests contra Host publicado, más E2E genuino aislado con cutover/rollback y shortcuts intactos. **Al cerrar la implementación inicial**, el producto seguía en seq8; posteriormente se actualizó a seq9 para el ensayo.
+- [x] Documentación y mediciones de ambos modos. Código de DX-01 commiteado y validado; el cutover **opcional** del experimento posterior completó seq9 con rollback seq8.
 
-## Uso habitual y gates
+## Comandos técnicos de referencia y gates
 
-Desde la raíz del repositorio, en Windows PowerShell:
+Estos comandos documentan el procedimiento técnico. **Los ejecuta normalmente el asistente mediante LoomLCI y, para un cutover que detenga el propio Host, mediante IvanSpace/supervisor externo. No constituyen instrucciones permanentes para que el usuario copie comandos.** Desde la raíz del repositorio, en Windows PowerShell:
 
 ```powershell
 # Durante el desarrollo: gate corto, NO autoriza despliegue
@@ -88,13 +88,13 @@ dotnet test tests\LoomLCI.Core.Tests\LoomLCI.Core.Tests.csproj -c Release --filt
 dotnet test LoomLCI.slnx -c Release --no-restore -m:1
 
 # Empaquetado completo para un instalador local, SIN ZIP redundante
-.\scripts\Build-WindowsInstaller.ps1 -SkipPortableZip -Version 'VERSION_UNICA' -Sequence 9
+.\scripts\Build-WindowsInstaller.ps1 -SkipPortableZip -Version 'VERSION_UNICA' -Sequence 10
 
 # Portable clásico para distribución (con ZIP; mismo comportamiento de siempre)
-.\scripts\Build-PortablePackage.ps1 -Version 'VERSION_UNICA' -Sequence 9
+.\scripts\Build-PortablePackage.ps1 -Version 'VERSION_UNICA' -Sequence 10
 ```
 
-**Importante:** las secuencias 9 de arriba son ilustrativas. Antes de distribuir, se debe confirmar `highestSequence` y usar un identificador mayor que el instalado, nunca reutilizar una secuencia publicada. Construir en staging controlado y ejecutar el cutover real sólo desde un supervisor externo con validaciones de preflight, SHA-256 y backup. **No usar** `-SkipTests` ni `-SkipPortableTests` como evidencia de aceptación de un instalador de producción; son opciones heredadas para ensayos acotados. La prueba rápida no equivale al gate final.
+**Importante:** las secuencias 10 de arriba son ilustrativas (seq9 ya instalada). Antes de distribuir, se debe confirmar `highestSequence` y usar un identificador mayor que el instalado, nunca reutilizar una secuencia publicada. Construir en staging controlado y ejecutar el cutover real sólo desde un supervisor externo con validaciones de preflight, SHA-256 y backup. **No usar** `-SkipTests` ni `-SkipPortableTests` como evidencia de aceptación de un instalador de producción; son opciones heredadas para ensayos acotados. La prueba rápida no equivale al gate final.
 
 ## Resultados de validación DX-01 (2026-10-09)
 
@@ -113,13 +113,23 @@ Medición de las etapas en el empaquetado completo sin ZIP: `portable-fast-prefl
 
 La mejora de caché/reutilización de artefactos quedó explícitamente **diferida**: aplicarla sin fingerprints completos podría permitir falsos verdes. Esta medición describe el estado **anterior** al cutover manual seq9.
 
-## Experimento real — preparación y despliegue ejecutados por el usuario (2026-10-09)
+## Experimento excepcional — preparación y despliegue ejecutados por el usuario (2026-10-09)
+
+**Finalidad:** comparar la duración real de los comandos con el tiempo total de un ciclo de trabajo del agente. **No fue una decisión de delegar operaciones al usuario para futuras versiones.** El workflow principal se ratifica al final de esta nota.
 
 - Cambio inocuo: comentario en `src/LoomLCI.Host/Program.cs`, commit **`5f5cea9`**, sin efecto funcional. Versión construida **`0.1.0-dev-5f5cea9ecbf4`**, sequence **9**.
 - Primer intento del usuario: `dotnet test LoomLCI.slnx` concluyó con exit 0 (sin salida por verbosity quiet); la política de ejecución de PowerShell bloqueó los `.ps1`. El marcador `PREPARACION_OK` original fue falso porque estaba fuera de un bloque `try/catch`; no se generó instalador. Se corrigió con `Set-ExecutionPolicy -Scope Process RemoteSigned`, `try/catch`, comprobaciones de artefactos, hashes y preflight. La ejecución frustrada había consumido **126,3 s** e **impide** interpretar el caso total como una sola corrida limpia.
 - Segunda preparación (válida): **167,4 segundos**; prevalidación MCP, `publish` Host y Launcher, **53/53** Launcher, **21/21** MCP integración contra Host publicado (**~109,9 s** de wall time), Inno Setup (**~31,1 s**), hash/metadata y preflight read-only (`Preflight OK` seq8→seq9).
 - Segundo paso, desde **PowerShell externo abierto por el usuario**, no un proceso hijo del Host: **19,6 segundos**. Salida `CUTOVER_OK` y `DESPLIEGUE_OK`; backup preservado en `%LOCALAPPDATA%\LoomLCI-CutoverBackups\20261009T041835Z-c1906ace1d85443cae40e5e6c8488ae0`; secuencia 8 conservada como rollback. El mismo Secure MCP Tunnel quedó operativo con `process_running=True`, `healthy=True`, `ready=True`, version seq9. Verificación independiente adicional del `Launcher status` desde LoomLCI MCP productivo con exit 0.
-- **Total del camino válido de preparación+despliegue: 187,0 s = 3 min 7 s.** Incluyendo el intento previo bloqueado, fue más tiempo. La comparación con ~21 minutos del proceso anterior **no es A/B**: aquél incluía investigación, cambios y correcciones, pruebas adicionales, orquestación y documentación. Lo que sí demuestra el experimento es que delegar al usuario una secuencia autocontenida reduce significativamente la cantidad de turnos y operaciones del agente durante un deployment.
+- **Total del camino válido de preparación+despliegue: 187,0 s = 3 min 7 s.** Incluyendo el intento previo bloqueado, fue más tiempo. La comparación con ~21 minutos del proceso anterior **no es A/B**: aquél incluía investigación, cambios y correcciones, pruebas adicionales, orquestación y documentación. El experimento demuestra que la secuencia de compilación, pruebas, empaquetado y actualización puede automatizarse y ejecutarse de forma autocontenida, sin sucesivas interacciones del agente. **Eso no obliga a que la ejecute el usuario**: el asistente debe conservar su responsabilidad operativa y minimizar llamadas redundantes.
 - Estado final: **seq9 activo, seq8 rollback, ninguna GitHub Release/publicación pública**. Próxima secuencia de instalación >=**10**; no reutilizar seq9.
 
-**Próximo bloque:** investigación/análisis de [[Roadmap de robustez post-auditoría|RB-05]] y luego RB-06. Para futuras actualizaciones, priorizar script único externo, verificación de códigos de salida y preflight; asegurar gates finales sin hacer que la máquina deba esperar a múltiples turnos de chat.
+## Workflow vigente, ratificado después de DX-01
+
+1. **Asistente (LoomLCI MCP productivo como herramienta principal):** examina el código actual, investiga, analiza y propone; espera la aprobación del usuario cuando corresponda.
+2. **Asistente:** implementa, compila, ejecuta pruebas proporcionales y gates finales, empaqueta y verifica hashes/metadata, actualiza documentación Obsidian y realiza commits.
+3. **Asistente + supervisor externo al Host:** cuando se aprueba un despliegue productivo, realiza el preflight, el backup, el cutover y smoke; **IvanSpace** es el fallback/supervisor apropiado para reiniciar LoomLCI sin autointerrumpirse. La necesidad de un supervisor externo es técnica, **no** un requisito de ejecución por el usuario.
+4. **Usuario:** aprueba las decisiones y sólo ejecuta comandos excepcionalmente cuando la operación manual sea necesaria y acordada. No existe delegación habitual del build, testing o deployment.
+5. **Eficiencia:** agrupar operaciones, no repetir tests innecesariamente durante iteraciones y preservar la batería completa cuando corresponda antes de producción. Las mediciones de ~3 min 7 s del camino exitoso describen la **ejecución de comandos**; los tiempos más largos del asistente incluyen revisión, implementación y razonamiento, no exclusivamente compilación.
+
+**Próximo bloque:** investigación/análisis de [[Roadmap de robustez post-auditoría|RB-05]] y luego RB-06. Para futuras actualizaciones, priorizar un **script autocontenido ejecutado por el asistente desde un supervisor externo** (cuando corresponda), con verificación de códigos de salida y preflight; evitar turnos redundantes sin debilitar seguridad.

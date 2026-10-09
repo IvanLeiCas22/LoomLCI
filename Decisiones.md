@@ -1,6 +1,15 @@
 # Decisiones
 
-> Estado de referencia al 2026-10-08: estas decisiones se adoptaron en distintas etapas. Ergonomía/Producto/Python 1–3 están cerrados; la productiva actual es Release 6 (`0.1.0-dev-6b1566a`, sequence 6), Computer H1 sigue pausado y las correcciones aprobadas se organizan en [[Roadmap de robustez post-auditoría]]. Ver [[Inicio]] y [[Roadmap post-G1]].
+> Estado operativo actualizado al **2026-10-09**: LoomLCI local **`0.1.0-dev-5f5cea9ecbf4`, sequence 9**, rollback sequence 8. La secuencia 9 se instaló manualmente **solo para medir el workflow**, no para transferir las tareas al usuario. Las decisiones siguientes incluyen acuerdos históricos; ver [[Inicio]], [[DX-01 - Optimizacion workflow de desarrollo y despliegue]] y [[Roadmap de robustez post-auditoría]].
+
+## Acuerdo de trabajo vigente (confirmado después del experimento DX-01)
+
+- **Responsable operativo habitual: el asistente.** Revisa el código actual, investiga, analiza, propone y espera aprobación antes de implementar; después edita archivos, ejecuta compilaciones y tests, genera y valida paquetes, documenta en Obsidian, realiza commits y verifica el resultado, usando **LoomLCI MCP productivo** como herramienta principal.
+- **Intervención habitual del usuario:** aprobar cambios y decisiones. No debe copiar y pegar comandos ni ejecutar sistemáticamente compilaciones, suites de pruebas o despliegues; eso ocurrió **exclusivamente en el ensayo controlado de secuencia 9**.
+- **Despliegue productivo:** conservar preflight, hashes, backup, monotonicidad y smoke. La parada/cambio de LoomLCI exige un **supervisor externo al proceso Host**; preferir **IvanSpace** o un mecanismo externo equivalente que el asistente pueda manejar. Pedir acción manual del usuario sólo cuando ese supervisor no esté disponible o sea necesaria una intervención autorizada; no lanzar cutover como proceso hijo del Host que se detiene.
+- **Objetivo de eficiencia:** reducir pasos redundantes y llamadas a herramientas durante la iteración, sin omitir los gates finales de Release y sin reemplazar el workflow de investigación → aprobación → implementación → validación → documentación.
+
+## Confirmadas hasta ahora
 
 ## Confirmadas hasta ahora
 
