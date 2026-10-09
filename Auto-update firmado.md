@@ -1,10 +1,10 @@
 # Auto-update firmado
 
-> **Estado actual (2026-10-08): Release 7 DESPLEGADA con Launcher/Host de update protocol 2, sequence 7 y rollback Release 6 disponible.** Instalación productiva supervisada desde IvanSpace y smoke ChatGPT completados; ver [[RB-04 - Release 7 desplegada]] y [[RB-04 - Supervisor externo y cutover seguro]]. El **feed remoto firmado de una nueva GitHub Release 7 NO se publicó** ni se activó automatización de actualizaciones.
+> **Estado actual (2026-10-09): build LOCAL `0.1.0-dev-f2802e2ba043` (sequence 8) instalado y validado con Launcher/Host update protocol 2; rollback a `0.1.0-dev-173b4ffc00f6` (sequence 7).** Ver [[RB-03 - Actualización local secuencia 8]]. **No se publicó GitHub Release 8 ni un nuevo feed firmado remoto**. Por el anti-rollback monotónico `highestSequence=8`, **la próxima actualización/publicación debe utilizar sequence >=9**; no reutilizar sequence8 para otra versión o binarios.
 
 > **Actualización de robustez (2026-10-08):** la corrección de journal v2 [[RB-02 - Journal y promoción recuperable]] ya está desplegada en Release 7; tests Release **423/423**, kill real **11/11** en proceso .NET aislado y E2E con túnel de prueba válido completados. No interpretar recuperación validada mediante proceso/crash como garantía de durabilidad física absoluta ante corte eléctrico.
 
-> **Cierre histórico del updater firmado original:** verificación de manifest/ZIP, descarga con progreso y reanudación, rollback. La mención a **Release 5** debajo corresponde al estado histórico anterior a Release 6/7. **La instalación vigente es Release 7 (sequence 7), healthy/ready; Release 6 disponible como rollback.** La publicación periódica/automática sigue diferida.
+> **Cierre histórico del updater firmado original:** verificación de manifest/ZIP, descarga con progreso y reanudación, rollback. Las referencias antiguas a Release 5/6/7 documentan etapas previas. **La instalación vigente es build local seq8, healthy/ready, con seq7 para rollback.** La publicación periódica/automática continúa diferida.
 
 ## Alcance final
 

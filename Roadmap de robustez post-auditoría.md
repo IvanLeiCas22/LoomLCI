@@ -9,7 +9,7 @@ origen: auditoria_integral_2026-10-08
 
 # Roadmap de robustez post-auditoría
 
-> **Decisión del usuario (2026-10-08): resolver los seis bloques de la auditoría integral.** Este documento es un backlog duradero y priorizado, **no** un Work Plan efímero ni evidencia de implementación. Estado actual: **RB-01, RB-02 y RB-04 CERRADOS end-to-end en Release 7**; **RB-03 implementado en fuente y pendiente de deploy/smoke**, RB-05 pendiente y RB-06 documental parcialmente avanzado. Se conserva el workflow: investigar el punto y el código vigente → diseñar → contrastar con el usuario → implementar → probar → desplegar si procede → documentar y commitear.
+> **Decisión del usuario (2026-10-08): resolver los seis bloques de la auditoría integral.** Este documento es un backlog duradero y priorizado, **no** un Work Plan efímero ni evidencia de implementación. Estado actual: **RB-01, RB-02 y RB-04 CERRADOS end-to-end en Release 7**; **RB-03 CERRADO end-to-end en build local seq8** (sin GitHub Release), RB-05 pendiente y RB-06 documental parcialmente avanzado. Se conserva el workflow: investigar el punto y el código vigente → diseñar → contrastar con el usuario → implementar → probar → desplegar si procede → documentar y commitear.
 >
 > Baseline verificada durante la auditoría: instalación productiva **Release 6 `0.1.0-dev-6b1566a` (sequence 6)**, rollback Release 5 `0.1.0-dev-42ee90c` (sequence 5), `healthy/ready`; suite Release **379/379**, Integration **21/21**, 25 tools MCP y 16 capacidades de `loom`. El repositorio se encontraba limpio antes de iniciar los cambios documentales. El chequeo NuGet `--vulnerable --include-transitive --no-restore` no reportó vulnerabilidades conocidas. No equivale a un pentest.
 >
@@ -21,7 +21,7 @@ origen: auditoria_integral_2026-10-08
 | --- | --- | --- | --- | --- |
 | RB-01 | Integridad de `filesystem_apply_patch` (`replace` y límites) | Alta | **CERRADO end-to-end — Release 7** | Primero |
 | RB-02 | Update: staging, journal y recuperación ante fallos tempranos | Alta | **CERRADO end-to-end — Release 7** | Antes de futuros cutovers |
-| RB-03 | Propagación de fallos al cerrar WorkSession/recursos | Media-alta | **Implementado en fuente; pendiente cutover y smoke** | Independiente de RB-01/02 |
+| RB-03 | Propagación de fallos al cerrar WorkSession/recursos | Media-alta | **CERRADO end-to-end — build local sequence 8** | Independiente de RB-01/02 |
 | RB-04 | Cutover/rollback externos, seguros respecto de Windows Jobs | Media-alta | **CERRADO end-to-end — Release 7** | Coordinar con RB-02 |
 | RB-05 | Uninstall sin pérdida accidental de datos locales | Media | Pendiente | Independiente |
 | RB-06 | Reconciliación documental y observabilidad durable/opt-in | Baja | Parcial: navegación y estado operativo reconciliados; observabilidad pendiente | Transversal |
@@ -69,7 +69,7 @@ origen: auditoria_integral_2026-10-08
 
 ## RB-03 — Fallos de limpieza de recursos
 
-**Estado:** implementado en fuente, pendiente despliegue y smoke. Detalle en [[RB-03 - Cierre recuperable de recursos]]. **Hallazgo R-01 confirmado mediante reproducción .NET temporal:** `DisposeEntryAsync` dejaba un recurso activo, `TransitionOwnedAsync` ignoraba el fallo y `CloseAsync` informaba éxito. También afectaba expiración.
+**Estado:** CERRADO end-to-end tras instalación local supervisada (sequence 8, rollback sequence 7) y smoke ChatGPT, sin GitHub Release. Detalle en [[RB-03 - Cierre recuperable de recursos]] y [[RB-03 - Actualización local secuencia 8]]. **Hallazgo R-01 confirmado mediante reproducción .NET temporal:** `DisposeEntryAsync` dejaba un recurso activo, `TransitionOwnedAsync` ignoraba el fallo y `CloseAsync` informaba éxito. También afectaba expiración.
 
 **Código:** `ResourceRegistry.cs`, `WorkSessionManager.cs`, `LifetimeSweeperService.cs`, disposers Windows de procesos/Python y descripción de `work_close`; regresiones Core Lifetime/WorkSession.
 
@@ -78,7 +78,7 @@ origen: auditoria_integral_2026-10-08
 - [x] Pruebas nuevas con disposer fallido/transitorio/permanente, reintentos, cierres concurrentes, expiración, registros independientes y limpieza múltiple. Conservadas las regresiones de proveedores tardíos.
 - [x] Validación Core de tombstones/expiry, retención de fallidos y limpieza de otros recursos; disposers reales no informan éxito falso en una segunda invocación. La ausencia total de fugas bajo fallos nativos extremos no está garantizada.
 
-**Aceptación en código:** suite Release secuencial **433/433 PASS**, incluyendo integración **21/21**, fallos controlados y eventos `WorkSessionCleanupFailed`; pendiente despliegue/smoke del nuevo Host. Un test Windows flakeó en paralelo, pero pasó 10/10 individuales y suite secuencial. No se promete recuperación automática de handles nativos irrecuperables. Ver [[RB-03 - Cierre recuperable de recursos]].
+**Aceptación final:** suite Release seq **433/433 PASS** del cambio RB-03, pruebas de empaquetado **Launcher 53/53 + Integration 21/21** contra Host publicado corregido, E2E auténtico en túnel aislado y despliegue productivo local sequence 8 `CUTOVER_OK` con smoke ChatGPT, backups/hashes/atajos intactos y rollback seq7 conservado. Un test Windows flakeó en paralelo pero pasó 10/10 individuales y suite secuencial. No se promete recuperación automática de handles nativos irrecuperables. Ver [[RB-03 - Actualización local secuencia 8]].
 
 ## RB-04 — Cutover externo y seguro
 

@@ -3,12 +3,12 @@ tipo: implementacion
 proyecto: LoomLCI
 bloque: RB-03
 fecha: 2026-10-08
-estado: codigo_implementado_pendiente_despliegue
+estado: cerrado_end_to_end
 ---
 
 # RB-03 — Errores y recuperación al cerrar recursos
 
-> **Implementado en fuente, aún NO desplegado.** La instalación productiva continúa en **Release 7 `0.1.0-dev-173b4ffc00f6` (sequence 7)**. No sustituir esa versión sin un cutover supervisado aprobado. Ver [[Roadmap de robustez post-auditoría]] y [[RB-04 - Release 7 desplegada]].
+> **CERRADO end-to-end en build local `0.1.0-dev-f2802e2ba043` (sequence 8).** El Host nuevo quedó instalado y conectado, tras ensayo aislado E2E de actualización/rollback y despliegue supervisado por IvanSpace. Ver [[RB-03 - Actualización local secuencia 8]] y [[Roadmap de robustez post-auditoría]].
 
 ## Problema reproducido
 
@@ -48,8 +48,8 @@ La reproducción externa temporal con un recurso ficticio que falla en el primer
 ## Pendiente
 
 - [x] Suite Release integral secuencial **433/433**, incluidas 21 IntegrationTests; sin omisiones.
-- [ ] Despliegue con el supervisor IvanSpace externo y smoke en el túnel productivo, **sólo con aprobación**.
-- [ ] Smoke específico de `work_close` de la nueva versión con recursos de test temporales.
-- [ ] Confirmar rollback y que no quedan workers o handles huérfanos tras una limpieza normal.
+- [x] Despliegue productivo local supervisado desde IvanSpace, con setup Inno auténtico, SHA-256, version/sequence, `CUTOVER_OK` y smoke de ChatGPT.
+- [x] Smoke real: proceso PowerShell `SessionOwned` temporal iniciado desde ChatGPT; `work_close` exitoso y PID desaparecido. El manejo de `cleanup_failed` y reintentos se validó en pruebas controladas de Core, no se indujeron errores nativos en producción.
+- [x] Previous sequence 7 conservada y Host disponible; rollback real ensayado en túnel independiente, sin ejecutarlo destructivamente en producción. PID de prueba y worker Python SessionOwned limpiados con `work_close`.
 
-**No incluido:** instalar una nueva Release en producción, publicar en GitHub o cambiar la configuración del túnel.
+**Alcance final:** instalación local interna seq8 sin GitHub Release, push, firma/publicación de feed, cambio de túnel ni uninstall productivo. **La próxima secuencia deberá ser >=9.** Ver [[RB-03 - Actualización local secuencia 8]].
