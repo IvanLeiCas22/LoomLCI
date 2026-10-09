@@ -20,6 +20,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
+// Manual deployment rehearsal: source-only marker with no runtime behavior change.
 if (args.Length == 1 &&
     string.Equals(args[0], "--internal-pdf-worker-v1", StringComparison.Ordinal))
 {
