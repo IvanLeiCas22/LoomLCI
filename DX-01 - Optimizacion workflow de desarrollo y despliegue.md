@@ -9,7 +9,7 @@ prioridad: maxima_previa_RB05_RB06
 
 # DX-01 — Optimización del ciclo de desarrollo, tests y empaquetado
 
-> **DX-01 IMPLEMENTADO Y VALIDADO EN CÓDIGO LOCAL**, sin despliegue productivo. Decisión 2026-10-09: optimizar el workflow antes de RB-05 y RB-06; RB-04 sigue cerrado. Instalación operativa: **sequence 8, sin cambios**. No confundir una prevalidación rápida con la aceptación completa para producción.
+> **DX-01 IMPLEMENTADO, VALIDADO Y PROBADO EN DESPLIEGUE SUPERVISADO REAL.** Decisión 2026-10-09: optimizar el workflow antes de RB-05 y RB-06; RB-04 sigue cerrado. El desarrollo de DX-01 inicialmente no necesitó cutover; posteriormente se preparó un cambio inocuo de comentario en Host y el usuario realizó una actualización de prueba seq8→seq9 desde PowerShell Windows externo. Runtime actual: **sequence 9, healthy/ready**, rollback seq8. No confundir una prevalidación rápida con la aceptación completa para producción.
 
 ## Investigación del estado real
 
@@ -111,6 +111,15 @@ Medición de las etapas en el empaquetado completo sin ZIP: `portable-fast-prefl
 
 **Conclusión:** el ahorro directo del ZIP es aproximadamente 15 s cuando habría que generarlo; la prevalidación agrega ~16 s a un build final exitoso, por lo que **DX-01 no reduce drásticamente un empaquetado que ya pasaría**, sino que evita reempaquetar cuando fallan contratos (como ocurrió durante seq8). El E2E aislado pasó de ~132 s históricos a ~105 s en esta corrida, pero son mediciones distintas, no un benchmark controlado del mismo run. Los 21 tests MCP contra Host publicado siguen siendo el costo dominante (~108 s) y no se eliminaron.
 
-La mejora de caché/reutilización de artefactos quedó explícitamente **diferida**: aplicarla sin fingerprints completos podría permitir falsos verdes. El estado del sistema productivo sigue siendo seq8 y no se publicó ninguna Release.
+La mejora de caché/reutilización de artefactos quedó explícitamente **diferida**: aplicarla sin fingerprints completos podría permitir falsos verdes. Esta medición describe el estado **anterior** al cutover manual seq9.
 
-**Próximo bloque:** investigación/análisis de [[Roadmap de robustez post-auditoría|RB-05]] y luego RB-06. DX-01 no despliega nuevo Host/Launcher; cualquier futuro cutover debe respetar la secuencia >=9.
+## Experimento real — preparación y despliegue ejecutados por el usuario (2026-10-09)
+
+- Cambio inocuo: comentario en `src/LoomLCI.Host/Program.cs`, commit **`5f5cea9`**, sin efecto funcional. Versión construida **`0.1.0-dev-5f5cea9ecbf4`**, sequence **9**.
+- Primer intento del usuario: `dotnet test LoomLCI.slnx` concluyó con exit 0 (sin salida por verbosity quiet); la política de ejecución de PowerShell bloqueó los `.ps1`. El marcador `PREPARACION_OK` original fue falso porque estaba fuera de un bloque `try/catch`; no se generó instalador. Se corrigió con `Set-ExecutionPolicy -Scope Process RemoteSigned`, `try/catch`, comprobaciones de artefactos, hashes y preflight. La ejecución frustrada había consumido **126,3 s** e **impide** interpretar el caso total como una sola corrida limpia.
+- Segunda preparación (válida): **167,4 segundos**; prevalidación MCP, `publish` Host y Launcher, **53/53** Launcher, **21/21** MCP integración contra Host publicado (**~109,9 s** de wall time), Inno Setup (**~31,1 s**), hash/metadata y preflight read-only (`Preflight OK` seq8→seq9).
+- Segundo paso, desde **PowerShell externo abierto por el usuario**, no un proceso hijo del Host: **19,6 segundos**. Salida `CUTOVER_OK` y `DESPLIEGUE_OK`; backup preservado en `%LOCALAPPDATA%\LoomLCI-CutoverBackups\20261009T041835Z-c1906ace1d85443cae40e5e6c8488ae0`; secuencia 8 conservada como rollback. El mismo Secure MCP Tunnel quedó operativo con `process_running=True`, `healthy=True`, `ready=True`, version seq9. Verificación independiente adicional del `Launcher status` desde LoomLCI MCP productivo con exit 0.
+- **Total del camino válido de preparación+despliegue: 187,0 s = 3 min 7 s.** Incluyendo el intento previo bloqueado, fue más tiempo. La comparación con ~21 minutos del proceso anterior **no es A/B**: aquél incluía investigación, cambios y correcciones, pruebas adicionales, orquestación y documentación. Lo que sí demuestra el experimento es que delegar al usuario una secuencia autocontenida reduce significativamente la cantidad de turnos y operaciones del agente durante un deployment.
+- Estado final: **seq9 activo, seq8 rollback, ninguna GitHub Release/publicación pública**. Próxima secuencia de instalación >=**10**; no reutilizar seq9.
+
+**Próximo bloque:** investigación/análisis de [[Roadmap de robustez post-auditoría|RB-05]] y luego RB-06. Para futuras actualizaciones, priorizar script único externo, verificación de códigos de salida y preflight; asegurar gates finales sin hacer que la máquina deba esperar a múltiples turnos de chat.

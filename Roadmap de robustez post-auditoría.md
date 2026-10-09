@@ -17,7 +17,7 @@ origen: auditoria_integral_2026-10-08
 
 ## Prioridad transversal previa: DX-01
 
-**Decisión 2026-10-09:** antes de RB-05 y RB-06, investigar y optimizar el flujo de compilación, pruebas MCP, empaquetado y despliegue. Ver [[DX-01 - Optimizacion workflow de desarrollo y despliegue]]. **DX-01 implementado y validado en scripts locales (sin nuevo despliegue)**; prevalidación MCP, paquete sin ZIP, instrumentación de tiempos, suite 433/433 y E2E aislado PASS. No modifica el estado cerrado de RB-04 ni constituye un séptimo hallazgo de la auditoría original. Se mantiene sin cambios el supervisor externo, anti-rollback y gates finales de producción.
+**Decisión 2026-10-09:** antes de RB-05 y RB-06, investigar y optimizar el flujo de compilación, pruebas MCP, empaquetado y despliegue. Ver [[DX-01 - Optimizacion workflow de desarrollo y despliegue]]. **DX-01 implementado, validado y utilizado en cutover manual productivo sequence 9**; prevalidación MCP, paquete sin ZIP, instrumentación de tiempos, suite 433/433 y E2E aislado PASS. Instalación seq9 healthy/ready y rollback seq8 disponibles. No modifica el estado cerrado de RB-04 ni constituye un séptimo hallazgo de la auditoría original. Se mantiene sin cambios el supervisor externo, anti-rollback y gates finales de producción.
 
 ## Alcance, prioridad y estado
 
