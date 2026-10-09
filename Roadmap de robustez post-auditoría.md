@@ -15,6 +15,10 @@ origen: auditoria_integral_2026-10-08
 >
 > Relacionado con [[Roadmap post-G1]] (cerrado), [[A4.1 - Release 6 desplegada]], [[Deployment portable]], [[Auto-update firmado]], [[Bloque D0 - Resource lifetime y expiry]] y [[Bloque H - Computer]] (H1 sigue pausado).
 
+## Prioridad transversal previa: DX-01
+
+**Decisión 2026-10-09:** antes de RB-05 y RB-06, investigar y optimizar el flujo de compilación, pruebas MCP, empaquetado y despliegue. Ver [[DX-01 - Optimizacion workflow de desarrollo y despliegue]]. **DX-01 está investigado y diseñado, pendiente aprobación de implementación**; no modifica el estado cerrado de RB-04 ni constituye un séptimo hallazgo de la auditoría original. Se mantiene sin cambios el supervisor externo, anti-rollback y gates finales de producción.
+
 ## Alcance, prioridad y estado
 
 | ID | Bloque | Prioridad | Estado | Dependencia |
