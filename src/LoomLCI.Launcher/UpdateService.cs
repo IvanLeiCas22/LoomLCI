@@ -844,6 +844,7 @@ public sealed class UpdateService
             package.Sequence != release.Sequence ||
             package.UpdateProtocol >
                 UpdateTrust.SupportedProtocol ||
+            package.UpdateProtocol < release.MinUpdateProtocol ||
             !string.Equals(
                 package.Platform,
                 release.Platform,

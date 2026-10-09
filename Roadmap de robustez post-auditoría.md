@@ -9,7 +9,7 @@ origen: auditoria_integral_2026-10-08
 
 # Roadmap de robustez post-auditoría
 
-> **Decisión del usuario (2026-10-08): resolver los seis bloques de la auditoría integral.** Este documento es un backlog duradero y priorizado, **no** un Work Plan efímero ni evidencia de implementación. Estado actual: **RB-01 y RB-02 implementados y validados en fuente, pendientes de despliegue/smoke; RB-03 a RB-05 pendientes, RB-06 documental parcialmente avanzado**. Se conserva el workflow: investigar el punto y el código vigente → diseñar → contrastar con el usuario → implementar → probar → desplegar si procede → documentar y commitear.
+> **Decisión del usuario (2026-10-08): resolver los seis bloques de la auditoría integral.** Este documento es un backlog duradero y priorizado, **no** un Work Plan efímero ni evidencia de implementación. Estado actual: **RB-01, RB-02 y RB-04 implementados y validados en fuente, pendientes de despliegue/smoke; RB-03 y RB-05 pendientes, RB-06 documental parcialmente avanzado**. Se conserva el workflow: investigar el punto y el código vigente → diseñar → contrastar con el usuario → implementar → probar → desplegar si procede → documentar y commitear.
 >
 > Baseline verificada durante la auditoría: instalación productiva **Release 6 `0.1.0-dev-6b1566a` (sequence 6)**, rollback Release 5 `0.1.0-dev-42ee90c` (sequence 5), `healthy/ready`; suite Release **379/379**, Integration **21/21**, 25 tools MCP y 16 capacidades de `loom`. El repositorio se encontraba limpio antes de iniciar los cambios documentales. El chequeo NuGet `--vulnerable --include-transitive --no-restore` no reportó vulnerabilidades conocidas. No equivale a un pentest.
 >
@@ -22,7 +22,7 @@ origen: auditoria_integral_2026-10-08
 | RB-01 | Integridad de `filesystem_apply_patch` (`replace` y límites) | Alta | Código validado (400/400), pendiente despliegue/smoke | Primero |
 | RB-02 | Update: staging, journal y recuperación ante fallos tempranos | Alta | Código validado (420/420), E2E/cutover pendientes | Antes de futuros cutovers |
 | RB-03 | Propagación de fallos al cerrar WorkSession/recursos | Media-alta | Pendiente | Independiente de RB-01/02 |
-| RB-04 | Cutover/rollback externos, seguros respecto de Windows Jobs | Media-alta | Pendiente | Coordinar con RB-02 |
+| RB-04 | Cutover/rollback externos, seguros respecto de Windows Jobs | Media-alta | Código validado (423/423), cutover real pendiente | Coordinar con RB-02 |
 | RB-05 | Uninstall sin pérdida accidental de datos locales | Media | Pendiente | Independiente |
 | RB-06 | Reconciliación documental y observabilidad durable/opt-in | Baja | Parcial: navegación y estado operativo reconciliados; observabilidad pendiente | Transversal |
 
@@ -82,16 +82,23 @@ origen: auditoria_integral_2026-10-08
 
 ## RB-04 — Cutover externo y seguro
 
-**Hallazgo:** U-02, incidente documentado de Release 6. **Evidencia:** `Independent` respecto de WorkSession no implica independencia respecto de Job Objects antecesores; el primer `update apply` iniciado desde el entorno productivo se interrumpió al detenerlo; el segundo, desde IvanSpace, finalizó.
+**Estado (2026-10-08): código/procedimiento y ensayos aislados validados, pendiente E2E con instalador genuino y cutover productivo.** Nota: [[RB-04 - Supervisor externo y cutover seguro]]. No declarar `CERRADO end-to-end` hasta probar la actualización real y el smoke desde ChatGPT.
 
-**Fuentes:** [[A4.1 - Release 6 desplegada]], `src/LoomLCI.Windows/Process/WindowsJobObject.cs`, [[Deployment portable]], [[Auto-update firmado]].
+**Hallazgo U-02:** `Independent` de WorkSession no escapa de Jobs ancestrales. Durante Release 6 un intento iniciado desde LoomLCI perdió su supervisor; el cutover iniciado desde IvanSpace funcionó.
 
-- [ ] Formalizar runbook para `stop/update apply/rollback/start/status` desde un supervisor **fuera del árbol del Host productivo**.
-- [ ] Evaluar si basta el procedimiento externo (IvanSpace como fallback/cutover) o merece incorporarse un mecanismo seguro en Launcher, sin confundir ownership lógico con escape de Job.
-- [ ] Probar escenarios de cierre del Host/túnel y recuperación, manteniendo el rollback verificado.
-- [ ] Documentar explícitamente qué debe ejecutar ChatGPT/LoomLCI y qué **no** debe autoejecutarse desde el runtime que se apaga.
+**Implementado:** protocolo de actualización 2, paquete y manifest firmado marcados `minUpdateProtocol=2`, validación de coherencia package/manifest, metadata de instalador con digest/version/sequence/rutas, supervisor PowerShell externo de ejecución explícita y preflight fail-closed, copia de respaldo y log fuera del installation root.
 
-**Aceptación:** un cutover real no mata al supervisor, el resultado de instalación se puede verificar tras `stop` y existe recuperación repetible si falla.
+- [x] Revisar código Windows Job, Launcher, Setup y Task Scheduler/IvanSpace.
+- [x] Formalizar runbook de `stop / installer / start / status` con supervisor fuera del Host productivo, sin alterar `process_start` ni habilitar escape genérico de Jobs.
+- [x] Rejectar Launchers antiguos vía release firmada protocolo 2; **53/53 pruebas Launcher**.
+- [x] Preflight aislado **7/7**, metadata de rutas/sha y no-journal, rechazo de ejecuciones sin `-ConfirmExternalSupervisor`.
+- [x] Ensayo completo de cutover desde IvanSpace externo contra **launcher/instalador ficticios**, con backup, start y health, `RB04_EXTERNAL_ISOLATED_EXECUTE_OK`.
+- [x] Inno Setup 7.1.0 compiló installer **auténtico** para rutas aisladas y generó metadata verificada; el EXE no se ejecutó ni instaló.
+- [x] Suite Release integral **423/423**, Integration **21/21**, sin corte del runtime productivo.
+- [ ] E2E genuino en entorno aislado con cuenta/túnel de prueba y terminaciones abruptas reales del Launcher; no reutilizar la credencial/túnel productivos.
+- [ ] Supervisar cutover productivo desde IvanSpace externo, validar runtime/smoke/rollback y cierre RB-01/RB-02/RB-04.
+
+**Aceptación definitiva:** el supervisor externo sobrevive al `stop` real, reconoce versión y túnel correctos, obtiene y conserva evidencia durable; existe rollback verificable y nuevo Launcher/Host funcional. El E2E mock no prueba por sí solo la independencia de todos los Job Objects.
 
 ## RB-05 — Desinstalación y preservación de datos
 

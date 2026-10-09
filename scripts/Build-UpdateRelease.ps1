@@ -141,7 +141,7 @@ try {
         schemaVersion = 1
         version = $Version
         sequence = $Sequence
-        updateProtocol = 1
+        updateProtocol = 2
         platform = 'win-x64'
         hostRelativePath = 'payload/host'
     }
@@ -218,7 +218,7 @@ try {
         sequence = $Sequence
         version = $Version
         platform = 'win-x64'
-        minUpdateProtocol = 1
+        minUpdateProtocol = 2
         packageUrl = $packageUrl
         packageSizeBytes = [int64]$packageFile.Length
         packageSha256 = $packageHash

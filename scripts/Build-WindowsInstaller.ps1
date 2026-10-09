@@ -160,9 +160,35 @@ try {
     }
 
     $hash = Get-Sha256WithRetry -Path $installerPath
+    # Record the exact deployment paths compiled into Inno Setup; no secrets.
+    $resolvedInstall = if ([string]::IsNullOrWhiteSpace($InstallRoot)) {
+        '{localappdata}\Programs\LoomLCI'
+    } else {
+        [System.IO.Path]::GetFullPath($InstallRoot)
+    }
+    $resolvedLoom = if ([string]::IsNullOrWhiteSpace($LoomRoot)) {
+        '{localappdata}\LoomLCI'
+    } else {
+        [System.IO.Path]::GetFullPath($LoomRoot)
+    }
+    $metadata = [ordered]@{
+        schemaVersion = 1
+        installerFormat = 'inno-setup7'
+        version = $Version
+        sequence = $Sequence
+        installRoot = $resolvedInstall
+        dataRoot = Join-Path $resolvedLoom 'deployment'
+        installerSha256 = $hash
+    }
+    $metadataPath = [System.IO.Path]::ChangeExtension($installerPath, 'deployment.json')
+    [System.IO.File]::WriteAllText(
+        $metadataPath,
+        ($metadata | ConvertTo-Json -Depth 4),
+        (New-Object System.Text.UTF8Encoding($false)))
     Write-Host "Inno Setup: $actualInnoVersion"
     Write-Host "Installer:  $installerPath"
     Write-Host "SHA256:     $hash"
+    Write-Host "Metadata:   $metadataPath"
 }
 finally {
     if ($cleanupPortableRoot) {

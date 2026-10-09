@@ -4,7 +4,7 @@ namespace LoomLCI.Launcher;
 
 public static class UpdateTrust
 {
-    public const int SupportedProtocol = 1;
+    public const int SupportedProtocol = 2;
     public const string DefaultChannel = "stable";
 
     public static readonly Uri DefaultManifestUri = new(

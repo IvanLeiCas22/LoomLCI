@@ -885,6 +885,72 @@ public sealed class UpdateTests
         }
     }
 
+    [Fact]
+    public async Task Protocol2SignedReleaseIsAcceptedAndInstalled()
+    {
+        var root = CreateScratch();
+        try
+        {
+            Assert.Equal(2, UpdateTrust.SupportedProtocol);
+            var paths = CreateInstalledState(root, "v1", 1, null, 0, 1);
+            var service = CreateFeed("v2", 2, minUpdateProtocol: 2, packageProtocol: 2)
+                .CreateService(paths, new FakeUpdateRuntimeControl("v1"));
+
+            var check = await service.CheckAsync(CancellationToken.None);
+            Assert.True(check.UpdateAvailable);
+            Assert.False(check.RequiresNewInstaller);
+            var result = await service.ApplyAsync(CancellationToken.None);
+            Assert.True(result.Changed);
+            Assert.Equal("v2", result.ActiveVersion);
+            Assert.Equal("host-v2", File.ReadAllText(paths.HostPath("v2")));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Protocol2ReleaseRejectsProtocol1PackageBeforePublishing()
+    {
+        var root = CreateScratch();
+        try
+        {
+            var paths = CreateInstalledState(root, "v1", 1, null, 0, 1);
+            var service = CreateFeed("v2", 2, minUpdateProtocol: 2, packageProtocol: 1)
+                .CreateService(paths, new FakeUpdateRuntimeControl("v1"));
+            await Assert.ThrowsAsync<InvalidDataException>(
+                () => service.ApplyAsync(CancellationToken.None));
+            Assert.Equal("v1", MachineConfigStore.Load(paths.MachineConfigPath).ActiveVersion);
+            Assert.False(Directory.Exists(paths.VersionDirectory("v2")));
+            Assert.False(File.Exists(paths.UpdateJournalPath));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task FutureProtocolReleaseRequiresNewInstaller()
+    {
+        var root = CreateScratch();
+        try
+        {
+            var paths = CreateInstalledState(root, "v1", 1, null, 0, 1);
+            var service = CreateFeed("v2", 2, minUpdateProtocol: 3, packageProtocol: 3)
+                .CreateService(paths, new FakeUpdateRuntimeControl("v1"));
+            Assert.True((await service.CheckAsync(CancellationToken.None)).RequiresNewInstaller);
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => service.ApplyAsync(CancellationToken.None));
+            Assert.Equal("v1", MachineConfigStore.Load(paths.MachineConfigPath).ActiveVersion);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static AppPaths CreateInstalledState(
         string root,
         string activeVersion,
@@ -945,11 +1011,14 @@ public sealed class UpdateTests
     private static SignedFeedFixture CreateFeed(
         string version,
         long sequence,
-        bool corruptSignature = false)
+        bool corruptSignature = false,
+        int minUpdateProtocol = 1,
+        int packageProtocol = 1)
     {
         var packageBytes = CreatePackage(
             version,
-            sequence);
+            sequence,
+            packageProtocol);
         var packageHash = Convert.ToHexString(
                 SHA256.HashData(packageBytes))
             .ToLowerInvariant();
@@ -958,6 +1027,7 @@ public sealed class UpdateTests
         {
             Sequence = sequence,
             Version = version,
+            MinUpdateProtocol = minUpdateProtocol,
             PackageUrl =
                 "https://updates.test/package.zip",
             PackageSizeBytes = packageBytes.Length,
@@ -1008,7 +1078,8 @@ public sealed class UpdateTests
 
     private static byte[] CreatePackage(
         string version,
-        long sequence)
+        long sequence,
+        int packageProtocol = 1)
     {
         using var memory = new MemoryStream();
         using (var archive = new ZipArchive(
@@ -1022,7 +1093,7 @@ public sealed class UpdateTests
                     schemaVersion = 1,
                     version,
                     sequence,
-                    updateProtocol = 1,
+                    updateProtocol = packageProtocol,
                     platform = "win-x64",
                     hostRelativePath = "payload/host"
                 });

@@ -146,7 +146,7 @@ $manifest = [ordered]@{
     schemaVersion = 1
     version = $Version
     sequence = $Sequence
-    updateProtocol = 1
+    updateProtocol = 2
     platform = 'win-x64'
     hostRelativePath = 'payload/host'
 }
