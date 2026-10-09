@@ -1,6 +1,6 @@
 # Decisiones
 
-> Estado operativo actualizado al **2026-10-09**: LoomLCI productivo **`0.1.0-dev-95462385fbc6`, sequence 10**, rollback sequence 9, `healthy/ready` tras cutover IvanSpace externo. El despliegue manual seq9 fue únicamente un experimento anterior para medir el workflow. **RB-06 está implementado en fuente pero NO desplegado** y los diagnósticos permanecen desactivados en producción. Las decisiones siguientes incluyen acuerdos históricos; ver [[Inicio]], [[RB-05 - Release 10 desplegada]], [[RB-06 - Observabilidad durable y reconciliacion documental]] y [[Roadmap de robustez post-auditoría]].
+> Estado operativo actualizado al **2026-10-09**: LoomLCI productivo **`0.1.0-dev-fc4373bdff73`, sequence 11**, rollback sequence 10, `healthy/ready` tras cutover IvanSpace externo con backup e integridad validados. **RB-01 a RB-06 están cerrados end-to-end**; el sistema de diagnósticos RB-06 está instalado, pero **opt-in DESACTIVADO** y sin logs productivos. El despliegue manual seq9 fue un experimento histórico de DX-01. Ver [[Inicio]], [[RB-06 - Release 11 desplegada]], [[RB-05 - Release 10 desplegada]] y [[Roadmap de robustez post-auditoría]].
 
 ## Acuerdo de trabajo vigente (confirmado después del experimento DX-01)
 

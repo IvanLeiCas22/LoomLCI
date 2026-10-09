@@ -2,14 +2,14 @@
 tipo: roadmap
 proyecto: LoomLCI
 fecha: 2026-10-08
-estado: aprobado_para_resolver
-fase: implementacion_por_bloque
+estado: cerrado_end_to_end_productivo_seq11
+fase: completo
 origen: auditoria_integral_2026-10-08
 ---
 
 # Roadmap de robustez post-auditoría
 
-> **Decisión del usuario (2026-10-08): resolver los seis bloques de la auditoría integral.** Este documento es un backlog duradero y priorizado, **no** un Work Plan efímero ni evidencia de implementación. Estado actual: **RB-01, RB-02 y RB-04 CERRADOS end-to-end en Release 7**; **RB-03 CERRADO end-to-end en build local seq8** (sin GitHub Release), **RB-05 CERRADO en Release local seq10** (cutover IvanSpace, smoke productivo e integridad de datos), y RB-06 documental parcialmente avanzado. Se conserva el workflow: investigar el punto y el código vigente → diseñar → contrastar con el usuario → implementar → probar → desplegar si procede → documentar y commitear.
+> **Decisión del usuario (2026-10-08): resolver los seis bloques de la auditoría integral.** Roadmap **CERRADO end-to-end el 2026-10-09**: RB-01, RB-02 y RB-04 en Release 7; RB-03 en seq8; RB-05 en seq10; **RB-06 en seq11**, con backup, cutover IvanSpace y smoke productivo. Los diagnósticos instalados son opt-in y siguen desactivados. La productiva actual es **seq11**, rollback **seq10**; evidencia [[RB-06 - Release 11 desplegada]]. Este documento retiene la cronología histórica y el criterio de aprobación antes de cada cambio, no sustituye el Work Plan de ejecución. El workflow permanece: investigar código → proponer → aprobar → implementar → probar → desplegar → documentar.
 >
 > Baseline verificada durante la auditoría: instalación productiva **Release 6 `0.1.0-dev-6b1566a` (sequence 6)**, rollback Release 5 `0.1.0-dev-42ee90c` (sequence 5), `healthy/ready`; suite Release **379/379**, Integration **21/21**, 25 tools MCP y 16 capacidades de `loom`. El repositorio se encontraba limpio antes de iniciar los cambios documentales. El chequeo NuGet `--vulnerable --include-transitive --no-restore` no reportó vulnerabilidades conocidas. No equivale a un pentest.
 >
@@ -28,7 +28,7 @@ origen: auditoria_integral_2026-10-08
 | RB-03 | Propagación de fallos al cerrar WorkSession/recursos | Media-alta | **CERRADO end-to-end — build local sequence 8** | Independiente de RB-01/02 |
 | RB-04 | Cutover/rollback externos, seguros respecto de Windows Jobs | Media-alta | **CERRADO end-to-end — Release 7** | Coordinar con RB-02 |
 | RB-05 | Uninstall sin pérdida accidental de datos locales | Media | **CERRADO end-to-end — Release local seq10** | Independiente |
-| RB-06 | Reconciliación documental y observabilidad durable/opt-in | Baja | **IMPLEMENTADO y VALIDADO en fuente (448/448); despliegue pendiente seq>=11** | Transversal |
+| RB-06 | Reconciliación documental y observabilidad durable/opt-in | Baja | **CERRADO end-to-end — Release local seq11; opt-in desactivado** | Transversal |
 
 **Regla de cierre:** ningún bloque se da por `CERRADO` sólo porque pase la suite existente. Debe cumplir los criterios específicos de abajo, tener pruebas de regresión, una verificación end-to-end cuando corresponda y estado actualizado en este documento. No considerar Computer H1 ni la automatización de publicaciones/actualizaciones como parte de este mini-roadmap.
 
@@ -130,9 +130,9 @@ origen: auditoria_integral_2026-10-08
 - [x] Evitar por defecto logs de credenciales, payloads sensibles y contenidos completos de archivos; rechazar símbolos libres y distinguir excepciones Python sin contenido de traceback.
 - [x] Añadir pruebas de límites/retención/privacidad y guía de diagnóstico; **448/448 suite Release**, 23/23 integración MCP, con casos Host real activado y desactivado.
 - [x] Reconciliar documentación con productiva seq10, rollback seq9 y evidencias RB-01 a RB-05, manteniendo hechos antiguos como históricos.
-- [ ] **Desplegar y validar productivamente RB-06 seq>=11 con aprobación independiente**, preflight, backup, cutover supervisor IvanSpace, smoke y configuración opt-in desactivada por defecto.
+- [x] **Despliegue seq11 productivo y validado**: preflight, backup, cutover supervisor IvanSpace `CUTOVER_OK`, binarios hash idénticos, datos/shortcuts conservados, rollback seq10, MCP Python fresh-agent 16 capacidades y diagnósticos desactivados por defecto sin archivos. [[RB-06 - Release 11 desplegada]].
 
-**Aceptación de fuente:** cumplida para privacidad, registro opt-in, cuotas/rotación, comandos Launcher e integración MCP, 448/448. **Aceptación productiva:** pendiente de instalación posterior secuencia >=11 y smoke real; **no afirmar RB-06 cerrado end-to-end todavía**. Los logs son de diagnóstico best-effort, no auditoría infalible ante apagado brusco.
+**Aceptación end-to-end alcanzada:** privacidad, registro opt-in, cuotas/rotación, CLI y MCP validado en fuente (448/448); instalador seq11, contratos, 62/62 Launcher, 23/23 integración sobre Host publicado, cutover IvanSpace `CUTOVER_OK`, backups, hashes e integridad productiva y Python fresh-agent. **RB-06 cerrado, diagnósticos desactivados en producción por diseño**. Los logs son best-effort, no auditoría infalible ante apagado brusco. [[RB-06 - Release 11 desplegada]].
 
 ## Ejecución y control de cambios
 
@@ -143,4 +143,4 @@ origen: auditoria_integral_2026-10-08
 
 ## Próximo paso
 
-**RB-06 — validar en fuente la observabilidad durable opt-in** ([[RB-06 - Observabilidad durable y reconciliacion documental]]), cerrar evidencia y decidir posteriormente el despliegue productivo seq>=11. RB-01 a RB-05 están cerrados; RB-06 aún no está desplegado.
+**Mini-roadmap RB-01 a RB-06 CERRADO end-to-end** en productiva seq11. Próxima secuencia para nuevas modificaciones **>=12**, sujeta a nueva investigación, propuesta y aprobación. **Computer H1** y automatización/publicación de releases permanecen diferidos. La observabilidad está instalada, pero su habilitación productiva es voluntaria. [[RB-06 - Release 11 desplegada]].

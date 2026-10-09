@@ -1,6 +1,6 @@
 # Preguntas abiertas
 
-> Revisión 2026-10-09: separar **preguntas todavía abiertas** de decisiones históricas ya resueltas. La instalación productiva local es **sequence 10**, con rollback seq9; RB-01 a RB-05 están cerrados y **RB-06 se implementa y valida en fuente, aún sin despliegue**. Prioridades aprobadas en [[Roadmap de robustez post-auditoría]]. Estado general: [[Inicio]], [[RB-05 - Release 10 desplegada]], [[RB-06 - Observabilidad durable y reconciliacion documental]].
+> Revisión 2026-10-09: separar preguntas abiertas de decisiones históricas ya resueltas. Instalación productiva local **sequence 11**, rollback **seq10**; **RB-01 a RB-06 cerrados end-to-end**. La observabilidad RB-06 está instalada pero **desactivada por defecto** (opt-in). Ver [[Inicio]], [[RB-06 - Release 11 desplegada]], [[RB-06 - Observabilidad durable y reconciliacion documental]] y [[Roadmap de robustez post-auditoría]].
 
 ## Arquitectura general
 

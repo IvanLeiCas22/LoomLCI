@@ -3,14 +3,14 @@ tipo: implementacion
 proyecto: LoomLCI
 fecha: 2026-10-09
 bloque: RB-06
-estado: implementado_en_fuente_pendiente_despliegue
+estado: cerrado_end_to_end_seq11
 ---
 
 # RB-06 — Observabilidad durable y reconciliación documental
 
 ## Estado
 
-**Implementado en código fuente, no desplegado todavía sobre la instancia productiva sequence 10** (`0.1.0-dev-95462385fbc6`). Requiere validación final, paquete e instalación local **sequence >=11** con autorización posterior. El sistema productivo no habilitó diagnósticos y no se modificaron sus archivos de configuración.
+**CERRADO end-to-end, desplegado productivamente en secuencia 11** (`0.1.0-dev-fc4373bdff73`) el 2026-10-09 mediante IvanSpace externo, con `CUTOVER_OK`, backup, hashes e integridad de datos, Launcher healthy/ready y smoke MCP Python fresh-agent (16 capacidades). Rollback seq10 conservado. **La función instalada permanece desactivada por defecto: cero archivos de diagnóstico y config opt-in ausente**, sin habilitarla en productivo. Evidencia completa en [[RB-06 - Release 11 desplegada]]. Próxima secuencia >=12.
 
 **Validación final de fuente aprobada:** suite Release completa **448/448 (exit 0)**; Core **155/155**, Launcher **62/62**, Windows **196/196**, MCP **6/6**, PDF Worker **6/6**, integración **23/23**, incluidas dos pruebas nuevas con **Host real por MCP STDIO** en modos activado/desactivado. Se conserva el contrato de MCP: **25 herramientas**, sin endpoints/telemetría remotos añadidos; el plugin privado no cambia.
 
@@ -25,7 +25,7 @@ estado: implementado_en_fuente_pendiente_despliegue
 
 ## Comandos, almacenamiento y límites
 
-Instalado en el **futuro Launcher seq>=11**, no en el Launcher actual seq10:
+**Disponible desde el Launcher productivo secuencia 11** (desactivado hasta `diagnostics enable`):
 
 ```text
 LoomLCI.Launcher.exe diagnostics status
@@ -48,7 +48,7 @@ LoomLCI.Launcher.exe diagnostics clear --confirm
 - Core: filtros de privacidad, trazas Python excluidas, símbolos arbitrarios rechazados; observador secundario no consume el bus tradicional y una excepción de observador no altera `Publish`.
 - Launcher: opt-in, config corrupta deshabilitada, rechazos de símbolos, rotación a 4 MiB, retención 7 días, cuota y limpieza, CLI y bloqueo de `clear` mientras esté habilitado; caso de update real simulado valida `UpdateStage` hasta `Committed`.
 - Integración MCP STDIO: Host real ejecutado con data root temporal, sin logs al estar desactivado, con registros de `WorkSessionCreated` al habilitar; no serializa etiquetas libres ni contamina stdout.
-- **Validado en fuente:** suite completa Release **448/448** (exit 0), documentación reconciliada y smoke de Host real MCP STDIO sobre data roots aislados. **Pendiente:** empaquetado/cutover instalador seq>=11, comprobación de túnel aislado cuando se decida desplegar y smoke del Launcher/Host productivos; no se afirma cierre productivo sin estas comprobaciones.
+- **Validado end-to-end:** suite completa Release fuente **448/448** (exit 0), build secuencia 11 (`RB06_SEQ11_PACKAGE_OK`), 62/62 Launcher y 23/23 integración MCP contra Host publicado; prueba `diagnostics` aislada PASS, preflight y cutover IvanSpace `CUTOVER_OK`, Launcher productivo healthy/ready e integridad posterior `RB06_SEQ11_POSTCUTOVER_INTEGRITY_PASS`. Smoke ChatGPT MCP Python de 16 capacidades exitoso. **No se habilitaron diagnósticos productivos** ni se ejecutó un uninstall/purge. Ver [[RB-06 - Release 11 desplegada]].
 
 ## Riesgos conocidos y decisiones
 
@@ -56,6 +56,6 @@ LoomLCI.Launcher.exe diagnostics clear --confirm
 - El registro no contiene texto íntegro de errores ni rutas, por privacidad; para investigar un problema complejo puede requerirse reproducirlo con herramientas de desarrollo.
 - La cola auxiliar descarta eventos cuando se satura, emitiendo un contador posteriormente; no bloquea procesos de usuario.
 - No recopila telemetría remota ni introduce herramientas MCP públicas. Si se desea observabilidad externa, será una decisión posterior e independiente.
-- La próxima revisión debe comprobar integridad, registro de eventos ante distintas condiciones de fallo, funcionamiento con el túnel real y que `machine.json` y los datos de RB-05 sobreviven intactos.
+- **Cierre de release:** integridad post-instalación, pruebas aisladas de registro opt-in, funcionamiento con el túnel productivo (smoke MCP), `machine.json`, secretos, directorios y accesos directos de RB-05 preservados. No se hizo una activación productiva de diagnósticos: permanece una elección posterior del usuario. Ver [[RB-06 - Release 11 desplegada]].
 
 Referencias: [[Roadmap de robustez post-auditoría]], [[RB-05 - Release 10 desplegada]], [[DX-01 - Optimizacion workflow de desarrollo y despliegue]], [[Preguntas abiertas]], [[Decisiones]].
