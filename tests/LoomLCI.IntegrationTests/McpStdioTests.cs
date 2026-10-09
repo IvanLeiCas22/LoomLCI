@@ -398,6 +398,8 @@ public sealed class McpStdioTests
         var closeWork = Assert.Single(tools, tool => tool.Name == "work_close");
         Assert.Contains("can no longer be inspected", closeWork.Description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("process_read", closeWork.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("cleanup_failed", closeWork.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("retry", closeWork.Description, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("before closing", closeWork.Description, StringComparison.OrdinalIgnoreCase);
 
         var startProcess = Assert.Single(tools, tool => tool.Name == "process_start");
