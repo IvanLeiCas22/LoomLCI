@@ -82,7 +82,7 @@ origen: auditoria_integral_2026-10-08
 
 ## RB-04 — Cutover externo y seguro
 
-**Estado (2026-10-08): código/procedimiento y ensayos aislados validados, pendiente E2E con instalador genuino y cutover productivo.** Nota: [[RB-04 - Supervisor externo y cutover seguro]]. No declarar `CERRADO end-to-end` hasta probar la actualización real y el smoke desde ChatGPT.
+**Estado (2026-10-08): código/procedimiento y ensayos aislados validados, E2E real aislado con túnel independiente completado; pendiente exclusivamente cutover/smoke productivo.** Nota: [[RB-04 - Supervisor externo y cutover seguro]]. No declarar `CERRADO end-to-end` hasta probar la actualización real y el smoke desde ChatGPT.
 
 **Hallazgo U-02:** `Independent` de WorkSession no escapa de Jobs ancestrales. Durante Release 6 un intento iniciado desde LoomLCI perdió su supervisor; el cutover iniciado desde IvanSpace funcionó.
 
@@ -97,10 +97,10 @@ origen: auditoria_integral_2026-10-08
 - [x] Suite Release integral **423/423**, Integration **21/21**, sin corte del runtime productivo.
 - [x] **11/11** terminaciones forzadas de proceso .NET real en puntos de journal RB-02, incluida restauración interrumpida, recuperadas desde otra instancia (controlador de runtime simulado).
 - [x] Instalador genuino probado en **ruta temporal**, camino de error por credenciales ficticias correctamente informado, binarios verificados, ambos accesos directos del escritorio preservados en la última repetición.
-- [ ] E2E genuino con túnel **válido e independiente del productivo** y supervivencia de supervisor frente al cierre del Host bajo Job Objects.
+- [x] **E2E genuino aislado con túnel real independiente**: dos instaladores, stop/upgrade/start supervisado desde IvanSpace, rollback, ambas versiones healthy/ready, uninstall y shortcuts preservados; `RB04_LIVE_TUNNEL_ISOLATED_E2E_OK`. No incluye plugin de prueba de ChatGPT.
 - [ ] Supervisar cutover productivo desde IvanSpace externo, validar runtime/smoke/rollback y cierre RB-01/RB-02/RB-04.
 
-**Aceptación definitiva:** el supervisor externo sobrevive al `stop` real, reconoce versión y túnel correctos, obtiene y conserva evidencia durable; existe rollback verificable y nuevo Launcher/Host funcional. El E2E mock ni el kill de UpdateService con runtime simulado prueban por sí solos la independencia de todos los Job Objects.
+**Aceptación definitiva:** el supervisor externo sobrevive al `stop` real, reconoce versión y túnel correctos, obtiene y conserva evidencia durable; existe rollback verificable y nuevo Launcher/Host funcional. El E2E auténtico ya demostró la supervivencia de IvanSpace al detener un Host aislado; la validación desde ChatGPT del nuevo Host productivo aún no se ha ejecutado.
 
 ## RB-05 — Desinstalación y preservación de datos
 
